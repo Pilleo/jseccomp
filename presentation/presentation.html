@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>The Labyrinth of Zero-Trust</title>
+<style>
+  body {
+    margin: 0;
+    background: #0d1117;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: monospace;
+    color: #fff;
+  }
+  .controls {
+    margin: 20px 0 10px 0;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .controls button {
+    background: #16213e;
+    border: 1.5px solid #4a4a6a;
+    color: #8892b0;
+    padding: 10px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: monospace;
+    font-size: 12px;
+    transition: all 0.2s;
+  }
+  .controls button:hover {
+    background: #1a1a2e;
+    border-color: #4ecdc4;
+    color: #4ecdc4;
+  }
+  .controls button.active {
+    background: #4ecdc4;
+    color: #0d1117;
+    border-color: #4ecdc4;
+    font-weight: bold;
+  }
+  .slide-title {
+    font-size: 14px;
+    color: #4ecdc4;
+    margin-bottom: 8px;
+    text-align: center;
+  }
+  .context-box {
+    max-width: 1100px;
+    background: #16213e;
+    border: 1px solid #4a4a6a;
+    border-radius: 6px;
+    padding: 14px 20px;
+    margin-top: 12px;
+    font-size: 12px;
+    color: #8892b0;
+    line-height: 1.7;
+  }
+  .context-box em { color: #4ecdc4; font-style: normal; }
+  .context-box strong { color: #e0e0e0; }
+  svg { border-radius: 8px; border: 1px solid #4a4a6a; }
+  .nav-hint { font-size: 10px; color: #4a4a6a; margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<div class="controls">
+  <button onclick="goToSlide(0)" id="btn0">1: Naked App</button>
+  <button onclick="goToSlide(1)" id="btn1">2: General BoB</button>
+  <button onclick="goToSlide(2)" id="btn2">3: Lifecycle</button>
+  <button onclick="goToSlide(3)" id="btn3">4: Stacktrace</button>
+  <button onclick="goToSlide(4)" id="btn4">5: Thread Scope</button>
+</div>
+
+<div class="slide-title" id="slideTitle"></div>
+
+<svg id="diagram" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 800" width="1100" height="800">
+  <defs>
+    <filter id="glow-red"><feGaussianBlur stdDeviation="3.5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="glow-blue"><feGaussianBlur stdDeviation="2.5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="glow-neon"><feGaussianBlur stdDeviation="2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="glow-orange"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="glow-teal"><feGaussianBlur stdDeviation="2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <!-- Maze pattern for fill -->
+    <pattern id="mazePattern" x="0" y="0" width="80" height="80" patternUnits="userSpaceOnUse">
+      <rect width="80" height="80" fill="none"/>
+      <path d="M0,0 L80,0 M0,0 L0,80 M80,0 L80,40 M0,40 L40,40 M40,40 L40,80 M80,40 L80,80 M40,0 L40,20 M60,20 L60,60 M20,60 L20,80" stroke="#4a4a6a" stroke-width="1" opacity="0.2" fill="none"/>
+    </pattern>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1100" height="800" fill="#0d1117"/>
+
+  <!-- ============ STARTUP ZONE (TOP) ============ -->
+  <g id="startupZone">
+    <rect x="50" y="25" width="1000" height="75" rx="6" fill="#1a1a2e" stroke="#4a4a6a" stroke-width="1.5" opacity="0.7"/>
+    <text x="70" y="48" fill="#6c63ff" font-size="11" font-weight="bold" font-family="monospace">STARTUP PHASE</text>
+    <text x="70" y="65" fill="#4a4a6a" font-size="9" font-family="monospace">class loading · secret reading · connection pool init · native lib binding</text>
+    <rect x="80" y="73" width="85" height="18" rx="3" fill="#16213e" stroke="#6c63ff" stroke-width="1" opacity="0.7"/>
+    <text x="88" y="85" fill="#6c63ff" font-size="7" font-family="monospace">ClassLoader</text>
+    <rect x="175" y="73" width="90" height="18" rx="3" fill="#16213e" stroke="#6c63ff" stroke-width="1" opacity="0.7"/>
+    <text x="183" y="85" fill="#6c63ff" font-size="7" font-family="monospace">Vault secrets</text>
+    <rect x="275" y="73" width="70" height="18" rx="3" fill="#16213e" stroke="#6c63ff" stroke-width="1" opacity="0.7"/>
+    <text x="283" y="85" fill="#6c63ff" font-size="7" font-family="monospace">DB pool</text>
+    <rect x="355" y="73" width="85" height="18" rx="3" fill="#16213e" stroke="#6c63ff" stroke-width="1" opacity="0.7"/>
+    <text x="363" y="85" fill="#6c63ff" font-size="7" font-family="monospace">dlopen()</text>
+  </g>
+
+  <!-- STARTUP BULKHEAD -->
+  <g id="startupBulkhead" opacity="0">
+    <rect x="50" y="98" width="1000" height="8" rx="2" fill="#c0c0c0" opacity="0.8"/>
+    <line x1="50" y1="98" x2="1050" y2="98" stroke="#e0e0e0" stroke-width="2"/>
+    <line x1="50" y1="106" x2="1050" y2="106" stroke="#e0e0e0" stroke-width="2"/>
+    <text x="500" y="95" fill="#c0c0c0" font-size="8" font-family="monospace" text-anchor="middle">🔒 SEALED — k8s readiness ✓ 🔒</text>
+    <!-- Cross-hatch startup zone -->
+    <g opacity="0.25">
+      <line x1="50" y1="25" x2="150" y2="100" stroke="#c0c0c0" stroke-width="0.7"/>
+      <line x1="150" y1="25" x2="250" y2="100" stroke="#c0c0c0" stroke-width="0.7"/>
+      <line x1="250" y1="25" x2="350" y2="100" stroke="#c0c0c0" stroke-width="0.7"/>
+      <line x1="350" y1="25" x2="450" y2="100" stroke="#c0c0c0" stroke-width="0.7"/>
+      <line x1="450" y1="25" x2="550" y2="100" stroke="#c0c0c0" stroke-width="0.7"/>
+      <line x1="550" y1="25" x2="650" y2="100" stroke="#c0c0c0" stroke-width="0.7"/>
+      <line x1="650" y1="25" x2="750" y2="100" stroke="#c0c0c0" stroke-width="0.7"/>
+      <line x1="750" y1="25" x2="850" y2="100" stroke="#c0c0c0" stroke-width="0.7"/>
+      <line x1="850" y1="25" x2="950" y2="100" stroke="#c0c0c0" stroke-width="0.7"/>
+      <line x1="950" y1="25" x2="1050" y2="100" stroke="#c0c0c0" stroke-width="0.7"/>
+    </g>
+  </g>
+
+  <!-- ============ RUNTIME MAZE ============ -->
+  <rect x="50" y="110" width="1000" height="370" rx="6" fill="#1a1a2e" stroke="#4a4a6a" stroke-width="1.5"/>
+  
+  <!-- Maze fill pattern -->
+  <rect x="55" y="135" width="990" height="340" fill="url(#mazePattern)" opacity="0.8"/>
+
+  <!-- Extra maze walls for density -->
+  <g id="mazeWallsExtra" opacity="0.8">
+    <!-- Horizontal corridors -->
+    <line x1="80" y1="180" x2="200" y2="180" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="240" y1="180" x2="380" y2="180" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="420" y1="180" x2="550" y2="180" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="590" y1="180" x2="720" y2="180" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="760" y1="180" x2="900" y2="180" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="940" y1="180" x2="1030" y2="180" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    
+    <line x1="80" y1="240" x2="160" y2="240" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="200" y1="240" x2="320" y2="240" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="360" y1="240" x2="500" y2="240" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="540" y1="240" x2="680" y2="240" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="720" y1="240" x2="860" y2="240" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="900" y1="240" x2="1030" y2="240" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+
+    <line x1="80" y1="300" x2="220" y2="300" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="260" y1="300" x2="400" y2="300" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="440" y1="300" x2="580" y2="300" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="620" y1="300" x2="760" y2="300" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="800" y1="300" x2="940" y2="300" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+
+    <line x1="80" y1="360" x2="180" y2="360" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="220" y1="360" x2="380" y2="360" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="420" y1="360" x2="560" y2="360" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="600" y1="360" x2="740" y2="360" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="780" y1="360" x2="920" y2="360" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="960" y1="360" x2="1030" y2="360" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+
+    <line x1="80" y1="420" x2="250" y2="420" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="290" y1="420" x2="450" y2="420" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="490" y1="420" x2="630" y2="420" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="670" y1="420" x2="810" y2="420" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="850" y1="420" x2="1030" y2="420" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+
+    <!-- Vertical walls -->
+    <line x1="200" y1="135" x2="200" y2="200" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="380" y1="135" x2="380" y2="200" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="550" y1="135" x2="550" y2="260" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="720" y1="135" x2="720" y2="200" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="900" y1="135" x2="900" y2="260" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="160" y1="200" x2="160" y2="320" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="320" y1="200" x2="320" y2="380" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="500" y1="240" x2="500" y2="380" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="680" y1="200" x2="680" y2="380" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="860" y1="240" x2="860" y2="440" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="250" y1="320" x2="250" y2="470" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="440" y1="300" x2="440" y2="470" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="620" y1="300" x2="620" y2="470" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="780" y1="360" x2="780" y2="470" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+    <line x1="940" y1="360" x2="940" y2="470" stroke="#4a4a6a" stroke-width="1.2" opacity="0.25"/>
+  </g>
+
+  <text x="70" y="130" fill="#8892b0" font-size="11" font-weight="bold" font-family="monospace">RUNTIME — USER-SPACE (Application Process)</text>
+
+  <!-- Entry Point -->
+  <g id="entryPoint">
+    <rect x="480" y="103" width="140" height="22" rx="3" fill="#4ecdc4" opacity="0.9"/>
+    <text x="500" y="118" fill="#0d1117" font-size="10" font-weight="bold" font-family="monospace">HTTP Ingress</text>
+    <line x1="550" y1="125" x2="550" y2="145" stroke="#4ecdc4" stroke-width="2" opacity="0.7"/>
+  </g>
+
+  <!-- ============ SHUTDOWN ZONE ============ -->
+  <g id="shutdownZone">
+    <rect x="50" y="490" width="1000" height="50" rx="6" fill="#1a1a2e" stroke="#4a4a6a" stroke-width="1.5" opacity="0.6"/>
+    <text x="70" y="512" fill="#6c63ff" font-size="10" font-weight="bold" font-family="monospace">SHUTDOWN PHASE</text>
+    <text x="70" y="528" fill="#4a4a6a" font-size="9" font-family="monospace">connection drain · flush logs · deregister · release locks</text>
+  </g>
+
+  <g id="shutdownGate" opacity="0">
+    <rect x="50" y="483" width="1000" height="6" rx="2" fill="#c0c0c0" opacity="0.6"/>
+    <text x="500" y="480" fill="#c0c0c0" font-size="8" font-family="monospace" text-anchor="middle">🔒 INERT during runtime</text>
+  </g>
+
+  <!-- ============ KERNEL-SPACE ============ -->
+  <rect x="50" y="560" width="1000" height="200" rx="6" fill="#0f3460" stroke="#4a4a6a" stroke-width="2"/>
+  <text x="70" y="583" fill="#8892b0" font-size="11" font-weight="bold" font-family="monospace">KERNEL-SPACE (Linux OS + eBPF)</text>
+
+  <!-- Boundary -->
+  <line x1="50" y1="555" x2="1050" y2="555" stroke="#ffffff" stroke-width="2.5" stroke-dasharray="10,4" opacity="0.5"/>
+  <text x="430" y="552" fill="#ffffff" font-size="9" opacity="0.4" font-family="monospace">── user / kernel boundary ──</text>
+
+  <!-- Syscall Boxes -->
+  <g id="syscalls">
+    <rect x="80" y="610" width="110" height="38" rx="4" fill="#16213e" stroke="#4a4a6a" stroke-width="1.5"/>
+    <text x="100" y="634" fill="#8892b0" font-size="11" font-family="monospace">openat()</text>
+
+    <rect x="220" y="610" width="110" height="38" rx="4" fill="#16213e" stroke="#4a4a6a" stroke-width="1.5"/>
+    <text x="236" y="634" fill="#8892b0" font-size="11" font-family="monospace">connect()</text>
+
+    <rect x="360" y="610" width="100" height="38" rx="4" fill="#16213e" stroke="#4a4a6a" stroke-width="1.5"/>
+    <text x="380" y="634" fill="#8892b0" font-size="11" font-family="monospace">read()</text>
+
+    <rect x="490" y="610" width="100" height="38" rx="4" fill="#16213e" stroke="#4a4a6a" stroke-width="1.5"/>
+    <text x="507" y="634" fill="#8892b0" font-size="11" font-family="monospace">write()</text>
+
+    <rect x="620" y="610" width="100" height="38" rx="4" fill="#16213e" stroke="#4a4a6a" stroke-width="1.5"/>
+    <text x="637" y="634" fill="#8892b0" font-size="11" font-family="monospace">mmap()</text>
+
+    <rect x="750" y="610" width="120" height="38" rx="4" fill="#16213e" stroke="#4a4a6a" stroke-width="1.5" id="execveBox"/>
+    <text x="772" y="634" fill="#8892b0" font-size="11" font-family="monospace" id="execveText">execve()</text>
+
+    <rect x="900" y="610" width="120" height="38" rx="4" fill="#16213e" stroke="#4a4a6a" stroke-width="1.5"/>
+    <text x="920" y="634" fill="#8892b0" font-size="11" font-family="monospace">dlopen()</text>
+  </g>
+
+  <!-- ============ BLUE THREAD (Legitimate path through maze) ============ -->
+  <g id="blueThread">
+    <polyline
+      points="550,145 550,180 510,180 510,240 470,240 470,300 430,300 430,360 400,360 400,420 370,420 370,475 370,555 370,610"
+      fill="none" stroke="#00b4d8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.8" filter="url(#glow-blue)"
+    />
+    <polygon points="370,610 365,600 375,600" fill="#00b4d8"/>
+    <text x="380" y="595" fill="#00b4d8" font-size="8" font-family="monospace" opacity="0.7">thread → read()</text>
+  </g>
+
+  <!-- ============ SLIDE 1: RED ATTACK - unrestricted, hits execve ============ -->
+  <g id="redAttackSlide1">
+    <!-- Red slashes through maze diagonally to execve -->
+    <polyline
+      points="550,145 600,180 650,200 700,240 750,280 790,330 810,390 810,440 810,555 810,630"
+      fill="none" stroke="#e94560" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow-red)" opacity="0.85"
+    />
+    <!-- Slash marks showing it cuts through walls -->
+    <line x1="620" y1="175" x2="640" y2="160" stroke="#ff6b6b" stroke-width="2" opacity="0.6"/>
+    <line x1="710" y1="235" x2="730" y2="218" stroke="#ff6b6b" stroke-width="2" opacity="0.6"/>
+    <line x1="795" y1="325" x2="815" y2="308" stroke="#ff6b6b" stroke-width="2" opacity="0.6"/>
+    <text x="820" y="300" fill="#e94560" font-size="10" font-weight="bold" font-family="monospace">RCE</text>
+    <!-- Arrow into execve -->
+    <polygon points="810,630 805,618 815,618" fill="#e94560"/>
+    <!-- Success burst at execve -->
+    <circle cx="810" cy="630" r="18" fill="#e94560" opacity="0.2"/>
+    <circle cx="810" cy="630" r="8" fill="#ff6b6b" opacity="0.5"/>
+    <text x="750" y="665" fill="#e94560" font-size="9" font-family="monospace" font-weight="bold">execve() SUCCESS ⚡</text>
+  </g>
+
+  <!-- ============ SLIDE 2: Hardened Walls + Attack blocked at kernel ============ -->
+  <g id="hardenedWalls" opacity="0">
+    <!-- Outer perimeter glow -->
+    <rect x="60" y="138" width="980" height="335" rx="5" fill="none" stroke="#4ecdc4" stroke-width="3.5" filter="url(#glow-teal)" opacity="0.7"/>
+    <!-- Key internal hardened walls -->
+    <line x1="550" y1="138" x2="550" y2="473" stroke="#4ecdc4" stroke-width="2.5" opacity="0.5"/>
+    <line x1="320" y1="200" x2="320" y2="473" stroke="#4ecdc4" stroke-width="2.5" opacity="0.5"/>
+    <line x1="680" y1="200" x2="680" y2="473" stroke="#4ecdc4" stroke-width="2.5" opacity="0.5"/>
+    <line x1="60" y1="300" x2="1040" y2="300" stroke="#4ecdc4" stroke-width="2" opacity="0.4"/>
+  </g>
+
+  <!-- execve DENIED state (big red X over execve box) -->
+  <g id="execveDenied" opacity="0">
+    <rect x="750" y="610" width="120" height="38" rx="4" fill="#e94560" opacity="0.15"/>
+    <line x1="755" y1="615" x2="865" y2="643" stroke="#e94560" stroke-width="3" opacity="0.8"/>
+    <line x1="865" y1="615" x2="755" y2="643" stroke="#e94560" stroke-width="3" opacity="0.8"/>
+    <text x="755" y="665" fill="#e94560" font-size="9" font-family="monospace" font-weight="bold">NOT IN BoB WHITELIST</text>
+    <!-- dlopen also denied -->
+    <rect x="900" y="610" width="120" height="38" rx="4" fill="#e94560" opacity="0.15"/>
+    <line x1="905" y1="615" x2="1015" y2="643" stroke="#e94560" stroke-width="2.5" opacity="0.7"/>
+    <line x1="1015" y1="615" x2="905" y2="643" stroke="#e94560" stroke-width="2.5" opacity="0.7"/>
+  </g>
+
+  <!-- Red attack reaches kernel but CHOKES at execve -->
+  <g id="redAttackSlide2">
+    <!-- Attack still gets through maze (corridors are broad) -->
+    <polyline
+      points="550,145 600,180 650,200 700,240 750,280 790,330 810,390 810,440 810,555 810,610"
+      fill="none" stroke="#e94560" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"
+    />
+    <!-- Blocked at kernel level -->
+    <rect x="785" y="595" width="50" height="55" rx="3" fill="none" stroke="#e94560" stroke-width="2.5" stroke-dasharray="4,2" opacity="0.8"/>
+    <!-- Sparks at blocked point -->
+    <line x1="810" y1="608" x2="795" y2="590" stroke="#ff6b6b" stroke-width="2" opacity="0.7"/>
+    <line x1="810" y1="608" x2="825" y2="588" stroke="#ff6b6b" stroke-width="2" opacity="0.7"/>
+    <line x1="810" y1="608" x2="835" y2="600" stroke="#ff6b6b" stroke-width="1.5" opacity="0.5"/>
+    <text x="840" y="600" fill="#e94560" font-size="10" font-family="monospace" font-weight="bold">DENIED ✕</text>
+    <!-- Annotation -->
+    <rect x="830" y="555" width="180" height="30" rx="3" fill="#16213e" stroke="#4ecdc4" stroke-width="1.5" opacity="0.9"/>
+    <text x="840" y="574" fill="#4ecdc4" font-size="9" font-family="monospace">eBPF: execve ∉ whitelist</text>
+  </g>
+
+  <!-- ============ SLIDE 3: Lifecycle - attack tries dlopen during runtime ============ -->
+  <g id="redAttackSlide3" opacity="0">
+    <!-- Attack path toward dlopen (init-only call) -->
+    <polyline
+      points="550,145 580,180 620,220 660,260 700,300 740,350 780,400 820,440 850,480 870,555 960,610"
+      fill="none" stroke="#e94560" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"
+    />
+    <!-- Blocked at kernel - dlopen not available in runtime phase -->
+    <line x1="960" y1="608" x2="945" y2="590" stroke="#ff6b6b" stroke-width="2" opacity="0.7"/>
+    <line x1="960" y1="608" x2="975" y2="588" stroke="#ff6b6b" stroke-width="2" opacity="0.7"/>
+    <text x="900" y="680" fill="#e94560" font-size="9" font-family="monospace" font-weight="bold">dlopen() PHASE-DENIED ✕</text>
+    <!-- Also show attack trying to reach startup zone -->
+    <line x1="300" y1="145" x2="300" y2="105" stroke="#e94560" stroke-width="3" opacity="0.6" stroke-dasharray="5,3"/>
+    <circle cx="300" cy="105" r="8" fill="none" stroke="#e94560" stroke-width="2" opacity="0.7"/>
+    <text x="315" y="100" fill="#e94560" font-size="8" font-family="monospace">SEALED ✕</text>
+  </g>
+
+  <!-- ============ SLIDE 4: Stacktrace Enforcement ============ -->
+  <g id="stacktraceEnforcement" opacity="0">
+    <!-- INTENDED path (green dashed - the "allowed" stacktrace) -->
+    <!-- Controller → Service → FileIO → read() -->
+    <polyline
+      points="550,145 550,180 510,180 510,240 470,240 470,300 430,300 430,360 400,360 400,420 370,420 370,475 370,555 370,610"
+      fill="none" stroke="#39ff14" stroke-width="2.5" stroke-dasharray="8,4" filter="url(#glow-neon)" opacity="0.7"
+    />
+    <!-- Labels along intended path -->
+    <text x="555" y="168" fill="#39ff14" font-size="8" font-family="monospace">Controller</text>
+    <text x="515" y="228" fill="#39ff14" font-size="8" font-family="monospace">Service</text>
+    <text x="475" y="288" fill="#39ff14" font-size="8" font-family="monospace">FileUtil</text>
+    <text x="405" y="408" fill="#39ff14" font-size="8" font-family="monospace">BufferedReader</text>
+    
+    <!-- "Expected stacktrace" label -->
+    <rect x="60" y="660" width="250" height="40" rx="4" fill="#16213e" stroke="#39ff14" stroke-width="1.5"/>
+    <text x="75" y="678" fill="#39ff14" font-size="9" font-family="monospace">Expected call stack:</text>
+    <text x="75" y="692" fill="#39ff14" font-size="8" font-family="monospace" opacity="0.7">Controller→Service→FileUtil→read()</text>
+
+    <!-- ATTACK path (red) - takes different route but tries same syscall -->
+    <polyline
+      points="550,145 600,180 650,220 700,260 750,300 780,340 780,380 750,420 700,450 650,475 600,520 550,555 490,590 410,610"
+      fill="none" stroke="#e94560" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.7" filter="url(#glow-red)"
+    />
+    <!-- Labels along attack path -->
+    <text x="660" y="210" fill="#e94560" font-size="8" font-family="monospace">Hijacked</text>
+    <text x="760" y="330" fill="#e94560" font-size="8" font-family="monospace">ROP gadget</text>
+    <text x="660" y="460" fill="#e94560" font-size="8" font-family="monospace">via Logging lib</text>
+    
+    <!-- Attack reaches read() syscall but with WRONG stacktrace -->
+    <rect x="330" y="595" width="80" height="50" rx="3" fill="none" stroke="#e94560" stroke-width="2" stroke-dasharray="3,2" opacity="0.8"/>
+    <line x1="410" y1="610" x2="395" y2="592" stroke="#ff6b6b" stroke-width="2" opacity="0.8"/>
+    <line x1="410" y1="610" x2="425" y2="592" stroke="#ff6b6b" stroke-width="2" opacity="0.8"/>
+    
+    <!-- Mismatch indicator -->
+    <rect x="380" y="660" width="280" height="40" rx="4" fill="#16213e" stroke="#e94560" stroke-width="1.5"/>
+    <text x="395" y="678" fill="#e94560" font-size="9" font-family="monospace">Actual call stack:</text>
+    <text x="395" y="692" fill="#e94560" font-size="8" font-family="monospace">Controller→Logging→???→ROP→read()</text>
+
+    <!-- Big comparison arrow -->
+    <text x="315" y="680" fill="#ffffff" font-size="14" font-family="monospace" opacity="0.6">≠</text>
+    
+    <!-- BLOCKED label -->
+    <text x="420" y="715" fill="#e94560" font-size="10" font-family="monospace" font-weight="bold">STACK MISMATCH → DENIED ✕</text>
+
+    <!-- Kernel DWARF validator -->
+    <rect x="700" y="660" width="200" height="35" rx="4" fill="#16213e" stroke="#39ff14" stroke-width="1.5"/>
+    <text x="715" y="678" fill="#39ff14" font-size="9" font-family="monospace">DWARF stack validator</text>
+    <text x="715" y="692" fill="#8892b0" font-size="8" font-family="monospace">compares at syscall entry</text>
+  </g>
+
+  <!-- ============ SLIDE 5: Thread Scope (Confused Deputy + Solution) ============ -->
+  <g id="threadScope" opacity="0">
+    <!-- Show a VALID green stacktrace path (same as intended) -->
+    <polyline
+      points="550,145 550,180 510,180 510,240 470,240 470,300 430,300 430,360 400,360 400,420 370,420 370,475 370,555"
+      fill="none" stroke="#39ff14" stroke-width="2" stroke-dasharray="6,3" opacity="0.4"
+    />
+    <text x="415" y="168" fill="#39ff14" font-size="8" font-family="monospace" opacity="0.5">valid stacktrace ✓</text>
+
+    <!-- Blue thread with red inside (Trojan Horse) -->
+    <polyline
+      points="550,145 550,180 510,180 510,240 470,240 470,300 430,300 430,360 400,360 400,420 370,420 370,475 370,555"
+      fill="none" stroke="#00b4d8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity="0.7"
+    />
+    <polyline
+      points="550,145 550,180 510,180 510,240 470,240 470,300 430,300 430,360 400,360 400,420 370,420 370,475 370,555"
+      fill="none" stroke="#e94560" stroke-width="2" stroke-dasharray="6,2" opacity="0.8"
+    />
+
+    <!-- Annotations -->
+    <text x="555" y="168" fill="#00b4d8" font-size="8" font-family="monospace">DownloadController</text>
+    <text x="475" y="288" fill="#00b4d8" font-size="8" font-family="monospace">File.read()</text>
+    <text x="500" y="250" fill="#e94560" font-size="8" font-family="monospace">input: "../../etc/passwd"</text>
+    
+    <!-- Show that stacktrace MATCHES (green check) -->
+    <rect x="180" y="500" width="160" height="25" rx="3" fill="#16213e" stroke="#39ff14" stroke-width="1" opacity="0.8"/>
+    <text x="190" y="517" fill="#39ff14" font-size="8" font-family="monospace">✓ stacktrace matches</text>
+
+    <!-- BUT... -->
+    <text x="180" y="545" fill="#e94560" font-size="9" font-family="monospace">...but data is malicious!</text>
+
+    <!-- ORANGE CHECKPOINT at kernel boundary -->
+    <rect x="340" y="545" width="80" height="30" rx="4" fill="#ff9f43" opacity="0.85" filter="url(#glow-orange)"/>
+    <text x="348" y="561" fill="#0d1117" font-size="8" font-family="monospace" font-weight="bold">SCOPE</text>
+    <text x="348" y="572" fill="#0d1117" font-size="7" font-family="monospace">GATE</text>
+
+    <!-- Tether to eBPF map -->
+    <line x1="380" y1="575" x2="380" y2="680" stroke="#ff9f43" stroke-width="2" stroke-dasharray="5,3" opacity="0.6"/>
+
+    <!-- eBPF context map -->
+    <rect x="280" y="680" width="220" height="55" rx="4" fill="#16213e" stroke="#ff9f43" stroke-width="2"/>
+    <text x="295" y="700" fill="#ff9f43" font-size="9" font-family="monospace" font-weight="bold">eBPF Thread Context Map</text>
+    <text x="295" y="715" fill="#8892b0" font-size="8" font-family="monospace">thread_id=7 | user_role=guest</text>
+    <text x="295" y="728" fill="#e94560" font-size="8" font-family="monospace">path=/etc/passwd → ❌ OUTSIDE /public/</text>
+
+    <!-- Red shattered at gate -->
+    <line x1="370" y1="545" x2="350" y2="525" stroke="#e94560" stroke-width="2" opacity="0.7"/>
+    <line x1="370" y1="545" x2="395" y2="520" stroke="#e94560" stroke-width="2" opacity="0.7"/>
+    <line x1="370" y1="545" x2="340" y2="530" stroke="#e94560" stroke-width="1.5" opacity="0.5"/>
+    <line x1="370" y1="545" x2="405" y2="528" stroke="#e94560" stroke-width="1.5" opacity="0.5"/>
+    <text x="405" y="530" fill="#e94560" font-size="9" font-family="monospace" font-weight="bold">DENIED ✕</text>
+
+    <!-- Clean blue continues through (different request, valid data) -->
+    <polyline points="380,575 380,610" fill="none" stroke="#00b4d8" stroke-width="2.5" filter="url(#glow-blue)" opacity="0.7"/>
+    <text x="390" y="600" fill="#00b4d8" font-size="8" font-family="monospace">✓ valid: /public/doc.pdf</text>
+
+    <!-- Examples box -->
+    <rect x="560" y="680" width="260" height="55" rx="4" fill="#16213e" stroke="#ff9f43" stroke-width="1" opacity="0.8"/>
+    <text x="575" y="698" fill="#ff9f43" font-size="9" font-family="monospace" font-weight="bold">Works better than stacktrace for:</text>
+    <text x="575" y="713" fill="#8892b0" font-size="8" font-family="monospace">• Parser thread: can only read() input buffer</text>
+    <text x="575" y="726" fill="#8892b0" font-size="8" font-family="monospace">• Role-based: guest ≠ admin file access</text>
+    <text x="575" y="739" fill="#8892b0" font-size="8" font-family="monospace">• Tenant isolation at syscall level</text>
+  </g>
+
+  <!-- ============ LEGEND ============ -->
+  <g id="legend">
+    <rect x="580" y="740" width="470" height="50" rx="4" fill="#16213e" stroke="#4a4a6a" stroke-width="1" opacity="0.8"/>
+    <line x1="600" y1="758" x2="630" y2="758" stroke="#00b4d8" stroke-width="2.5"/>
+    <text x="636" y="762" fill="#8892b0" font-size="8" font-family="monospace">Thread</text>
+    <line x1="690" y1="758" x2="720" y2="758" stroke="#e94560" stroke-width="3.5"/>
+    <text x="726" y="762" fill="#8892b0" font-size="8" font-family="monospace">Attack</text>
+    <line x1="780" y1="758" x2="810" y2="758" stroke="#4ecdc4" stroke-width="3"/>
+    <text x="816" y="762" fill="#8892b0" font-size="8" font-family="monospace">SBoB</text>
+    <line x1="860" y1="758" x2="890" y2="758" stroke="#39ff14" stroke-width="2" stroke-dasharray="4,2"/>
+    <text x="896" y="762" fill="#8892b0" font-size="8" font-family="monospace">Stacktrace</text>
+    <rect x="965" y="752" width="25" height="12" rx="2" fill="#ff9f43" opacity="0.7"/>
+    <text x="996" y="762" fill="#8892b0" font-size="8" font-family="monospace">Scope</text>
+    <line x1="600" y1="778" x2="630" y2="778" stroke="#c0c0c0" stroke-width="3"/>
+    <text x="636" y="782" fill="#8892b0" font-size="8" font-family="monospace">Lifecycle Seal</text>
+    <line x1="780" y1="778" x2="810" y2="778" stroke="#4a4a6a" stroke-width="1.2" opacity="0.4"/>
+    <text x="816" y="782" fill="#8892b0" font-size="8" font-family="monospace">Unenforced Wall</text>
+  </g>
+</svg>
+
+<div class="context-box" id="contextBox"></div>
+<div class="nav-hint">← → arrow keys or spacebar to navigate</div>
+
+<script>
+const slides = [
+  {
+    title: "SLIDE 1: The Naked Application — The Unrestricted Maze",
+    context: "<strong>Developer Context:</strong> Without behavior mapping, a container is an open field. The maze walls represent code module boundaries — they exist structurally but provide zero runtime enforcement. An RCE exploit cuts diagonally through the dependency tree, reaches the kernel, and successfully calls <em>execve()</em> to spawn a shell. The application has no say in what syscalls its process can make.",
+    show: ['startupZone', 'shutdownZone', 'entryPoint', 'mazeWallsExtra', 'blueThread', 'redAttackSlide1', 'syscalls', 'legend'],
+    hide: ['hardenedWalls', 'execveDenied', 'redAttackSlide2', 'startupBulkhead', 'shutdownGate', 'redAttackSlide3', 'stacktraceEnforcement', 'threadScope']
+  },
+  {
+    title: "SLIDE 2: The General App BoB — Kernel-Level Whitelist",
+    context: "<strong>Developer Context:</strong> The General SBoB profiles the container's aggregate allowed behaviors and enforces them via eBPF at the kernel level. The attack still traverses the broad internal corridors (the <em>Merge Fallacy</em> — hundreds of dependencies merged into one profile). But when it reaches the kernel and attempts <em>execve()</em>, the syscall is <strong>not in the whitelist</strong> and is denied. The key insight: enforcement happens in the kernel, not in user-space. The attack reaches the boundary but chokes at the syscall gate.",
+    show: ['startupZone', 'shutdownZone', 'entryPoint', 'mazeWallsExtra', 'blueThread', 'hardenedWalls', 'execveDenied', 'redAttackSlide2', 'syscalls', 'legend'],
+    hide: ['redAttackSlide1', 'startupBulkhead', 'shutdownGate', 'redAttackSlide3', 'stacktraceEnforcement', 'threadScope']
+  },
+  {
+    title: "SLIDE 3: Lifecycle Partitioning — Temporal Denial",
+    context: "<strong>Developer Context:</strong> Even with <em>execve()</em> denied, an attacker might try <em>dlopen()</em> to load a malicious shared library. During Startup, <em>dlopen()</em> is legitimately needed (native libs, JDBC drivers). But once the Kubernetes readiness probe passes, the Startup phase is sealed. The eBPF profile <strong>drops dlopen() from the whitelist entirely</strong> for the Runtime phase. The attack reaches the kernel, calls <em>dlopen()</em>, and gets phase-denied. Similarly, the Startup zone's capabilities (secret reading, class loading) become permanently inaccessible.",
+    show: ['startupZone', 'shutdownZone', 'entryPoint', 'mazeWallsExtra', 'blueThread', 'hardenedWalls', 'execveDenied', 'startupBulkhead', 'shutdownGate', 'redAttackSlide3', 'syscalls', 'legend'],
+    hide: ['redAttackSlide1', 'redAttackSlide2', 'stacktraceEnforcement', 'threadScope']
+  },
+  {
+    title: "SLIDE 4: Stacktrace Enforcement — Call-Path Binding",
+    context: "<strong>Developer Context:</strong> The General BoB allows <em>read()</em> because many modules need it. But <em>which</em> code path triggered it? With GraalVM native images and DWARF symbols, we can bind allowed syscalls to exact call stacks. The green dashed line shows the expected path: <em>Controller → Service → FileUtil → read()</em>. The red attack achieves RCE, hijacks execution via an ROP chain through the Logging library, and also calls <em>read()</em> — but its actual call stack doesn't match. The kernel-level DWARF validator compares stacks at syscall entry and rejects the mismatch. This eliminates all code-path hijacking where the attacker can't forge the exact expected stack.",
+    show: ['startupZone', 'shutdownZone', 'entryPoint', 'mazeWallsExtra', 'hardenedWalls', 'execveDenied', 'startupBulkhead', 'shutdownGate', 'stacktraceEnforcement', 'syscalls', 'legend'],
+    hide: ['redAttackSlide1', 'redAttackSlide2', 'redAttackSlide3', 'blueThread', 'threadScope']
+  },
+  {
+    title: "SLIDE 5: Thread-Scoped Context — Defeating the Confused Deputy",
+    context: "<strong>Developer Context:</strong> The stacktrace matches perfectly: <em>DownloadController → File.read()</em>. This is the legitimate code path — but the user supplied <em>../../etc/passwd</em> as input. The code is not hijacked; it's tricked. This is the <em>Confused Deputy</em> problem, and stacktrace enforcement cannot catch it.<br><br>The solution: the application runtime pushes <strong>dynamic thread context</strong> (user role, tenant ID, allowed paths) into an eBPF-readable kernel map. At syscall entry, the kernel checks not just <em>what</em> code called it, but <em>on whose behalf</em> and <em>with what data boundaries</em>.<br><br><strong>Concrete examples where this outperforms stacktrace:</strong><br>• A JSON parser thread scoped to only <em>read()</em> from its input buffer — even if vulnerable, it can't open arbitrary files<br>• A download endpoint where <em>user_role=guest</em> can only <em>openat()</em> within <em>/public/</em><br>• Multi-tenant apps where each request thread carries tenant-id and cross-tenant resource access is rejected at the kernel layer",
+    show: ['startupZone', 'shutdownZone', 'entryPoint', 'mazeWallsExtra', 'hardenedWalls', 'execveDenied', 'startupBulkhead', 'shutdownGate', 'threadScope', 'syscalls', 'legend'],
+    hide: ['redAttackSlide1', 'redAttackSlide2', 'redAttackSlide3', 'blueThread', 'stacktraceEnforcement']
+  }
+];
+
+let currentSlide = 0;
+
+function goToSlide(index) {
+  currentSlide = index;
+  const slide = slides[index];
+
+  document.getElementById('slideTitle').textContent = slide.title;
+  document.getElementById('contextBox').innerHTML = slide.context;
+
+  for (let i = 0; i < 5; i++) {
+    document.getElementById('btn' + i).classList.remove('active');
+  }
+  document.getElementById('btn' + index).classList.add('active');
+
+  slide.hide.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.style.transition = 'opacity 0.5s ease';
+      el.style.opacity = '0';
+      el.style.pointerEvents = 'none';
+    }
+  });
+
+  slide.show.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.style.transition = 'opacity 0.6s ease 0.15s';
+      el.style.opacity = '1';
+      el.style.pointerEvents = 'auto';
+    }
+  });
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight' || e.key === ' ') {
+    e.preventDefault();
+    if (currentSlide < 4) goToSlide(currentSlide + 1);
+  } else if (e.key === 'ArrowLeft') {
+    e.preventDefault();
+    if (currentSlide > 0) goToSlide(currentSlide - 1);
+  }
+});
+
+goToSlide(0);
+</script>
+
+</body>
+</html>
