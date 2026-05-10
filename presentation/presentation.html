@@ -19,8 +19,14 @@
     --warning-color: #ff9f43;
   }
 
+  html {
+    font-size: 16px;
+    overflow-x: hidden;
+  }
+
   body {
     margin: 0;
+    padding: 1rem;
     background: radial-gradient(circle at 50% 50%, #151b29 0%, var(--bg-color) 100%);
     display: flex;
     flex-direction: column;
@@ -30,6 +36,18 @@
     font-family: 'Inter', sans-serif;
     color: var(--text-primary);
     overflow-x: hidden;
+  }
+
+  .controls, .context-box, .diagram-container {
+    width: 95%;
+    max-width: 1100px;
+    margin-left: auto;
+    margin-right: auto;
+    box-sizing: border-box;
+  }
+
+  .diagram-container {
+    display: block;
   }
 
   .glass {
@@ -115,15 +133,12 @@
   }
 
   .context-box {
-    width: 95vw;
-    max-width: 1600px;
     border-radius: 12px;
     padding: 16px 24px;
     margin-top: 15px;
     font-size: 14px;
     color: var(--text-secondary);
     line-height: 1.6;
-    box-sizing: border-box;
     z-index: 10;
   }
 
@@ -156,10 +171,10 @@
   
   .context-box strong { color: var(--text-primary); font-weight: 600; }
 
-  svg { 
-    width: 95vw;
-    max-width: 1600px;
+  .diagram-container svg { 
+    width: 100%;
     height: auto;
+    display: block;
     border-radius: 12px; 
     box-shadow: 0 15px 40px rgba(0, 0, 0, 0.6);
     background: #0f141e;
@@ -248,7 +263,9 @@
   </div>
 </div>
 
-<svg id="diagram" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 800" width="1100" height="800" class="glass">
+<div class="diagram-container">
+
+<svg id="diagram" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 800" class="glass">
   <defs>
     <filter id="glow-red"><feGaussianBlur stdDeviation="3.5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
     <filter id="glow-blue"><feGaussianBlur stdDeviation="2.5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
@@ -298,7 +315,7 @@
     <rect x="50" y="98" width="1000" height="8" rx="2" fill="#718096" opacity="0.7"/>
     <line x1="50" y1="98" x2="1050" y2="98" stroke="#cbd5e0" stroke-width="1.5"/>
     <line x1="50" y1="106" x2="1050" y2="106" stroke="#cbd5e0" stroke-width="1.5"/>
-    <text x="500" y="95" fill="#cbd5e0" font-size="8" text-anchor="middle">🔒 SEALED — k8s readiness ✓ 🔒</text>
+    <text x="500" y="95" fill="#cbd5e0" font-size="8" text-anchor="middle">SEALED — k8s readiness ✓</text>
     <g opacity="0.15">
       <!-- Hatching pattern -->
       <line x1="50" y1="25" x2="150" y2="100" stroke="#a0aec0" stroke-width="1"/>
@@ -388,7 +405,7 @@
   <g id="shutdownGate" class="slide-layer interactive">
     <title>Shutdown routines are blocked during active runtime to prevent denial-of-service or lock manipulation</title>
     <rect x="50" y="483" width="1000" height="6" rx="2" fill="#718096" opacity="0.6"/>
-    <text x="500" y="480" fill="#cbd5e0" font-size="8" text-anchor="middle">🔒 INERT during runtime</text>
+    <text x="500" y="480" fill="#cbd5e0" font-size="8" text-anchor="middle">INERT during runtime</text>
   </g>
 
   <!-- ============ KERNEL-SPACE ============ -->
@@ -397,7 +414,7 @@
 
   <!-- Boundary -->
   <line x1="50" y1="555" x2="1050" y2="555" stroke="#ffffff" stroke-width="2.5" stroke-dasharray="10,4" opacity="0.4"/>
-  <text x="430" y="552" fill="#ffffff" font-size="9" opacity="0.4">── user / kernel boundary ──</text>
+  <text x="430" y="552" fill="#ffffff" font-size="9" opacity="0.4">—— user / kernel boundary ——</text>
 
 
 
@@ -417,16 +434,15 @@
   <g id="redAttackSlide1" class="slide-layer interactive">
     <title>Malicious execution path bypassing intended application boundaries to achieve RCE</title>
     <polyline
-      points="550,145 600,145 600,200 680,200 680,260 760,260 760,340 810,340 810,610"
+      points="550,145 600,145 600,200 680,200 680,260 760,260 760,340 810,340 810,590"
       fill="none" stroke="var(--attack-color)" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow-red)" opacity="0.9"
       class="path-draw"
     />
     
     <text x="820" y="320" fill="var(--attack-color)" font-size="10" font-weight="bold">RCE</text>
     <polygon points="810,610 805,598 815,598" fill="var(--attack-color)"/>
-    <circle cx="810" cy="610" r="18" fill="var(--attack-color)" opacity="0.2"/>
-    <circle cx="810" cy="610" r="8" fill="#ff6b6b" opacity="0.6"/>
-    <text x="750" y="665" fill="var(--attack-color)" font-size="9" font-weight="bold">execve() SUCCESS ⚡</text>
+    <circle cx="810" cy="590" r="8" fill="#ff6b6b" opacity="0.6"/>
+    <text x="750" y="655" fill="var(--attack-color)" font-size="9" font-weight="bold">execve() SUCCESS</text>
   </g>
 
   <!-- ============ SLIDE 2: Hardened Walls ============ -->
@@ -442,12 +458,17 @@
   <!-- execve DENIED state -->
   <g id="execveDenied" class="slide-layer interactive">
     <title>The kernel denies the syscall because it is not declared in the application's Bill of Behavior (BoB)</title>
+    <!-- Denied execve() -->
+    <line x1="810" y1="590" x2="795" y2="572" stroke="var(--attack-color)" stroke-width="3" opacity="0.9"/>
+    <line x1="810" y1="590" x2="825" y2="572" stroke="var(--attack-color)" stroke-width="3" opacity="0.9"/>
     <rect x="750" y="610" width="120" height="38" rx="4" fill="var(--attack-color)" opacity="0.2"/>
     <line x1="755" y1="615" x2="865" y2="643" stroke="var(--attack-color)" stroke-width="3" opacity="0.9"/>
     <line x1="865" y1="615" x2="755" y2="643" stroke="var(--attack-color)" stroke-width="3" opacity="0.9"/>
     <text x="750" y="665" fill="var(--attack-color)" font-size="9" font-weight="bold">NOT IN BoB WHITELIST</text>
     
     <!-- dlopen also denied -->
+    <line x1="960" y1="590" x2="945" y2="572" stroke="var(--attack-color)" stroke-width="2.5" opacity="0.7"/>
+    <line x1="960" y1="590" x2="975" y2="572" stroke="var(--attack-color)" stroke-width="2.5" opacity="0.7"/>
     <rect x="900" y="610" width="120" height="38" rx="4" fill="var(--attack-color)" opacity="0.15"/>
     <line x1="905" y1="615" x2="1015" y2="643" stroke="var(--attack-color)" stroke-width="2.5" opacity="0.7"/>
     <line x1="1015" y1="615" x2="905" y2="643" stroke="var(--attack-color)" stroke-width="2.5" opacity="0.7"/>
@@ -462,8 +483,8 @@
       class="path-draw"
     />
     <rect x="785" y="595" width="50" height="55" rx="3" fill="none" stroke="var(--attack-color)" stroke-width="2.5" stroke-dasharray="4,2" opacity="0.9" class="pulse-block"/>
-    <line x1="810" y1="608" x2="795" y2="590" stroke="#ff6b6b" stroke-width="2"/>
-    <line x1="810" y1="608" x2="825" y2="588" stroke="#ff6b6b" stroke-width="2"/>
+    <line x1="810" y1="590" x2="795" y2="572" stroke="#ff6b6b" stroke-width="2"/>
+    <line x1="810" y1="590" x2="825" y2="572" stroke="#ff6b6b" stroke-width="2"/>
     <text x="840" y="600" fill="var(--attack-color)" font-size="10" font-weight="bold">DENIED ✕</text>
     
     <g class="interactive">
@@ -483,12 +504,12 @@
     />
     <line x1="960" y1="608" x2="945" y2="590" stroke="#ff6b6b" stroke-width="2" class="pulse-block"/>
     <line x1="960" y1="608" x2="975" y2="588" stroke="#ff6b6b" stroke-width="2" class="pulse-block"/>
-    <text x="900" y="680" fill="var(--attack-color)" font-size="9" font-weight="bold">mprotect() PHASE-DENIED ✕</text>
+    <text x="900" y="680" fill="var(--attack-color)" font-size="9" font-weight="bold">mprotect() PHASE-DENIED</text>
     
     <!-- Attack toward startup -->
     <line x1="300" y1="145" x2="300" y2="105" stroke="var(--attack-color)" stroke-width="3" opacity="0.6" stroke-dasharray="5,3"/>
     <circle cx="300" cy="105" r="8" fill="none" stroke="var(--attack-color)" stroke-width="2" opacity="0.8"/>
-    <text x="315" y="100" fill="var(--attack-color)" font-size="8">SEALED ✕</text>
+    <text x="315" y="100" fill="var(--attack-color)" font-size="8">SEALED</text>
   </g>
 
   <!-- ============ SLIDE 4: Stacktrace ============ -->
@@ -521,8 +542,8 @@
         class="path-draw"
       />
     </g>
-    <text x="660" y="210" fill="var(--attack-color)" font-size="8">Hijacked</text>
-    <text x="760" y="330" fill="var(--attack-color)" font-size="8">ROP gadget</text>
+    <text x="660" y="210" fill="var(--attack-color)" font-size="8" font-weight="bold">Hijacked</text>
+    <text x="760" y="330" fill="var(--attack-color)" font-size="8">ROP chain</text>
     <text x="660" y="460" fill="var(--attack-color)" font-size="8">via Logging lib</text>
     
     <rect x="350" y="600" width="120" height="58" rx="3" fill="none" stroke="var(--attack-color)" stroke-width="2" stroke-dasharray="3,2" opacity="0.9" class="pulse-block"/>
@@ -601,7 +622,7 @@
       <rect x="280" y="680" width="230" height="55" rx="4" fill="#1a202c" stroke="var(--warning-color)" stroke-width="2"/>
       <text x="295" y="700" fill="var(--warning-color)" font-size="9" font-weight="bold">eBPF Thread Context Map</text>
       <text x="295" y="715" fill="var(--text-secondary)" font-size="8">thread_id=7 | user_role=guest</text>
-      <text x="295" y="728" fill="var(--attack-color)" font-size="8">path=/etc/passwd → ❌ OUTSIDE /public/</text>
+      <text x="295" y="728" fill="var(--attack-color)" font-size="8">path=/etc/passwd → OUTSIDE /public/</text>
     </g>
 
     <!-- Shatter -->
@@ -709,7 +730,7 @@
     <g class="interactive">
       <title>Startup capabilities permanently dropped once the application passes its readiness probe</title>
       <line x1="600" y1="778" x2="630" y2="778" stroke="#cbd5e0" stroke-width="3"/>
-      <text x="636" y="782" fill="var(--text-secondary)" font-size="8">Lifecycle Seal</text>
+      <text x="636" y="778" fill="var(--text-secondary)" font-size="8">Lifecycle Seal</text>
     </g>
     
     <g class="interactive">
@@ -719,6 +740,8 @@
     </g>
   </g>
 </svg>
+
+</div>
 
 <div class="context-box glass" id="contextBox"></div>
 <div class="nav-hint">← → arrow keys or spacebar to navigate</div>
