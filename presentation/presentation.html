@@ -259,18 +259,119 @@
     }
 
     /* Tooltip styling logic (if we wanted custom HTML tooltips, but native <title> works for SVG) */
+
+    /* === SBOM vs BoB dedicated slide === */
+    .sbom-container {
+      display: none;
+      flex-direction: column;
+      gap: 24px;
+      padding: 32px 36px;
+      border-radius: 12px;
+      box-shadow: 0 15px 40px rgba(0,0,0,0.6);
+    }
+    .sbom-row {
+      display: grid;
+      grid-template-columns: 1fr 56px 1fr;
+      gap: 0;
+      align-items: stretch;
+    }
+    .sbom-panel {
+      padding: 28px;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .sbom-panel-left {
+      border: 1px solid #4a5568;
+      background: rgba(21,27,41,0.7);
+    }
+    .sbom-panel-right {
+      border: 1px solid var(--accent);
+      background: rgba(9,24,21,0.7);
+      box-shadow: 0 0 24px rgba(78,205,196,0.12), inset 0 0 40px rgba(78,205,196,0.04);
+    }
+    .sbom-panel-title {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    .sbom-panel-subtitle {
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      opacity: 0.65;
+      margin-top: -12px;
+    }
+    .sbom-divider {
+      border: none;
+      border-top: 1px solid currentColor;
+      opacity: 0.2;
+      margin: 0;
+    }
+    .sbom-items {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex: 1;
+    }
+    .sbom-item {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      padding: 7px 12px;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.03);
+    }
+    .sbom-item-neutral { color: #718096; }
+    .sbom-item-ok { color: #a0aec0; }
+    .sbom-item-good { color: var(--success-color); }
+    .sbom-item-bad { color: var(--attack-color); }
+    .sbom-footer-row {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .sbom-tag {
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 5px 12px;
+      border-radius: 4px;
+      text-align: center;
+    }
+    .sbom-vs-col {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .sbom-vs-text {
+      font-size: 22px;
+      font-weight: 700;
+      color: #4a5568;
+      writing-mode: vertical-rl;
+      letter-spacing: 6px;
+    }
+    .sbom-tagline {
+      text-align: center;
+      font-size: 14px;
+      font-style: italic;
+      color: var(--text-secondary);
+      border-top: 1px solid var(--border-color);
+      padding-top: 18px;
+      line-height: 1.7;
+    }
+    .sbom-tagline strong { color: var(--text-primary); font-style: normal; }
   </style>
 </head>
 
 <body>
 
   <div class="controls glass">
-    <button onclick="goToSlide(0)" id="btn0">1: Naked App</button>
-    <button onclick="goToSlide(1)" id="btn1">2: General BoB</button>
-    <button onclick="goToSlide(2)" id="btn2">3: Lifecycle</button>
-    <button onclick="goToSlide(3)" id="btn3">4: Stacktrace</button>
-    <button onclick="goToSlide(4)" id="btn4">5: Thread Scope</button>
-    <button onclick="goToSlide(5)" id="btn5">6: Full Defense</button>
+    <button onclick="goToSlide(0)" id="btn0">0: BoB Intro</button>
+    <button onclick="goToSlide(1)" id="btn1">1: Naked App</button>
+    <button onclick="goToSlide(2)" id="btn2">2: General BoB</button>
+    <button onclick="goToSlide(3)" id="btn3">3: Lifecycle</button>
+    <button onclick="goToSlide(4)" id="btn4">4: Stacktrace</button>
+    <button onclick="goToSlide(5)" id="btn5">5: Thread Scope</button>
+    <button onclick="goToSlide(6)" id="btn6">6: Full Defense</button>
   </div>
 
   <div class="slide-header">
@@ -282,6 +383,7 @@
       <div class="dot" id="dot3"></div>
       <div class="dot" id="dot4"></div>
       <div class="dot" id="dot5"></div>
+      <div class="dot" id="dot6"></div>
     </div>
   </div>
 
@@ -442,6 +544,43 @@
         <line x1="620" y1="300" x2="620" y2="470" stroke="var(--border-color)" stroke-width="1" />
         <line x1="780" y1="360" x2="780" y2="470" stroke="var(--border-color)" stroke-width="1" />
         <line x1="940" y1="360" x2="940" y2="470" stroke="var(--border-color)" stroke-width="1" />
+      </g>
+
+      <!-- ============ SLIDE 1: SBOM vs BoB annotation panel ============ -->
+      <g id="sbomBobPanel" class="slide-layer">
+        <title>SBOM answers composition questions; BoB answers behavioral questions at runtime</title>
+
+        <!-- SBOM box (left, dim — solved problem) -->
+        <rect x="75" y="148" width="188" height="215" rx="4" fill="#151b29" stroke="#4a5568" stroke-width="1.5" opacity="0.85"/>
+        <text x="169" y="168" fill="#718096" font-size="9.5" font-weight="bold" text-anchor="middle">📋  SBOM</text>
+        <text x="169" y="181" fill="#4a5568" font-size="7.5" text-anchor="middle">"What's inside?"</text>
+        <line x1="88" y1="187" x2="250" y2="187" stroke="#4a5568" stroke-width="0.5" opacity="0.5"/>
+        <text x="88" y="202" fill="#4a5568" font-size="7.5">✓  log4j 2.17.1</text>
+        <text x="88" y="216" fill="#4a5568" font-size="7.5">✓  jackson 2.15.3</text>
+        <text x="88" y="230" fill="#4a5568" font-size="7.5">✓  spring-web 6.1.4</text>
+        <text x="88" y="244" fill="#4a5568" font-size="7.5">✓  commons-io 2.11</text>
+        <text x="88" y="258" fill="#4a5568" font-size="7.5">✓  netty 4.1.107</text>
+        <line x1="88" y1="296" x2="250" y2="296" stroke="#4a5568" stroke-width="0.5" opacity="0.4"/>
+        <text x="169" y="309" fill="#4a5568" font-size="7" text-anchor="middle">static · build-time</text>
+        <text x="169" y="322" fill="var(--attack-color)" font-size="7" text-anchor="middle" opacity="0.8">✗  cannot detect runtime behavior</text>
+        <text x="169" y="335" fill="#4a5568" font-size="7" text-anchor="middle" font-style="italic">behavioral anomaly? 🤷</text>
+        <text x="169" y="349" fill="#4a5568" font-size="7" text-anchor="middle" font-style="italic">attacker pivoting? 🤷</text>
+
+        <!-- BoB box (right, glowing — the solution) -->
+        <rect x="273" y="148" width="205" height="215" rx="4" fill="#091815" stroke="var(--accent)" stroke-width="1.5" filter="url(#glow-teal)" opacity="0.95"/>
+        <text x="375" y="168" fill="var(--accent)" font-size="9.5" font-weight="bold" text-anchor="middle">🛡  BoB</text>
+        <text x="375" y="181" fill="var(--accent)" font-size="7.5" text-anchor="middle" opacity="0.85">"What's it doing?"</text>
+        <line x1="282" y1="187" x2="470" y2="187" stroke="var(--accent)" stroke-width="0.5" opacity="0.5"/>
+        <text x="282" y="202" fill="#a0aec0" font-size="7.5">✓  read(/var/log/*)</text>
+        <text x="282" y="216" fill="#a0aec0" font-size="7.5">✓  connect(postgres:5432)</text>
+        <text x="282" y="230" fill="var(--attack-color)" font-size="7.5">✗  execve(*)</text>
+        <text x="282" y="244" fill="var(--attack-color)" font-size="7.5">✗  connect(*:4444)</text>
+        <text x="282" y="258" fill="var(--attack-color)" font-size="7.5">✗  mprotect(PROT_EXEC)</text>
+        <line x1="282" y1="296" x2="470" y2="296" stroke="var(--accent)" stroke-width="0.5" opacity="0.4"/>
+        <text x="375" y="309" fill="var(--accent)" font-size="7" text-anchor="middle" opacity="0.75">dynamic · runtime · enforceable</text>
+        <text x="375" y="322" fill="var(--success-color)" font-size="7" text-anchor="middle">✓  vendor-supplied contract</text>
+        <text x="375" y="335" fill="var(--success-color)" font-size="7" text-anchor="middle">✓  enforced via eBPF</text>
+        <text x="375" y="349" fill="var(--accent)" font-size="7" text-anchor="middle" opacity="0.85">behavior anomaly? → SIGKILL</text>
       </g>
 
       <text x="70" y="130" fill="var(--text-secondary)" font-size="11" font-weight="bold">RUNTIME — USER-SPACE
@@ -656,7 +795,7 @@
       <!-- ============ SLIDE 3: Lifecycle ============ -->
       <g id="redAttackSlide3" class="slide-layer interactive">
         <title>Malicious library load attempt blocked by Startup Phase sealing</title>
-        <polyline points="550,145 600,145 600,240 680,240 680,320 760,320 760,380 840,380 840,460 961,460 961,540"
+        <polyline points="550,145 550,180 640,180 640,240 720,240 720,320 800,320 800,380 880,380 880,460 961,460 961,540"
           fill="none" stroke="var(--attack-color)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"
           opacity="0.7" class="path-draw" />
 
@@ -695,13 +834,13 @@
         <g class="interactive">
           <title>Malicious execution path bypassing intended application boundaries to achieve RCE</title>
           <polyline
-            points="550,145 600,180 650,220 700,260 750,300 780,340 780,380 750,420 700,450 650,475 600,510 550,520 500,530 450,540"
-            fill="none" stroke="var(--attack-color)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"
+            points="550,145 550,180 510,180 510,240 470,240 470,300 450,300 450,540"
+            fill="none" stroke="var(--attack-color)" stroke-width="3.5" stroke-dasharray="6,3" stroke-linecap="round" stroke-linejoin="round"
             opacity="0.8" filter="url(#glow-red)" class="path-draw" />
         </g>
-        <text x="660" y="210" fill="var(--attack-color)" font-size="8" font-weight="bold">Hijacked</text>
-        <text x="760" y="330" fill="var(--attack-color)" font-size="8">ROP chain</text>
-        <text x="660" y="460" fill="var(--attack-color)" font-size="8">via Logging lib</text>
+        <text x="460" y="350" fill="var(--attack-color)" font-size="8" font-weight="bold">Hijacked</text>
+        <text x="460" y="400" fill="var(--attack-color)" font-size="8">ROP chain</text>
+        <text x="460" y="450" fill="var(--attack-color)" font-size="8">via Logging lib</text>
 
 
 
@@ -786,30 +925,43 @@
         </g>
       </g>
 
-      <!-- ============ SLIDE 6: Generic Attacks ============ -->
-      <g id="genericAttacksSlide6" class="slide-layer">
-        <title>Generic attack vectors being blocked by the defense layers</title>
+  <!-- ============ SLIDE 6: Generic Attacks ============ -->
+  <g id="genericAttacksSlide6" class="slide-layer">
+    <title>Attack vectors branching from legitimate ingress points, each on a unique lane</title>
 
-        <!-- Arrow to Scope Gate (x=340) -->
-        <line x1="340" y1="460" x2="340" y2="535" stroke="var(--attack-color)" stroke-width="3" stroke-dasharray="6,3"
-          opacity="0.8" />
-        <polygon points="335,530 345,530 340,540" fill="var(--attack-color)" opacity="0.8" />
+    <!--
+      COORDINATE SYSTEM FOR ATTACK RAILS (right side of diagram, x > 550):
+        Rail A (y=145): ingress level  → Attack 3 (BoB Whitelist x=811)
+        Rail B (y=220): mid-upper      → Attack 4 (Phase Lock x=961)
+      LEFT SIDE (blue thread hijack):
+        Attack 1 at (400,360) → Scope Gate  (x=340, badge at x=340)
+        Attack 2 at (430,300) → Stack Gate  (x=450, badge at x=450)
+    -->
 
-        <!-- Arrow to Stack Gate (x=450) -->
-        <line x1="450" y1="460" x2="450" y2="535" stroke="var(--attack-color)" stroke-width="3" stroke-dasharray="6,3"
-          opacity="0.8" />
-        <polygon points="445,530 455,530 450,540" fill="var(--attack-color)" opacity="0.8" />
+    <!-- Attack 1: Scope Gate (x=340) — branch LEFT from thread at (400,360) -->
+    <polyline points="400,360 340,360 340,535"
+      fill="none" stroke="var(--attack-color)" stroke-width="2.5" stroke-dasharray="6,3"
+      opacity="0.85" class="path-draw"/>
+    <polygon points="335,532 345,532 340,541" fill="var(--attack-color)" opacity="0.9"/>
 
-        <!-- Arrow to BoB Whitelist (x=811) -->
-        <line x1="811" y1="460" x2="811" y2="535" stroke="var(--attack-color)" stroke-width="3" stroke-dasharray="6,3"
-          opacity="0.8" />
-        <polygon points="806,530 816,530 811,540" fill="var(--attack-color)" opacity="0.8" />
+    <!-- Attack 2: Stack Gate (x=450) — branch RIGHT from thread at (430,300) -->
+    <polyline points="430,300 450,300 450,535"
+      fill="none" stroke="var(--attack-color)" stroke-width="2.5" stroke-dasharray="6,3"
+      opacity="0.85" class="path-draw"/>
+    <polygon points="445,532 455,532 450,541" fill="var(--attack-color)" opacity="0.9"/>
 
-        <!-- Arrow to Phase Lock (x=961) -->
-        <line x1="961" y1="460" x2="961" y2="535" stroke="var(--attack-color)" stroke-width="3" stroke-dasharray="6,3"
-          opacity="0.8" />
-        <polygon points="956,530 966,530 961,540" fill="var(--attack-color)" opacity="0.8" />
-      </g>
+    <!-- Attack 3: BoB Whitelist (x=811) — from ingress (550,145), rail y=145 then y=260 -->
+    <polyline points="550,145 620,145 620,260 760,260 811,260 811,535"
+      fill="none" stroke="var(--attack-color)" stroke-width="2.5" stroke-dasharray="6,3"
+      opacity="0.85" class="path-draw"/>
+    <polygon points="806,532 816,532 811,541" fill="var(--attack-color)" opacity="0.9"/>
+
+    <!-- Attack 4: Phase Lock (x=961) — from ingress (550,145), rail y=200 then y=380 -->
+    <polyline points="550,145 700,145 700,200 880,200 880,380 961,380 961,535"
+      fill="none" stroke="var(--attack-color)" stroke-width="2.5" stroke-dasharray="6,3"
+      opacity="0.85" class="path-draw"/>
+    <polygon points="956,532 966,532 961,541" fill="var(--attack-color)" opacity="0.9"/>
+  </g>
 
       <!-- Syscall Boxes -->
       <g id="syscalls">
@@ -915,20 +1067,94 @@
 
   </div>
 
+  <!-- ===== SBOM vs BoB dedicated intro slide ===== -->
+  <div id="sbomSlide" class="sbom-container glass">
+    <div class="sbom-row">
+
+      <!-- Left: SBOM -->
+      <div class="sbom-panel sbom-panel-left">
+        <div>
+          <div class="sbom-panel-title" style="color:#718096">📋 SBOM &mdash; Bill of Materials</div>
+          <div class="sbom-panel-subtitle" style="color:#718096">"What's inside this software?"</div>
+        </div>
+        <hr class="sbom-divider" style="color:#4a5568">
+        <div class="sbom-items">
+          <div class="sbom-item sbom-item-neutral">✓&nbsp; log4j 2.17.1</div>
+          <div class="sbom-item sbom-item-neutral">✓&nbsp; jackson 2.15.3</div>
+          <div class="sbom-item sbom-item-neutral">✓&nbsp; spring-web 6.1.4</div>
+          <div class="sbom-item sbom-item-neutral">✓&nbsp; commons-io 2.11</div>
+          <div class="sbom-item sbom-item-neutral">✓&nbsp; netty 4.1.107</div>
+          <div class="sbom-item sbom-item-neutral" style="opacity:0.5; font-size:11px">+ 387 transitive dependencies</div>
+        </div>
+        <hr class="sbom-divider" style="color:#4a5568">
+        <div class="sbom-footer-row">
+          <div class="sbom-tag" style="background:rgba(74,85,104,0.2); color:#718096">static &middot; build-time &middot; composition</div>
+          <div class="sbom-tag" style="color:var(--attack-color)">✗&nbsp; cannot detect runtime behavior</div>
+          <div class="sbom-tag" style="color:#4a5568; font-style:italic">behavioral anomaly? 🤷&nbsp; attacker pivoting? 🤷</div>
+        </div>
+      </div>
+
+      <!-- VS divider -->
+      <div class="sbom-vs-col">
+        <div class="sbom-vs-text">VS</div>
+      </div>
+
+      <!-- Right: BoB -->
+      <div class="sbom-panel sbom-panel-right">
+        <div>
+          <div class="sbom-panel-title" style="color:var(--accent)">🛡 BoB &mdash; Bill of Behavior</div>
+          <div class="sbom-panel-subtitle" style="color:var(--accent)">"What is this software doing right now?"</div>
+        </div>
+        <hr class="sbom-divider" style="color:var(--accent)">
+        <div class="sbom-items">
+          <div class="sbom-item sbom-item-ok">✓&nbsp; read(<code style="font-size:12px">/var/log/*</code>)</div>
+          <div class="sbom-item sbom-item-ok">✓&nbsp; connect(<code style="font-size:12px">postgres:5432</code>)</div>
+          <div class="sbom-item sbom-item-bad">✗&nbsp; execve(<code style="font-size:12px">*</code>)</div>
+          <div class="sbom-item sbom-item-bad">✗&nbsp; connect(<code style="font-size:12px">*:4444</code>)</div>
+          <div class="sbom-item sbom-item-bad">✗&nbsp; mprotect(<code style="font-size:12px">PROT_EXEC</code>)</div>
+          <div class="sbom-item" style="color:var(--accent); opacity:0.6; font-size:11px">vendor-authored &middot; enforced via eBPF</div>
+        </div>
+        <hr class="sbom-divider" style="color:var(--accent)">
+        <div class="sbom-footer-row">
+          <div class="sbom-tag" style="background:rgba(78,205,196,0.1); color:var(--accent); border:1px solid rgba(78,205,196,0.25)">dynamic &middot; runtime &middot; enforceable</div>
+          <div class="sbom-tag" style="color:var(--success-color)">✓&nbsp; vendor-supplied behavioral contract</div>
+          <div class="sbom-tag" style="color:var(--success-color)">✓&nbsp; behavioral anomaly? &rarr; SIGKILL</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sbom-tagline">
+      <strong>"SBOM told us log4j 2.17.1 was present. It could not tell us this logger just opened an outbound network socket."</strong><br>
+      Composition transparency ≠ Behavioral transparency. BoB is the missing link.
+    </div>
+  </div>
+
   <div class="context-box glass" id="contextBox"></div>
   <div class="nav-hint">← → arrow keys or spacebar to navigate</div>
 
   <script>
     const slides = [
       {
+        title: "0. SBOM vs BoB — Composition ≠ Behavior",
+        context: `
+      <div class="context-title">Why This Matters:</div>
+      <ul>
+        <li><strong>SBOM</strong> (Software Bill of Materials) tells you <em>what's inside</em> the container. It's critical for vulnerability scanning — if log4shell drops, you know immediately who's exposed.</li>
+        <li>But the moment software is <em>compromised</em>, composition stops being the most important question. The real question becomes: <strong>what is this software doing right now?</strong></li>
+        <li><strong>BoB</strong> (Bill of Behavior) is the behavioral companion: a portable, vendor-supplied contract of exactly what runtime actions the software is expected to perform. It's what an SBOM is to composition — but for behavior.</li>
+        <li><strong>Who authors it?</strong> The <em>software vendor</em> — the only party who knows the intended behavior, test coverage, and expected syscall surface. Enforced at runtime via eBPF (e.g., <strong>Kubescape</strong>).</li>
+      </ul>
+    `,
+        show: [] // No SVG layers — this slide uses the HTML panel
+      },
+      {
         title: "1. The Naked Application — The Unrestricted Maze",
         context: `
       <div class="context-title">Developer Context:</div>
       <ul>
         <li>Without behavior mapping, a container is an open field. The maze walls represent code module boundaries — structurally present but providing zero runtime enforcement.</li>
-        <li>An RCE exploit cuts diagonally through the dependency tree, completely bypassing intended logic.</li>
-        <li>It reaches the kernel and successfully calls <em>execve()</em> to spawn a shell.</li>
-        <li><strong>Result:</strong> The application has no authority over what syscalls its own process can make.</li>
+        <li>An RCE exploit cuts through the dependency tree, completely bypassing intended logic, reaching the kernel and calling <em>execve()</em> to spawn a shell.</li>
+        <li><strong>Result:</strong> The application has no authority over what syscalls its own process can make. This is the unrestricted default — what the next slides fix.</li>
       </ul>
     `,
         show: ['startupZone', 'shutdownZone', 'entryPoint', 'mazeWallsExtra', 'blueThread', 'redAttackSlide1', 'syscalls', 'legend']
@@ -938,10 +1164,10 @@
         context: `
       <div class="context-title">Developer Context:</div>
       <ul>
-        <li><strong>BoB (Bill of Behavior):</strong> A profile defining exactly what actions (syscalls, file access) a container is allowed to perform, enforced via eBPF.</li>
-        <li>The General BoB profiles the container's aggregate allowed behaviors. The attack still traverses the internal corridors (the <em>Merge Fallacy</em> — hundreds of dependencies merged into one broad profile).</li>
-        <li>However, when it attempts <em>execve()</em>, the syscall is <strong>not in the whitelist</strong> and is denied.</li>
-        <li><strong>Key Insight:</strong> Enforcement happens in the kernel, not user-space. The attack reaches the boundary but chokes at the syscall gate.</li>
+        <li><strong>BoB (Bill of Behavior):</strong> A profile defining exactly what actions (syscalls, file access) a container is allowed to perform, enforced via eBPF in the kernel.</li>
+        <li>The General BoB profiles the container's aggregate allowed behaviors. The attack still traverses internal corridors (<em>Merge Fallacy</em> — hundreds of deps merged into one broad profile). But <em>execve()</em> is not whitelisted and is denied.</li>
+        <li><strong>Who authors the BoB?</strong> The <em>software vendor</em> — the only party who knows what the software is intended to do. Customers no longer reverse-engineer runtime policy from logs. Tools like <strong>Kubescape</strong> use eBPF to profile and enforce BoB-style policies in Kubernetes.</li>
+        <li><strong>Key Insight:</strong> BoB isn't just better anomaly detection — it's a vendor-supplied behavioral contract that travels with the software through the supply chain.</li>
       </ul>
     `,
         show: ['startupZone', 'shutdownZone', 'entryPoint', 'mazeWallsExtra', 'blueThread', 'lineWhitelist_active', 'badgeExecveWhitelist', 'redAttackSlide2', 'syscalls', 'legend']
@@ -990,10 +1216,10 @@
         context: `
       <div class="context-title">Developer Context:</div>
       <ul>
-        <li><strong>Holistic Security:</strong> A truly restricted workload relies on multiple overlapping layers of enforcement mapping the exact expected behavior of the application at every dimension.</li>
-        <li><strong>Whitelist</strong> stops unauthorized binaries. <strong>Phase Lock</strong> drops capabilities post-initialization.</li>
-        <li><strong>Stack Gate</strong> catches memory exploits. <strong>Scope Gate</strong> bounds data access.</li>
-        <li><strong>Result:</strong> All attack vectors hit an impenetrable wall. The workload is strictly confined to its behavioral bill.</li>
+        <li><strong>Holistic Security:</strong> A truly restricted workload relies on multiple overlapping BoB layers. Each gate enforces one dimension: <em>what</em> syscall, <em>when</em> in lifecycle, <em>which</em> code path, <em>on whose behalf</em>.</li>
+        <li><strong>Whitelist</strong> stops unauthorized binaries. <strong>Phase Lock</strong> drops capabilities post-initialization. <strong>Stack Gate</strong> catches memory exploits. <strong>Scope Gate</strong> bounds data access by identity.</li>
+        <li><strong>Why not AI?</strong> Learned models are opaque, non-portable, and impossible to audit or compare across environments. A vendor-signed BoB is explicit, reviewable, and attributable — a verifiable contract beats an opaque model every time.</li>
+        <li><strong>Ecosystem:</strong> <strong>Kubescape</strong> (eBPF behavioral profiling), <strong>Tetragon</strong>, <strong>Falco</strong>, <strong>KubeArmor</strong> all implement adjacent parts of this stack. BoB is the missing portable artifact that ties them together.</li>
       </ul>
     `,
         show: ['startupZone', 'shutdownZone', 'entryPoint', 'mazeWallsExtra', 'blueThread', 'lineWhitelist_active', 'linePhase_active', 'lineStack_active', 'lineScope_active', 'badgeExecveWhitelist', 'badgeMprotectPhase', 'badgeReadStack', 'badgeReadScope', 'genericAttacksSlide6', 'startupBulkhead', 'shutdownGate', 'syscalls', 'legend']
@@ -1010,6 +1236,17 @@
       // Force a reflow to ensure the animation reset is processed
       void diagram.offsetWidth;
 
+      // Show/hide the SVG diagram vs the HTML intro slide
+      const svgContainer = document.querySelector('.diagram-container');
+      const sbomSlideEl = document.getElementById('sbomSlide');
+      if (index === 0) {
+        svgContainer.style.display = 'none';
+        sbomSlideEl.style.display = 'flex';
+      } else {
+        svgContainer.style.display = 'block';
+        sbomSlideEl.style.display = 'none';
+      }
+
       currentSlide = index;
       const slide = slides[index];
 
@@ -1017,7 +1254,7 @@
       document.getElementById('contextBox').innerHTML = slide.context;
 
       // Update Buttons and Dots
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < 7; i++) {
         document.getElementById('btn' + i).classList.remove('active');
         document.getElementById('dot' + i).classList.remove('active');
       }
@@ -1031,7 +1268,7 @@
         'badgeExecveWhitelist_dim', 'badgeMprotectPhase_dim', 'badgeReadStack_dim', 'badgeReadScope_dim',
         'lineWhitelist_active', 'lineWhitelist_dim', 'linePhase_active', 'linePhase_dim', 'lineStack_active', 'lineStack_dim', 'lineScope_active', 'lineScope_dim',
         'redAttackSlide2', 'startupBulkhead', 'shutdownGate', 'redAttackSlide3',
-        'stacktraceEnforcement', 'threadScope', 'genericAttacksSlide6'
+        'stacktraceEnforcement', 'threadScope', 'genericAttacksSlide6', 'sbomBobPanel'
       ];
 
       allLayers.forEach(id => {
@@ -1052,7 +1289,7 @@
     document.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowRight' || e.key === ' ') {
         e.preventDefault();
-        if (currentSlide < 5) goToSlide(currentSlide + 1);
+        if (currentSlide < 6) goToSlide(currentSlide + 1);
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
         if (currentSlide > 0) goToSlide(currentSlide - 1);
