@@ -18,6 +18,8 @@ object LinuxNative {
     private val PRCTL: MethodHandle
     private val SYSCALL: MethodHandle
     private val STRERROR: MethodHandle
+    private val SIGACTION: MethodHandle
+    private val GETTID: MethodHandle
 
     val ERRNO_LAYOUT: StructLayout = Linker.Option.captureStateLayout()
 
@@ -42,6 +44,18 @@ object LinuxNative {
             stdlib.find("strerror").get(),
             FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.JAVA_INT)
         )
+
+        // int sigaction(int signum, const struct sigaction *act, struct sigaction *oldact)
+        SIGACTION = linker.downcallHandle(
+            stdlib.find("sigaction").get(),
+            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS)
+        )
+
+        // pid_t gettid(void)
+        GETTID = linker.downcallHandle(
+            stdlib.find("gettid").get(),
+            FunctionDescriptor.of(ValueLayout.JAVA_INT)
+        )
     }
 
     fun strerror(errno: Int): String {
@@ -50,6 +64,16 @@ object LinuxNative {
             ptr.reinterpret(1024).getString(0)
         } catch (e: Throwable) {
             "Unknown error $errno"
+        }
+    }
+
+    fun gettid(): Int {
+        return try {
+            GETTID.invokeExact() as Int
+        } catch (e: Throwable) {
+            // Fallback to syscall if gettid is not in libc (SYS_gettid is 186 on x86_64, 178 on aarch64)
+            val SYS_gettid = if (Arch.current() == Arch.AMD64) 186L else 178L
+            syscall(SYS_gettid, 0, 0, MemorySegment.NULL).returnValue
         }
     }
 
@@ -69,19 +93,14 @@ object LinuxNative {
             val f = filters[i]
             val offset = i * 8L
             filterArraySeg.set(ValueLayout.JAVA_SHORT, offset, f.code)
-            filterArraySeg.set(ValueLayout.JAVA_BYTE, offset + 2, f.jt.toByte())
-            filterArraySeg.set(ValueLayout.JAVA_BYTE, offset + 3, f.jf.toByte())
+            filterArraySeg.set(ValueLayout.JAVA_BYTE, offset + 2, (f.jt.toInt() and 0xFF).toByte())
+            filterArraySeg.set(ValueLayout.JAVA_BYTE, offset + 3, (f.jf.toInt() and 0xFF).toByte())
             filterArraySeg.set(ValueLayout.JAVA_INT, offset + 4, f.k)
         }
 
-        // struct sock_fprog {
-        //     unsigned short len;
-        //     struct sock_filter *filter;
-        // };
-        // We use structLayout to let the Linker handle alignment (e.g. padding after 'len')
         val progLayout = MemoryLayout.structLayout(
             ValueLayout.JAVA_SHORT.withName("len"),
-            MemoryLayout.paddingLayout(ValueLayout.ADDRESS.byteSize() - 2), // Ensure pointer is aligned
+            MemoryLayout.paddingLayout(ValueLayout.ADDRESS.byteSize() - 2), 
             ValueLayout.ADDRESS.withName("filter")
         )
 
@@ -103,7 +122,6 @@ object LinuxNative {
         }
     }
 
-    /** Convenience overload for passing a pointer (MemorySegment) as arg3. */
     fun prctl(option: Int, arg2: Long, arg3ptr: MemorySegment, arg4: Long, arg5: Long): SyscallResult =
         prctl(option, arg2, arg3ptr.address(), arg4, arg5)
 
@@ -116,6 +134,14 @@ object LinuxNative {
         }
     }
 
+    fun sigaction(signum: Int, act: MemorySegment, oldact: MemorySegment): Int {
+        return try {
+            SIGACTION.invokeExact(signum, act, oldact) as Int
+        } catch (e: Throwable) {
+            -1
+        }
+    }
+
     const val PR_SET_NO_NEW_PRIVS = 38
     const val PR_GET_NO_NEW_PRIVS = 39
     const val PR_SET_SECCOMP = 22
@@ -125,9 +151,31 @@ object LinuxNative {
     const val SECCOMP_RET_ERRNO = 0x00050000
     const val SECCOMP_RET_ALLOW = 0x7fff0000
     const val SECCOMP_RET_KILL_THREAD = 0x00000000
+    const val SECCOMP_RET_TRAP = 0x00030000
 
     const val SECCOMP_SET_MODE_FILTER = 1
     const val SECCOMP_FILTER_FLAG_TSYNC = 1
 
     const val EPERM = 1
+    const val SIGSYS = 31
+    const val SA_SIGINFO = 4
+
+    val SIGACTION_LAYOUT: StructLayout = MemoryLayout.structLayout(
+        ValueLayout.ADDRESS.withName("sa_handler"),
+        MemoryLayout.sequenceLayout(16, ValueLayout.JAVA_LONG).withName("sa_mask"),
+        ValueLayout.JAVA_INT.withName("sa_flags"),
+        MemoryLayout.paddingLayout(4),
+        ValueLayout.ADDRESS.withName("sa_restorer")
+    )
+
+    val SIGINFO_LAYOUT: StructLayout = MemoryLayout.structLayout(
+        ValueLayout.JAVA_INT.withName("si_signo"),
+        ValueLayout.JAVA_INT.withName("si_errno"),
+        ValueLayout.JAVA_INT.withName("si_code"),
+        MemoryLayout.paddingLayout(4),
+        ValueLayout.ADDRESS.withName("si_call_addr"),
+        ValueLayout.JAVA_INT.withName("si_syscall"),
+        ValueLayout.JAVA_INT.withName("si_arch"),
+        MemoryLayout.paddingLayout(96)
+    )
 }

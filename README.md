@@ -116,45 +116,45 @@ val combined = Policy.combine(Policy.NO_NETWORK, myPolicy)
 ContainedExecutors.installOnCurrentThread(Policy.NO_EXEC)
 ```
 
-**Graceful degradation** — On macOS or Windows, the library runs tasks uncontained by default. Configure via:
+**Graceful degradation** — On macOS or Windows, the library **fails by default** to prevent accidental insecure deployments. To override this behavior (e.g., for local development), configure via:
 
 ```bash
--Dio.contained.fallback=FAIL            # throw UnsupportedOperationException
--Dio.contained.fallback=WARN_AND_BYPASS # log warning, run uncontained (default)
+-Dio.contained.fallback=FAIL            # throw UnsupportedOperationException (default)
+-Dio.contained.fallback=WARN_AND_BYPASS # log warning, run uncontained
 -Dio.contained.fallback=SILENT_BYPASS   # run uncontained silently
 ```
 
-Or equivalently via the `IO_CONTAINED_FALLBACK` environment variable.
+---
+
+## Important: Shared Thread Pools & "Poisoning"
+
+Seccomp filters are **immutable and permanent** for the lifetime of a thread. 
+
+If you wrap an `ExecutorService` (like `Executors.newFixedThreadPool`), the worker threads in that pool will be permanently restricted after their first contained task. **Do not share the same pool between contained and uncontained tasks.** If an uncontained task is later scheduled on a "poisoned" worker thread, it will unexpectedly fail with `EPERM` when attempting restricted operations.
+
+For best results, always use a dedicated `ExecutorService` for restricted tasks.
 
 ---
 
 ## Virtual Threads
 
-Seccomp filters are **per-thread**. Virtual threads multiplex onto carrier threads from the shared ForkJoinPool — which means you cannot contain a virtual thread by wrapping its executor. The filter must be installed on the carrier.
+Seccomp filters are **per-thread**. Virtual threads multiplex onto carrier threads from a shared pool — which means you cannot contain a virtual thread by wrapping its executor, and you **must not** install a filter from within a virtual thread (as it would poison the carrier for other unrelated tasks).
 
-**Important:** Calling `installOnCurrentThread()` from inside a virtual thread will throw `IllegalStateException`. The library detects this misuse at runtime to prevent accidental carrier contamination.
+**Important:** Calling `installOnCurrentThread()` from inside a virtual thread will throw `IllegalStateException`.
 
-The correct pattern for virtual threads:
+### The Current Limitation
 
-```kotlin
-// Step 1: Create dedicated carrier threads and install the policy on each
-val carriers = Executors.newFixedThreadPool(4)
-val ready = CountDownLatch(4)
-repeat(4) {
-    carriers.submit {
-        ContainedExecutors.installOnCurrentThread(Policy.NO_EXEC)
-        ready.countDown()
-    }
-}
-ready.await()
+Standard JDK 22 does not currently support per-executor custom schedulers for virtual threads. This means you cannot easily isolate a subset of virtual threads onto a restricted set of carrier threads using public APIs.
 
-// Step 2: Build a virtual thread executor that uses these restricted carriers
-val vtFactory = Thread.ofVirtual().scheduler(carriers).factory()
-val virtualPool = Executors.newThreadPerTaskExecutor(vtFactory)
+### The Recommended Workaround
 
-// Every virtual task is now guaranteed to run on a restricted carrier
-virtualPool.submit { vulnerableLogger.log(input) }
-```
+If you must use virtual threads with seccomp, the only safe way is to:
+
+1. Use a **Platform Thread Executor** wrapped with `ContainedExecutors.wrap()`.
+2. Inside your task, perform your sensitive operations.
+3. If you need parallelism *within* that task, you can spawn virtual threads, but be aware that they will only be restricted if they happen to run on a carrier thread that has been restricted — which is not guaranteed unless you restrict the **entire** JVM carrier pool (via `jdk.virtualThreadScheduler.parallelism` and global installation), which is generally discouraged.
+
+For security-critical tasks requiring containment, **prefer using Platform Threads** via `ContainedExecutors.wrap(Executors.newFixedThreadPool(...))`.
 
 ---
 
@@ -176,7 +176,8 @@ virtualPool.submit { vulnerableLogger.log(input) }
 
 - **Not available on macOS or Windows.** The library degrades gracefully on non-Linux platforms, with a clear warning. Production deployments should always be Linux.
 
-- **Not all syscalls are blockable with simple number checks.** `mmap` with `PROT_EXEC` is dangerous only when backed by a file descriptor; blocking it outright breaks the JIT. v0.1 takes a conservative approach and does not block `mmap`. Future versions may inspect arguments.
+- **Some syscalls require argument inspection.** `mmap` is a prime example: the JVM uses it constantly for JIT and GC, so blocking it outright would crash the process. However, an attacker can use `mmap` with `PROT_EXEC` to allocate executable memory for shellcode. 
+  - **The Solution:** `contained-executors` uses BPF's argument inspection capabilities. Every filter we install includes a special check that allows standard `mmap` calls but triggers a trap if the `PROT_EXEC` bit is set in the protection flags. This blocks in-memory shellcode execution without affecting the JVM's internal operations.
 
 - **`NO_EXEC` does not block `memfd_create`.** An attacker can use `memfd_create` + `mmap(PROT_EXEC)` to execute shellcode in memory without calling `execve`. To close this bypass, add `Syscall.MEMFD_CREATE` to your policy:
   ```kotlin

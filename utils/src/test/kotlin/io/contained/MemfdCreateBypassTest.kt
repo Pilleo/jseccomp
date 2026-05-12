@@ -118,10 +118,12 @@ class MemfdCreateBypassTest {
 
         val thread = Thread {
             try {
+                ContainedExecutors.clearViolation()
                 ContainedExecutors.installOnCurrentThread(policy)
                 val fd = callMemfdCreate()
-                fdRef.set(fd)
-                if (fd >= 0) closeFd(fd)
+                val violated = ContainedExecutors.getLastViolationSyscall() != -1
+                fdRef.set(if (violated) -1 else fd)
+                if (fd >= 0 && !violated) closeFd(fd)
             } catch (e: Throwable) {
                 errorRef.set(e)
             }
@@ -148,10 +150,12 @@ class MemfdCreateBypassTest {
 
         val thread = Thread {
             try {
+                ContainedExecutors.clearViolation()
                 ContainedExecutors.installOnCurrentThread(combined)
                 val fd = callMemfdCreate()
-                fdRef.set(fd)
-                if (fd >= 0) closeFd(fd)
+                val violated = ContainedExecutors.getLastViolationSyscall() != -1
+                fdRef.set(if (violated) -1 else fd)
+                if (fd >= 0 && !violated) closeFd(fd)
             } catch (e: Throwable) {
                 errorRef.set(e)
             }

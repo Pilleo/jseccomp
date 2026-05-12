@@ -38,7 +38,9 @@ enum class Syscall {
     MOUNT,
     UMOUNT2,
     PIVOT_ROOT,
-    CHROOT;
+    CHROOT,
+    IOCTL,
+    PRCTL;
 
     /** Returns the syscall number for the given [arch], or -1 if not available. */
     fun numberFor(arch: Arch): Int = when (this) {
@@ -75,5 +77,7 @@ enum class Syscall {
         UMOUNT2      -> arch.umount2
         PIVOT_ROOT   -> arch.pivotRoot
         CHROOT       -> arch.chroot
+        IOCTL        -> arch.ioctl
+        PRCTL        -> arch.prctl
     }
 }

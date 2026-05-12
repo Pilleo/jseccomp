@@ -41,9 +41,9 @@ object Platform {
             try {
                 return FallbackBehavior.valueOf(prop.uppercase())
             } catch (e: IllegalArgumentException) {
-                logger.warning("Invalid fallback behavior '$prop', defaulting to WARN_AND_BYPASS")
+                logger.warning("Invalid fallback behavior '$prop', defaulting to FAIL")
             }
         }
-        return FallbackBehavior.WARN_AND_BYPASS
+        return FallbackBehavior.FAIL
     }
 }

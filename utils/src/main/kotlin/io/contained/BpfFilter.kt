@@ -21,6 +21,7 @@ object BpfFilter {
 
     private const val SECCOMP_DATA_NR_OFFSET = 0
     private const val SECCOMP_DATA_ARCH_OFFSET = 4
+    private const val SECCOMP_DATA_ARGS_OFFSET = 16
     
     // Max instructions in a single contiguous block.
     private const val MAX_BLOCK_SIZE = 100
@@ -48,13 +49,48 @@ object BpfFilter {
         insns.add(stmt(BPF_LD or BPF_W or BPF_ABS, SECCOMP_DATA_NR_OFFSET))
 
         // 2. High-Bound Check
-        insns.add(jmp(BPF_JMP or BPF_JGT or BPF_K, arch.limit, "deny_prologue", "check_blocks"))
+        insns.add(jmp(BPF_JMP or BPF_JGT or BPF_K, arch.limit, "deny_prologue", "check_special"))
 
         // Local Deny for prologue (must be within 255 instructions of the top)
         labels["deny_prologue"] = insns.size
-        insns.add(stmt(BPF_RET or BPF_K, LinuxNative.SECCOMP_RET_ERRNO or LinuxNative.EPERM))
+        // Use TRAP for robust detection
+        insns.add(stmt(BPF_RET or BPF_K, LinuxNative.SECCOMP_RET_TRAP or LinuxNative.EPERM))
 
-        // 3. Block-based checks
+        // 3. Special Syscall Argument Checks
+        // Some syscalls are only dangerous with specific arguments. We inspect them here.
+        labels["check_special"] = insns.size
+        
+        // --- Special Case: mmap with PROT_EXEC ---
+        // An attacker can use mmap(PROT_EXEC) to create executable memory, write shellcode,
+        // and jump to it, bypassing NO_EXEC (which only blocks execve).
+        // However, blocking mmap outright breaks the JVM (JIT, GC, and Class Loading need it).
+        // Solution: Inspect the 'prot' argument (3rd arg) and block only if PROT_EXEC is set.
+        
+        // Step 3a: Is this an mmap syscall?
+        insns.add(jmp(BPF_JMP or BPF_JEQ or BPF_K, arch.mmap, "check_mmap_prot", "check_blocks"))
+        
+        labels["check_mmap_prot"] = insns.size
+        // Step 3b: Load the 3rd argument (args[2]).
+        // seccomp_data layout: [nr:4][arch:4][ip:8][args:6*8]
+        // args[0] is at offset 16. args[2] is at 16 + 2*8 = 32.
+        // We load the low 32 bits (at offset 32) because PROT_EXEC (0x04) fits in 32 bits.
+        // Note: BPF_ABS loads from the seccomp_data struct.
+        insns.add(stmt(BPF_LD or BPF_W or BPF_ABS, SECCOMP_DATA_ARGS_OFFSET + 16)) 
+
+        // Step 3c: Check if PROT_EXEC (0x04) is set in the bitmask.
+        // BPF_JSET performs (value & mask) != 0.
+        insns.add(jmp(BPF_JMP or 0x40 or BPF_K, 0x04, "deny_special", "allow_special")) // 0x40 is BPF_JSET
+
+        // Step 3d: Trap if PROT_EXEC was requested.
+        labels["deny_special"] = insns.size
+        insns.add(stmt(BPF_RET or BPF_K, LinuxNative.SECCOMP_RET_TRAP or LinuxNative.EPERM))
+        
+        // Step 3e: Explicitly allow mmap if PROT_EXEC was NOT requested.
+        // This prevents standard mmap from being blocked by the linear scan below.
+        labels["allow_special"] = insns.size
+        insns.add(stmt(BPF_RET or BPF_K, LinuxNative.SECCOMP_RET_ALLOW))
+
+        // 4. Block-based checks (Linear Scan / BST for simple syscall number matching)
         labels["check_blocks"] = insns.size
         if (blocked.isEmpty()) {
             insns.add(stmt(BPF_RET or BPF_K, LinuxNative.SECCOMP_RET_ALLOW))
@@ -85,7 +121,8 @@ object BpfFilter {
             }
             
             labels[localDeny] = insns.size
-            insns.add(stmt(BPF_RET or BPF_K, LinuxNative.SECCOMP_RET_ERRNO or LinuxNative.EPERM))
+            // Use TRAP for robust detection
+            insns.add(stmt(BPF_RET or BPF_K, LinuxNative.SECCOMP_RET_TRAP or LinuxNative.EPERM))
             
             labels[localAllow] = insns.size
             insns.add(stmt(BPF_RET or BPF_K, LinuxNative.SECCOMP_RET_ALLOW))

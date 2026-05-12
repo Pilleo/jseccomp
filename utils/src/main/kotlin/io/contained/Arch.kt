@@ -37,6 +37,8 @@ data class Arch(
     val umount2: Int,
     val pivotRoot: Int,
     val chroot: Int,
+    val ioctl: Int,
+    val prctl: Int,
     val seccompSyscallNumber: Int
 ) {
     companion object {
@@ -80,6 +82,8 @@ data class Arch(
             umount2 = 166,
             pivotRoot = 155,
             chroot = 161,
+            ioctl = 16,
+            prctl = 157,
             seccompSyscallNumber = 317
         )
 
@@ -120,6 +124,8 @@ data class Arch(
             umount2 = 39,
             pivotRoot = 41,
             chroot = 51,
+            ioctl = 29,
+            prctl = 167,
             seccompSyscallNumber = 277
         )
 
