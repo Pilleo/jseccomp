@@ -720,11 +720,11 @@
           mismatch</text>
       </g>
       <g id="badgeReadScope" class="slide-layer interactive">
-        <rect x="270" y="540" width="140" height="44" rx="4" fill="var(--warning-color)" opacity="0.92"
+        <rect x="245" y="540" width="140" height="44" rx="4" fill="var(--warning-color)" opacity="0.92"
           filter="url(#glow-orange)" />
-        <text x="340" y="556" fill="#0d1117" font-size="9" font-weight="bold" text-anchor="middle">⊘ SCOPE DENIED</text>
-        <text x="340" y="569" fill="#0d1117" font-size="7" text-anchor="middle">/etc/passwd ∉ /public/</text>
-        <text x="340" y="580" fill="#0d1117" font-size="7" text-anchor="middle">eBPF LSM thread-ctx map</text>
+        <text x="315" y="556" fill="#0d1117" font-size="9" font-weight="bold" text-anchor="middle">⊘ SCOPE DENIED</text>
+        <text x="315" y="569" fill="#0d1117" font-size="7" text-anchor="middle">/etc/passwd ∉ /public/</text>
+        <text x="315" y="580" fill="#0d1117" font-size="7" text-anchor="middle">eBPF LSM thread-ctx map</text>
       </g>
 
 
@@ -861,12 +861,12 @@
         <g class="interactive">
           <title>Malicious execution path passing stacktrace validation due to Confused Deputy vulnerability</title>
           <polyline
-            points="550,145 550,180 510,180 510,240 470,240 470,300 430,300 430,360 400,360 400,420 340,420 340,540"
+            points="550,145 550,180 510,180 510,240 470,240 470,300 430,300 430,360 400,360 400,420 315,420 315,540"
             fill="none" stroke="var(--thread-color)" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"
             opacity="0.8" class="path-draw" />
           <!-- Red inside to indicate malicious data -->
           <polyline
-            points="550,145 550,180 510,180 510,240 470,240 470,300 430,300 430,360 400,360 400,420 340,420 340,540"
+            points="550,145 550,180 510,180 510,240 470,240 470,300 430,300 430,360 400,360 400,420 315,420 315,540"
             fill="none" stroke="var(--attack-color)" stroke-width="2" stroke-dasharray="6,2" opacity="0.9" />
         </g>
 
@@ -887,16 +887,16 @@
         </g>
 
         <!-- Context Map -->
-        <line x1="340" y1="584" x2="380" y2="680" stroke="var(--warning-color)" stroke-width="2" stroke-dasharray="5,3"
+        <line x1="315" y1="584" x2="355" y2="680" stroke="var(--warning-color)" stroke-width="2" stroke-dasharray="5,3"
           opacity="0.6" />
         <g class="interactive">
           <title>eBPF map storing contextual thread data injected by user-space runtime</title>
-          <rect x="280" y="680" width="230" height="55" rx="4" fill="#1a202c" stroke="var(--warning-color)"
+          <rect x="255" y="680" width="230" height="55" rx="4" fill="#1a202c" stroke="var(--warning-color)"
             stroke-width="2" />
-          <text x="295" y="700" fill="var(--warning-color)" font-size="9" font-weight="bold">eBPF Thread Context
+          <text x="270" y="700" fill="var(--warning-color)" font-size="9" font-weight="bold">eBPF Thread Context
             Map</text>
-          <text x="295" y="715" fill="var(--text-secondary)" font-size="8">thread_id=7 | user_role=guest</text>
-          <text x="295" y="728" fill="var(--attack-color)" font-size="8">path=/etc/passwd → OUTSIDE /public/</text>
+          <text x="270" y="715" fill="var(--text-secondary)" font-size="8">thread_id=7 | user_role=guest</text>
+          <text x="270" y="728" fill="var(--attack-color)" font-size="8">path=/etc/passwd → OUTSIDE /public/</text>
         </g>
 
 
@@ -904,10 +904,10 @@
         <!-- Valid path continues -->
         <g class="interactive">
           <title>Legitimate application thread executing expected logic within intended boundaries</title>
-          <polyline points="410,575 410,610" fill="none" stroke="var(--thread-color)" stroke-width="2.5"
+          <polyline points="385,575 385,610" fill="none" stroke="var(--thread-color)" stroke-width="2.5"
             filter="url(#glow-blue)" opacity="0.8" />
         </g>
-        <text x="420" y="600" fill="var(--thread-color)" font-size="8">✓ valid: /public/doc.pdf</text>
+        <text x="395" y="600" fill="var(--thread-color)" font-size="8">✓ valid: /public/doc.pdf</text>
 
         <!-- Examples -->
         <g class="interactive">
@@ -934,15 +934,15 @@
         Rail A (y=145): ingress level  → Attack 3 (BoB Whitelist x=811)
         Rail B (y=220): mid-upper      → Attack 4 (Phase Lock x=961)
       LEFT SIDE (blue thread hijack):
-        Attack 1 at (400,360) → Scope Gate  (x=340, badge at x=340)
+        Attack 1 at (400,360) → Scope Gate  (x=315, badge at x=315)
         Attack 2 at (430,300) → Stack Gate  (x=450, badge at x=450)
     -->
 
-    <!-- Attack 1: Scope Gate (x=340) — branch LEFT from thread at (400,360) -->
-    <polyline points="400,360 340,360 340,535"
+    <!-- Attack 1: Scope Gate (x=315) — branch LEFT from thread at (400,360) -->
+    <polyline points="400,360 315,360 315,535"
       fill="none" stroke="var(--attack-color)" stroke-width="2.5" stroke-dasharray="6,3"
       opacity="0.85" class="path-draw"/>
-    <polygon points="335,532 345,532 340,541" fill="var(--attack-color)" opacity="0.9"/>
+    <polygon points="310,532 320,532 315,541" fill="var(--attack-color)" opacity="0.9"/>
 
     <!-- Attack 2: Stack Gate (x=450) — branch RIGHT from thread at (430,300) -->
     <polyline points="430,300 450,300 450,535"

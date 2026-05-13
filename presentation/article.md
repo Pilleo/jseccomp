@@ -114,6 +114,7 @@ BoB is emerging, not universal. But teams don't have to wait to start adopting a
     Audit first: Adopt runtime tooling in audit mode before moving toward strict blocking.
  
 These practices don't replace BoB. They train engineering teams to think in the exact behavioral terms that BoB formalizes.
+
 Next Up: The JVM Thought Experiment
  
 In Part 2 of this series, we are going to move from theory to a concrete thought experiment: applying BoB to the Java Virtual Machine (JVM).
@@ -121,6 +122,29 @@ In Part 2 of this series, we are going to move from theory to a concrete thought
 Java applications are notoriously complex at runtime. They rely heavily on reflection, dynamic proxies, classloading, JVM agents, and framework lifecycle magic. This dynamic nature makes them an incredibly interesting challenge for any behavioral contract.
  
 We will explore what it would actually take to generate a meaningful BoB for a real Spring Boot application, why static analysis alone isn't enough, and why platforms like GraalVM might make this seemingly impossible task surprisingly tractable.
+
+<a id="demo"></a>
+---
+
+### Try It Yourself: Interactive Playground
+
+Want to see runtime behavioral enforcement in action right now? 
+
+**[Play with the Demo on Killercoda](https://killercoda.com/YOUR_USERNAME/scenario/jsecomp)**
+
+This interactive, browser-based Linux environment lets you:
+1. Run a vulnerable application and execute a Log4Shell-style exploit.
+2. Run the same application protected by a kernel-level `seccomp-bpf` filter and watch the exploit fail.
+3. Modify the Java code and security policies yourself to test new boundaries.
+
+No setup required—it runs directly in your browser.
+
+**Prefer to just watch?** Here is a 30-second recording of the demo:
+
+![Demo Recording](demo.svg)
+
+---
+
 Final Thought
  
 SBOM gave us composition transparency. BoB is the beginning of behavioral transparency.

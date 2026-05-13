@@ -1,6 +1,7 @@
 # Security Considerations & Technical Risks
 
-While `contained-executors` provides a robust layer of defense by moving enforcement into the Linux kernel, using seccomp-bpf within the JVM introduces specific architectural risks. This document outlines those risks and provides mitigation strategies.
+
+While `contained-executors` provides a robust layer of defense by moving enforcement into the Linux kernel, using seccomp-bpf within the JVM introduces specific architectural risks. This document outlines those risks and our mitigation strategies.
 
 ---
 
@@ -14,6 +15,7 @@ If a task installs a seccomp filter on a thread and that thread then returns to 
 ### Mitigation
 *   **Dedicated Pools:** Never apply `ContainedExecutors` to shared system pools. Always use a dedicated, isolated `ExecutorService` where the lifecycle of the threads is strictly managed.
 *   **Thread Termination:** Use a `ThreadFactory` that creates threads which terminate once their "contained" lifecycle is over, or ensure the pool is exclusively used for restricted tasks.
+*   **Safety Tracking:** The library tracks the number of filters installed per thread (`FILTER_DEPTH`) and will throw an `IllegalStateException` before hitting the Linux kernel limit (typically 32).
 
 ---
 
@@ -25,51 +27,56 @@ The JVM is a dynamic environment that performs many operations lazily:
 *   **JNI Loading:** `System.loadLibrary` triggers multiple syscalls (`open`, `mmap`, `mprotect`).
 *   **GC & Management:** The JVM may spawn internal threads or allocate memory segments dynamically.
 
-If a restricted thread (e.g., using `Policy.PURE_COMPUTE`) is the first thread in the application to trigger a specific lazy initialization path, the operation will fail with `EPERM`. This might not just fail the task; it could leave the JVM in a corrupted or partially initialized state.
+If a restricted thread (e.g., using `Policy.PURE_COMPUTE`) is the first thread in the application to trigger a specific lazy initialization path, the operation will fail.
 
 ### Mitigation
 *   **Warm-up:** Ensure critical classes, providers (like `java.security`), and native libraries are loaded during application startup before containment is applied.
-*   **Policy Granularity:** Avoid `PURE_COMPUTE` (blocking `open`) unless the task is strictly computational and all required resources are already in memory.
+*   **Selective Blocking:** We use argument inspection for critical syscalls like `clone` and `mmap` to allow JVM-internal operations while blocking malicious ones (see below).
 
 ---
 
-## 3. The `mmap` + `PROT_EXEC` Hole
+## 3. Executive Control: Argument Inspection
 
-### The Risk
-The current implementation does not block `mmap` or `mprotect` because the JIT compiler requires these to create executable memory. However, an attacker can use `memfd_create` and `mmap` with `PROT_EXEC` to load and execute binary shellcode directly in memory, bypassing `NO_EXEC` (which only blocks `execve`).
+Previously, syscalls were blocked based only on their number. This meant that syscalls like `mmap` and `clone` had to be allowed entirely to avoid crashing the JVM. `contained-executors` now uses BPF argument inspection to provide fine-grained control.
 
-### Mitigation
-* **Block `memfd_create`:** The `Syscall.MEMFD_CREATE` syscall is available in the policy builder. Blocking it prevents the most common vector for in-memory code execution without `execve`:
-  ```kotlin
-  val policy = Policy.combine(
-      Policy.NO_EXEC,
-      Policy.builder().block(Syscall.MEMFD_CREATE).build()
-  )
-  ```
-* **W^X Enforcement:** Future versions should use seccomp argument inspection to allow `mmap`, but block calls where `(prot & PROT_WRITE) && (prot & PROT_EXEC)` is true.
-* **Note:** Standard seccomp cannot inspect the content of string paths, so it cannot distinguish between the JIT mapping memory and an attacker mapping a malicious library.
+### Executable Memory Protection (`mmap`)
+*   **The Risk:** An attacker can use `mmap` with `PROT_EXEC` to allocate executable memory for binary shellcode, bypassing `NO_EXEC` policies.
+*   **Our Fix:** We inspect the `prot` argument. We allow standard `mmap` calls but trigger a trap if the `PROT_EXEC` (0x04) bit is set. This blocks shellcode execution while allowing the JIT and GC to function normally.
+
+### JVM Stability Protection (`clone`)
+*   **The Risk:** Blocking `clone` entirely prevents the JVM from creating internal threads, leading to crashes. However, allowing it allows an attacker to spawn new processes (`fork`).
+*   **Our Fix:** We inspect the `flags` argument. We allow `clone` only if it includes `CLONE_THREAD` or `CLONE_VM` (indicating a new thread within the process). Standard process forking is blocked.
+*   **`clone3` Handling:** We block `clone3` with `ENOSYS`, forcing fallbacks to the inspectable legacy `clone` syscall.
 
 ---
 
 ## 4. Virtual Thread Carrier Contamination
 
 ### The Risk
-Virtual threads (Project Loom) multiplex many Java threads onto a small number of OS "carrier" threads. If you call `installOnCurrentThread` inside a virtual thread, you are actually sandboxing the carrier thread. Since carrier threads are shared across the JVM, this will inadvertently sandbox every other virtual thread that happens to be scheduled on that carrier.
+Virtual threads (Project Loom) multiplex many Java threads onto a small number of OS "carrier" threads. If you install a filter from within a virtual thread, you sandbox the carrier thread, inadvertently affecting every other virtual thread scheduled on that carrier.
 
 ### Mitigation
-*   **Custom Schedulers:** Follow the pattern in the README: use a dedicated `Executor` as a scheduler for virtual threads, ensuring that the restricted carrier threads never run "trusted" system tasks.
-*   **Avoid Default VT Executor:** Never use `ContainedExecutors.installOnCurrentThread()` inside the default `Executors.newVirtualThreadPerTaskExecutor()`.
+*   **Guardrails:** `ContainedExecutors.installOnCurrentThread()` detects if it is being called from a virtual thread and throws an `IllegalStateException`.
+*   **Platform Threads:** Always run restricted tasks on Platform Threads via `ContainedExecutors.wrap(Executors.newFixedThreadPool(...))`.
 
 ---
 
-## 5. Signal Handling and SIGSYS
+## 5. Signal Handling and Violation Detection
+
+### The Mechanism
+We use `SECCOMP_RET_TRAP` for violations. This triggers a `SIGSYS` signal which is captured by our native signal handler.
 
 ### The Risk
-If a seccomp filter is configured to return `SECCOMP_RET_TRAP`, the kernel sends a `SIGSYS` signal to the thread. If the JVM's signal handler is not prepared for this, the process will terminate. Even with `SECCOMP_RET_ERRNO` (returning `EPERM`), some low-level C libraries (used via JNI) may not handle `EPERM` gracefully and might trigger a hard crash or an abort.
+If the signal handler is not async-signal-safe, it can cause deadlocks or crashes. 
+*   **Our Mitigation:** Our handler is written in Kotlin but adheres to async-signal-safety rules. It uses a pre-allocated shared memory segment (`VIOLATION_MAP`) indexed by thread ID to record violations, avoiding Java's `ThreadLocal` or heap allocations.
 
-### Mitigation
-*   **Errno approach:** `contained-executors` defaults to returning `EPERM` (via `SECCOMP_RET_ERRNO`), which the JVM translates into an `IOException`. This is generally safer than signals.
-*   **Testing:** Always test policies against the specific version of the JDK and native libraries being used, as internal syscall patterns change between versions.
+### Why not `SECCOMP_RET_USER_NOTIF`?
+Modern Linux (5.0+) supports `SECCOMP_RET_USER_NOTIF`, which allows a supervisor thread to intercept syscalls, inspect pointer arguments (like `clone3`'s `struct clone_args` in target memory), and allow/deny them dynamically.
+
+*   **The Benefits:** It would allow us to natively inspect modern syscalls like `clone3` without forcing a fallback.
+*   **The Struggle in Pure Java:** Implementing `USER_NOTIF` purely via the FFM API is extremely brittle. It requires hardcoding the exact memory layouts of kernel structures (`seccomp_notif`) and recalculating complex `ioctl` constants (like `SECCOMP_IOCTL_NOTIF_RECV`) that are defined as C macros. These macros incorporate the exact byte size of the structures, meaning a slight mismatch in alignment or padding between architecture versions causes the `ioctl` to fail silently. In our testing, this resulted in an unrecoverable infinite `poll()` loop that starved the JVM.
+*   **The Native Alternative:** We could write the supervisor loop in Rust or C, compile it to a `.so` file, and bundle it. This provides access to native `<linux/seccomp.h>` headers, making `USER_NOTIF` rock-solid. However, this introduces massive distribution complexity (cross-compiling for x86_64, aarch64, etc., and unpacking binaries at runtime).
+*   **The Decision:** To maintain a 100% pure Java library that is lightweight and easy to distribute, we rely on the mathematically provable `SIGSYS` trap mechanism and use `ENOSYS` to force runtimes to fallback to inspectable legacy syscalls (like `clone`). This is the exact same architectural decision made by **Elasticsearch** in their internal `SystemCallFilter`, which also relies on pure Java native bindings to avoid shipping custom C binaries.
 
 ---
 
@@ -86,27 +93,13 @@ Seccomp restricts **actions** (syscalls), but it does not provide **data isolati
 
 ---
 
-## 7. The `clone` Syscall Paradox
-
-### The Risk
-Blocking `clone` prevents the creation of new threads. While this sounds secure, the JVM's `pthread_create` calls will fail. If a library tries to initialize a background worker (e.g., an OkHttp connection pool or a Logback AsyncAppender) from within a contained thread, the thread creation will fail.
-
-### Mitigation
-*   The library intentionally allows `clone`. Because seccomp filters are inherited, any thread created by a restricted thread will be **automatically restricted** by the same policy. This is a safe default.
-
----
-
 ## Summary Table: Security vs. Stability
 
 | Policy | Security Level | Stability Risk | Best Use Case |
 | :--- | :--- | :--- | :--- |
-| `NO_EXEC` | Medium | Low | Web controllers, log processing. |
+| `NO_EXEC` | High | Low | Web controllers, log processing. |
 | `NO_NETWORK` | High | Medium | Data parsing, report generation. |
-| `PURE_COMPUTE`| Very High | High | Pure algorithmic tasks (image processing, crypto). |
+| `PURE_COMPUTE`| Critical | High | Pure algorithmic tasks (image processing, crypto). |
 
 ### Final Recommendation
 **Fail-Closed in Production:** In your production environment, set `-Dio.contained.fallback=FAIL`. This ensures that if the seccomp filter cannot be installed (e.g., due to an incompatible kernel), the application will not run in an insecure "bypass" mode.
-
-```bash
-java -Dio.contained.fallback=FAIL -jar app.jar
-```

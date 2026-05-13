@@ -1,6 +1,5 @@
 package io.contained
 
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.io.IOException
 import java.net.ConnectException
@@ -10,11 +9,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ContainmentViolationDetectorTest {
-
-    @BeforeEach
-    fun setUp() {
-        ContainedExecutors.clearViolation()
-    }
 
     @Test
     fun `IOException with EPERM message is detected`() {

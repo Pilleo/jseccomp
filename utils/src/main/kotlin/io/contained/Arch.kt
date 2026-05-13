@@ -39,6 +39,10 @@ data class Arch(
     val chroot: Int,
     val ioctl: Int,
     val prctl: Int,
+    val gettid: Int,
+    val sigreturn: Int,
+    val rtSigreturn: Int,
+    val poll: Int,
     val seccompSyscallNumber: Int
 ) {
     companion object {
@@ -84,6 +88,10 @@ data class Arch(
             chroot = 161,
             ioctl = 16,
             prctl = 157,
+            gettid = 186,
+            sigreturn = 15,
+            rtSigreturn = 33,
+            poll = 7,
             seccompSyscallNumber = 317
         )
 
@@ -126,6 +134,10 @@ data class Arch(
             chroot = 51,
             ioctl = 29,
             prctl = 167,
+            gettid = 178,
+            sigreturn = -1, // Not used on aarch64
+            rtSigreturn = 139,
+            poll = 73,
             seccompSyscallNumber = 277
         )
 

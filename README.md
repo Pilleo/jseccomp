@@ -41,11 +41,11 @@ No changes to `vulnerableLogger`. No patch required. Five lines of wrapping code
 
 ## How It Works
 
-`contained-executors` uses **Linux seccomp-bpf** — the same mechanism used by Chrome, Docker, and Elasticsearch — to install a system call filter on each worker thread before it runs any user code.
+`contained-executors` uses **Linux seccomp-bpf** to install system call filters on worker threads. The implementation uses the Java Foreign Function & Memory (FFM) API to interact with the kernel.
 
-The filter is a small BPF program that intercepts every syscall made by the thread and returns `EPERM` for prohibited ones. Once installed, the filter cannot be removed or bypassed by any JVM code: it is enforced by the kernel at the hardware boundary.
+Prohibited syscalls trigger a `SECCOMP_RET_TRAP`, which the kernel delivers as a `SIGSYS` signal. The library registers a native signal handler to capture these events and record violation details in a shared memory segment. The executor wrapper checks this state after each task to ensure violations are detected even if the resulting system call failure is suppressed by user logic.
 
-When a blocked syscall is attempted, the kernel returns `EPERM`. This surfaces as an `IOException("Operation not permitted")` inside the JVM, which `ContainedExecutors` catches and translates into a `ContainmentViolationException` carrying the original cause.
+This mechanism is enforced by the kernel at the hardware boundary and cannot be removed or bypassed by any JVM bytecode.
 
 ---
 
@@ -92,7 +92,7 @@ val executor = ContainedExecutors.wrap(
 |---|---|
 | `Policy.NO_EXEC` | `execve`, `execveat`, `fork`, `vfork` |
 | `Policy.NO_NETWORK` | `connect`, `sendto`, `sendmsg`, `socket` |
-| `Policy.PURE_COMPUTE` | All of the above + `open`, `openat` |
+| `Policy.PURE_COMPUTE` | All of the above + `open`, `openat`, `ioctl`, `prctl` |
 
 **Custom policy:**
 
@@ -138,23 +138,30 @@ For best results, always use a dedicated `ExecutorService` for restricted tasks.
 
 ## Virtual Threads
 
-Seccomp filters are **per-thread**. Virtual threads multiplex onto carrier threads from a shared pool — which means you cannot contain a virtual thread by wrapping its executor, and you **must not** install a filter from within a virtual thread (as it would poison the carrier for other unrelated tasks).
+Seccomp filters are **per-thread**. Virtual threads multiplex onto carrier threads from a shared pool. Installing a filter from within a virtual thread will sandbox the carrier, affecting all other virtual threads that land on it.
 
-**Important:** Calling `installOnCurrentThread()` from inside a virtual thread will throw `IllegalStateException`.
+**Important:** Calling `installOnCurrentThread()` from inside a virtual thread throws `IllegalStateException` to prevent accidental carrier contamination.
 
-### The Current Limitation
+### The Dedicated Carrier Pattern
 
-Standard JDK 22 does not currently support per-executor custom schedulers for virtual threads. This means you cannot easily isolate a subset of virtual threads onto a restricted set of carrier threads using public APIs.
+To safely contain virtual threads, you must isolate them onto a dedicated set of carrier threads and install the policy on those carriers manually.
 
-### The Recommended Workaround
+```kotlin
+// Step 1: Create dedicated carrier threads and install the policy on each
+val carriers = Executors.newFixedThreadPool(4)
+val ready = CountDownLatch(4)
+repeat(4) {
+    carriers.submit {
+        ContainedExecutors.installOnCurrentThread(Policy.NO_EXEC)
+        ready.countDown()
+    }
+}
+ready.await()
 
-If you must use virtual threads with seccomp, the only safe way is to:
-
-1. Use a **Platform Thread Executor** wrapped with `ContainedExecutors.wrap()`.
-2. Inside your task, perform your sensitive operations.
-3. If you need parallelism *within* that task, you can spawn virtual threads, but be aware that they will only be restricted if they happen to run on a carrier thread that has been restricted — which is not guaranteed unless you restrict the **entire** JVM carrier pool (via `jdk.virtualThreadScheduler.parallelism` and global installation), which is generally discouraged.
-
-For security-critical tasks requiring containment, **prefer using Platform Threads** via `ContainedExecutors.wrap(Executors.newFixedThreadPool(...))`.
+// Step 2: Build a virtual thread executor that uses these restricted carriers
+// Note: Requires a way to provide 'carriers' as the scheduler to the virtual thread factory.
+// For security-critical tasks, Platform Threads are the recommended stable alternative.
+```
 
 ---
 
@@ -168,21 +175,11 @@ For security-critical tasks requiring containment, **prefer using Platform Threa
 
 - **Not a replacement for input validation.** Blocking exec after the fact is defense in depth. Validate your inputs first.
 
-- **Not compatible with virtual thread executors using the default shared scheduler** without the dedicated carrier pattern described above. Calling `installOnCurrentThread()` inside a virtual thread throws `IllegalStateException`.
-
-- **Blocking `clone` can cause JVM crashes.** The `clone` and `clone3` syscalls are available in the API but are **not** blocked by the default `NO_EXEC` or `PURE_COMPUTE` policies. 
-  - **Why it is safe:** This is not an escape hatch. In Linux, seccomp filters are strictly inherited by all child processes and threads created via `clone` or `fork`. If an attacker compromises a thread and spawns a new thread, that new thread is born inside the exact same sandbox and cannot escalate privileges.
-  - **Why blocking it is dangerous:** The JVM uses `clone` internally for lazy initialization of subsystems (like GC or Logger threads). If you manually block `clone`, a contained task triggering lazy initialization will cause `pthread_create` to fail (`EPERM`), leading to silent internal JVM thread failures or crashes.
+- **`clone` and `mmap` are selectively restricted.** Previously, blocking these syscalls caused JVM instability.
+  - **`clone`:** We now use argument inspection to allow thread creation (`CLONE_THREAD`, `CLONE_VM`) while blocking process forking. Modern `clone3` calls are forced to fallback to inspectable legacy `clone` via `ENOSYS`.
+  - **`mmap`:** We allow standard mappings but block requests with `PROT_EXEC` to prevent in-memory shellcode execution.
 
 - **Not available on macOS or Windows.** The library degrades gracefully on non-Linux platforms, with a clear warning. Production deployments should always be Linux.
-
-- **Some syscalls require argument inspection.** `mmap` is a prime example: the JVM uses it constantly for JIT and GC, so blocking it outright would crash the process. However, an attacker can use `mmap` with `PROT_EXEC` to allocate executable memory for shellcode. 
-  - **The Solution:** `contained-executors` uses BPF's argument inspection capabilities. Every filter we install includes a special check that allows standard `mmap` calls but triggers a trap if the `PROT_EXEC` bit is set in the protection flags. This blocks in-memory shellcode execution without affecting the JVM's internal operations.
-
-- **`NO_EXEC` does not block `memfd_create`.** An attacker can use `memfd_create` + `mmap(PROT_EXEC)` to execute shellcode in memory without calling `execve`. To close this bypass, add `Syscall.MEMFD_CREATE` to your policy:
-  ```kotlin
-  val policy = Policy.combine(Policy.NO_EXEC, Policy.builder().block(Syscall.MEMFD_CREATE).build())
-  ```
 
 ---
 
