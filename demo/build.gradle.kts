@@ -2,7 +2,14 @@ plugins {
     kotlin("jvm")
     application
 }
-
+java{
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(25))
+    }
+}
+kotlin {
+    jvmToolchain(25)
+}
 application {
     mainClass.set("demo.DemoAppKt")
     applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
