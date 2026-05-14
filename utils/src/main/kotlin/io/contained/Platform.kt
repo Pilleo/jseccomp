@@ -22,6 +22,13 @@ object Platform {
      */
     fun isSupported(): Boolean {
         if (!System.getProperty("os.name").equals("Linux", ignoreCase = true)) return false
+
+        // Check if the kernel actually supports seccomp
+        // PR_GET_SECCOMP returns < 0 (and sets errno to EINVAL) if seccomp is not configured in the kernel
+        if (LinuxNative.prctl(LinuxNative.PR_GET_SECCOMP, 0, 0, 0, 0).returnValue < 0) {
+            return false
+        }
+
         return try {
             Arch.current()
             true

@@ -17,6 +17,8 @@ class MmapProtectionTest {
     @Test
     @EnabledOnOs(OS.LINUX)
     fun `mmap with PROT_EXEC is blocked even if mmap syscall is allowed`() {
+        if (!Platform.isSupported()) return
+
         val executor = Executors.newSingleThreadExecutor()
         val safeExecutor = ContainedExecutors.wrap(executor, Policy.builder().block(Syscall.PTRACE).build())
 

@@ -16,7 +16,7 @@ object LibseccompNative {
         null
     }
 
-    val isAvailable: Boolean = lib != null
+    val isAvailable: Boolean = lib != null && Platform.isSupported()
 
     private val SECOMP_INIT: MethodHandle? = bind("seccomp_init", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.JAVA_INT))
     private val SECOMP_RELEASE: MethodHandle? = bind("seccomp_release", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS))

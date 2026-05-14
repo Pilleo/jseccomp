@@ -12,6 +12,7 @@ class ContainedExecutorsTest {
     fun `test containment wrapper blocks execve`() {
         val osName = System.getProperty("os.name")
         if (!osName.equals("Linux", ignoreCase = true)) return
+        if (!Platform.isSupported()) return
 
         val executor = Executors.newSingleThreadExecutor()
         val safeExecutor = ContainedExecutors.wrap(executor, Policy.NO_EXEC)
@@ -51,6 +52,7 @@ class ContainedExecutorsTest {
     fun `test per-thread isolation (TSYNC bug fix)`() {
         val osName = System.getProperty("os.name")
         if (!osName.equals("Linux", ignoreCase = true)) return
+        if (!Platform.isSupported()) return
 
         val executor = Executors.newSingleThreadExecutor()
         val safeExecutor = ContainedExecutors.wrap(executor, Policy.NO_EXEC)

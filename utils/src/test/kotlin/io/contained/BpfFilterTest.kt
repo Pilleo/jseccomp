@@ -48,6 +48,7 @@ class BpfFilterTest {
     fun `filter is accepted by the kernel (BPF verifier)`() {
         val osName = System.getProperty("os.name")
         if (!osName.equals("Linux", ignoreCase = true)) return
+        if (!Platform.isSupported()) return
 
         val thread = Thread {
             val filter = BpfFilter.build(Arch.current(), Policy.NO_EXEC)

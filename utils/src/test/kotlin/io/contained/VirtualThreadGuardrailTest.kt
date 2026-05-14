@@ -28,6 +28,7 @@ class VirtualThreadGuardrailTest {
     @Test
     fun `installOnCurrentThread succeeds on platform thread`() {
         if (!System.getProperty("os.name").equals("Linux", ignoreCase = true)) return
+        if (!Platform.isSupported()) return
 
         var error: Throwable? = null
         val thread = Thread {
@@ -44,6 +45,8 @@ class VirtualThreadGuardrailTest {
 
     @Test
     fun `wrap does not throw on virtual thread submission`() {
+        if (!Platform.isSupported()) return
+
         val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
         val safeExecutor = ContainedExecutors.wrap(executor, Policy.NO_EXEC)
 

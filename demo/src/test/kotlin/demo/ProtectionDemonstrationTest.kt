@@ -12,6 +12,7 @@ class ProtectionDemonstrationTest {
     fun `demonstrates protection`() {
         val osName = System.getProperty("os.name")
         if (!osName.equals("Linux", ignoreCase = true)) return
+        if (!io.contained.Platform.isSupported()) return
 
         val marker = File("/tmp/pwned_safe")
         marker.delete()

@@ -10,6 +10,7 @@ class PureJavaBpfEngineTest {
     fun `test PureJavaBpfEngine blocks execve`() {
         val osName = System.getProperty("os.name")
         if (!osName.equals("Linux", ignoreCase = true)) return
+        if (!Platform.isSupported()) return
 
         val executor = Executors.newSingleThreadExecutor()
         try {

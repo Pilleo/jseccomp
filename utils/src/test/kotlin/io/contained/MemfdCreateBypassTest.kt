@@ -37,6 +37,7 @@ class MemfdCreateBypassTest {
     fun `NO_EXEC does not block memfd_create - demonstrating the bypass`() {
         val osName = System.getProperty("os.name")
         if (!osName.equals("Linux", ignoreCase = true)) return
+        if (!Platform.isSupported()) return
 
         val fdRef = AtomicInteger(-999)
         val thread = Thread {
@@ -60,6 +61,7 @@ class MemfdCreateBypassTest {
     fun `combine NO_EXEC with MEMFD_CREATE for robust code execution prevention`() {
         val osName = System.getProperty("os.name")
         if (!osName.equals("Linux", ignoreCase = true)) return
+        if (!Platform.isSupported()) return
 
         val fdRef = AtomicInteger(-999)
         val combined = Policy.combine(Policy.NO_EXEC, Policy.builder().block(Syscall.MEMFD_CREATE).build())
@@ -86,6 +88,7 @@ class MemfdCreateBypassTest {
     fun `blocking MEMFD_CREATE makes memfd_create return error`() {
         val osName = System.getProperty("os.name")
         if (!osName.equals("Linux", ignoreCase = true)) return
+        if (!Platform.isSupported()) return
 
         val fdRef = AtomicInteger(-999)
         val policy = Policy.builder().block(Syscall.MEMFD_CREATE).build()

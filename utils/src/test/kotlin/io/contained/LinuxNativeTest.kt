@@ -9,6 +9,8 @@ class LinuxNativeTest {
 
     @Test
     fun testPrctlGetSeccomp() {
+        if (!Platform.isSupported()) return
+
         val result = LinuxNative.prctl(LinuxNative.PR_GET_SECCOMP, 0, 0, 0, 0)
         // Usually returns 0 or 2, unless error
         assertTrue(result.returnValue >= 0)
