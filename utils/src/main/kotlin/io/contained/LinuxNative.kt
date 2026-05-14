@@ -138,23 +138,17 @@ object LinuxNative {
     }
 
     fun newSockFProg(arena: Arena, filters: Array<SockFilter>): MemorySegment {
-        val filterLayout = MemoryLayout.structLayout(
-            ValueLayout.JAVA_SHORT.withName("code"),
-            ValueLayout.JAVA_BYTE.withName("jt"),
-            ValueLayout.JAVA_BYTE.withName("jf"),
-            ValueLayout.JAVA_INT.withName("k")
-        )
-        val filterArraySeg = arena.allocate(MemoryLayout.sequenceLayout(filters.size.toLong(), filterLayout))
+        val filterArraySeg = arena.allocate(MemoryLayout.sequenceLayout(filters.size.toLong(), SOCK_FILTER_LAYOUT))
+        val filterSize = SOCK_FILTER_LAYOUT.byteSize()
         for (i in filters.indices) {
             val f = filters[i]
-            val offset = i * 8L
+            val offset = i * filterSize
             filterArraySeg.set(ValueLayout.JAVA_SHORT, offset, f.code)
             filterArraySeg.set(ValueLayout.JAVA_BYTE, offset + 2, (f.jt.toInt() and 0xFF).toByte())
             filterArraySeg.set(ValueLayout.JAVA_BYTE, offset + 3, (f.jf.toInt() and 0xFF).toByte())
             filterArraySeg.set(ValueLayout.JAVA_INT, offset + 4, f.k)
         }
-        val progLayout = MemoryLayout.structLayout(ValueLayout.JAVA_SHORT.withName("len"), MemoryLayout.paddingLayout(ValueLayout.ADDRESS.byteSize() - 2), ValueLayout.ADDRESS.withName("filter"))
-        val progSeg = arena.allocate(progLayout)
+        val progSeg = arena.allocate(SOCK_FPROG_LAYOUT)
         progSeg.set(ValueLayout.JAVA_SHORT, 0, filters.size.toShort())
         progSeg.set(ValueLayout.ADDRESS, ValueLayout.ADDRESS.byteSize(), filterArraySeg)
         return progSeg
@@ -193,4 +187,16 @@ object LinuxNative {
     val SECCOMP_NOTIF_RESP_LAYOUT: StructLayout = MemoryLayout.structLayout(ValueLayout.JAVA_LONG.withName("id"), ValueLayout.JAVA_LONG.withName("val"), ValueLayout.JAVA_INT.withName("error"), ValueLayout.JAVA_INT.withName("flags"))
     val IOVEC_LAYOUT: StructLayout = MemoryLayout.structLayout(ValueLayout.ADDRESS.withName("iov_base"), ValueLayout.JAVA_LONG.withName("iov_len"))
     val POLLFD_LAYOUT: StructLayout = MemoryLayout.structLayout(ValueLayout.JAVA_INT.withName("fd"), ValueLayout.JAVA_SHORT.withName("events"), ValueLayout.JAVA_SHORT.withName("revents"))
+
+    val SOCK_FILTER_LAYOUT: StructLayout = MemoryLayout.structLayout(
+        ValueLayout.JAVA_SHORT.withName("code"),
+        ValueLayout.JAVA_BYTE.withName("jt"),
+        ValueLayout.JAVA_BYTE.withName("jf"),
+        ValueLayout.JAVA_INT.withName("k")
+    )
+    val SOCK_FPROG_LAYOUT: StructLayout = MemoryLayout.structLayout(
+        ValueLayout.JAVA_SHORT.withName("len"),
+        MemoryLayout.paddingLayout(ValueLayout.ADDRESS.byteSize() - 2),
+        ValueLayout.ADDRESS.withName("filter")
+    )
 }
