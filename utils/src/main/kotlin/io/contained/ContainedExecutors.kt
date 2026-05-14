@@ -16,6 +16,18 @@ object ContainedExecutors {
      * Installs the given policies onto the current thread immediately.
      */
     fun installOnCurrentThread(vararg policies: Policy) {
+        installInternal(false, *policies)
+    }
+
+    /**
+     * Installs the given policies onto the entire process (all threads) immediately.
+     * This acts as a global security lockdown and cannot be undone.
+     */
+    fun installOnProcess(vararg policies: Policy) {
+        installInternal(true, *policies)
+    }
+
+    private fun installInternal(processWide: Boolean, vararg policies: Policy) {
         if (Thread.currentThread().isVirtual) {
             throw IllegalStateException(
                 "Attempted to apply seccomp containment inside a virtual thread. " +
@@ -49,7 +61,11 @@ object ContainedExecutors {
             }
 
             // Use PureJavaBpfEngine exclusively for zero-dependency enforcement
-            PureJavaBpfEngine.install(Policy.builder().block(*newBlocks.toTypedArray()).build())
+            if (processWide) {
+                PureJavaBpfEngine.installOnProcess(Policy.builder().block(*newBlocks.toTypedArray()).build())
+            } else {
+                PureJavaBpfEngine.install(Policy.builder().block(*newBlocks.toTypedArray()).build())
+            }
             
             THREAD_BLOCKED.set(currentlyBlocked + newBlocks)
             FILTER_DEPTH.set(depth + 1)

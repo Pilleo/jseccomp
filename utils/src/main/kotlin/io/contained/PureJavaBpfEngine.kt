@@ -12,6 +12,14 @@ object PureJavaBpfEngine : SeccompEngine {
         get() = Platform.isSupported()
 
     override fun install(policy: Policy) {
+        installInternal(policy, useTsync = false)
+    }
+
+    override fun installOnProcess(policy: Policy) {
+        installInternal(policy, useTsync = true)
+    }
+
+    private fun installInternal(policy: Policy, useTsync: Boolean) {
         // Step 1: Set no_new_privs (mandatory for non-root seccomp)
         val r1 = LinuxNative.prctl(LinuxNative.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
         if (r1.returnValue != 0L) {
@@ -25,16 +33,27 @@ object PureJavaBpfEngine : SeccompEngine {
             val prog = LinuxNative.newSockFProg(arena, filters)
 
             // Try modern seccomp(2) syscall first
+            val flags = if (useTsync) LinuxNative.SECCOMP_FILTER_FLAG_TSYNC.toLong() else 0L
             val r3 = LinuxNative.syscall(
                 arch.seccompSyscallNumber.toLong(),
                 LinuxNative.SECCOMP_SET_MODE_FILTER.toLong(),
-                0L, // Do NOT use TSYNC by default, to keep filters thread-local
+                flags,
                 prog
             )
 
             if (r3.returnValue != 0L) {
                 // Fall back to prctl for older kernels
                 val errno1 = r3.errno
+                
+                // Note: prctl SECCOMP_MODE_FILTER does not support TSYNC directly in the same way.
+                // If the user requested TSYNC and seccomp(2) failed, we must fail rather than 
+                // silently falling back to thread-local behavior.
+                if (useTsync) {
+                     throw IllegalStateException(
+                        "Process-wide seccomp installation (TSYNC) failed: seccomp(2) errno=${LinuxNative.strerror(errno1)}. Your kernel may be too old to support SECCOMP_FILTER_FLAG_TSYNC."
+                    )
+                }
+
                 val r4 = LinuxNative.prctl(
                     LinuxNative.PR_SET_SECCOMP,
                     LinuxNative.SECCOMP_MODE_FILTER.toLong(),

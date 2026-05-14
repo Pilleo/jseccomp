@@ -29,6 +29,16 @@ object Platform {
             return false
         }
 
+        // Bogus Sanity Check: Ensure the kernel actively enforces seccomp.
+        // We call prctl(PR_SET_SECCOMP) with an invalid mode (-1).
+        // A healthy kernel should return -1 and set errno to EINVAL (22).
+        // Some container environments or broken kernels might silently return 0 or a different error.
+        val bogusCheck = LinuxNative.prctl(LinuxNative.PR_SET_SECCOMP, -1L, 0L, 0, 0)
+        if (bogusCheck.returnValue == 0L || bogusCheck.errno != 22) { // 22 is EINVAL (Invalid argument)
+             logger.warning("Seccomp sanity check failed. The kernel returned unexpected results (ret=${bogusCheck.returnValue}, errno=${bogusCheck.errno}). Seccomp may be stubbed or broken in this environment.")
+             return false
+        }
+
         return try {
             Arch.current()
             true
