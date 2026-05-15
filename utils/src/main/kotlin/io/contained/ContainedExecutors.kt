@@ -134,6 +134,8 @@ object ContainedExecutors {
         return null
     }
 
+    private val VIOLATION_MESSAGE_REGEX = Regex("Operation not permitted|Permission denied|error=1,|error=13,")
+
     private fun isDirectContainmentViolation(t: Throwable): Boolean {
         // EPERM (1) is the standard seccomp return code.
         if (t is AccessDeniedException || t is java.nio.file.FileSystemException && t.message?.contains("Operation not permitted") == true) {
@@ -142,11 +144,11 @@ object ContainedExecutors {
 
         val msg = t.message ?: return false
 
-        return msg.contains("Operation not permitted") 
-            || msg.contains("Permission denied")       
-            || msg.contains("error=1,")                
-            || msg.contains("error=13,")               
-            || (t is SocketException && (msg.contains("Permission") || msg.contains("denied")))
+        if (VIOLATION_MESSAGE_REGEX.containsMatchIn(msg)) {
+            return true
+        }
+
+        return (t is SocketException && (msg.contains("Permission") || msg.contains("denied")))
             || (t is IOException && (msg.contains("Cannot run") || msg.contains("error=1")))
     }
 
