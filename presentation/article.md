@@ -89,17 +89,33 @@ In this context, server-side Linux containers are the anomaly. For years, we hav
  
 BoB is simply bringing capability-based security to the cloud-native server side, complete with vendor attribution.
 More Than Just Better Anomaly Detection
- 
+
 It’s tempting to view BoB simply as a tool to reduce false positives in anomaly detection. And yes, instead of asking a vague statistical question—*"Is this weird?"*—the runtime can ask a concrete one: "Is this expected behavior for this specific artifact?"
- 
+
 But BoB also matters at supply-chain time.
- 
+
 If a vendor attests, “This is how our software behaves,” and your staging environment observes something materially different, you have a powerful signal. It might indicate packaging drift, tampering, or a compromised dependency acting outside its intended scope. BoB doesn't just answer if software is vulnerable; it answers if the software is behaving like the software you thought you deployed.
- 
+
 "But couldn't AI just learn normal behavior?"
- 
+
 AI will certainly play a role in inferring baselines. But purely learned, black-box models are opaque, difficult to review, hard to compare across environments, and impossible to treat as a contract. BoB makes runtime behavior explicit, reviewable, attributable, and portable. In security, a verifiable contract beats an opaque model every time.
+
+The Great Descent: Why Backend Developers are Reaching for the Kernel
+
+For a decade, the backend developer’s mental model of "the system" has stopped at the framework or the container. We lived in `application.yml` and `Dockerfile`. Security was something that happened "around" our code—in the WAF, the service mesh, or the IAM policy.
+
+That is changing. We are entering the era of the **Great Descent**, where the most important security boundaries are moving from the application layer down to the Linux kernel. 
+
+Soon, understanding syscalls will be as essential for a senior backend engineer as understanding database indexes or garbage collection. And that is great news for security for three reasons:
+
+1. **The Source of Truth:** A library can be compromised. A framework can be tricked. But at the end of the day, if code wants to talk to the network, it *must* ask the kernel via `connect()` or `sendto()`. If it wants to run a shell, it *must* call `execve()`. Syscalls are the ultimate, unmaskable source of truth for what software is actually doing.
+2. **Surgical Precision:** Instead of blunt "allow/deny" container rules, we can now express fine-grained intent. We can say: *"The JVM is allowed to use `clone()` to create new threads, but it is strictly forbidden from using it to fork new processes."* Or: *"This app can use `mmap()` to allocate memory, but if it ever requests `PROT_EXEC` (executable memory), block it immediately."* This stops shellcode in its tracks without breaking the app.
+3. **Security as a Contract:** When security is defined at the syscall level, it becomes a stable, reviewable contract that survives across deployments and cloud providers. It moves security from a "runtime guess" to a "build-time declaration."
+
+By learning the language of the kernel, we aren't just becoming better "sysadmins"—we are gaining the ability to build applications that are inherently, provably safe by design.
+
 What You Can Do Today
+
  
 BoB is emerging, not universal. But teams don't have to wait to start adopting a "proto-BoB" mindset. You can move your architecture in a behavior-aligned direction today:
  
