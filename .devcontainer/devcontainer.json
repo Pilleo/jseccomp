@@ -1,18 +1,24 @@
 {
   "name": "jseccomp Dev Environment",
-  "dockerComposeFile": "../docker-compose.yml",
-  "service": "jseccomp",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": ".."
+  },
   "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "runArgs": [
+    "--security-opt", "seccomp=unconfined"
+  ],
   "remoteEnv": {
-    "JAVA_HOME": "/opt/java/openjdk",
+    "JAVA_HOME": "/opt/java/openjdk"
   },
   "customizations": {
     "vscode": {
       "extensions": [
         "vscjava.vscode-java-pack",
         "vscjava.vscode-gradle",
-        "fwcd.kotlin",
-      ],
-    },
-  },
+        "fwcd.kotlin"
+      ]
+    }
+  }
 }
