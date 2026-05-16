@@ -12,13 +12,16 @@ The problem? A typical Spring Boot application is a monolith of behavior. The ma
  
 If an attacker triggers a Remote Code Execution (RCE) vulnerability (like Log4Shell) inside a worker thread, they inherit the full privileges of the JVM. They don’t need to break out of the container; they can simply "live off the land" using the network and file access the JVM is already allowed to have.
  
-## The Solution: Thread-Scoped Enforcement
+## The Solution: Tiered Enforcement
  
 The Linux kernel provides a powerful but underutilized capability: **Seccomp filters can be applied per-thread.**
  
-This is the core philosophy behind `jseccomp`. Instead of locking down the whole JVM, we apply the "Bill of Behavior" only to the specific threads executing untrusted or high-risk tasks.
+This is the core philosophy behind `jseccomp`. We advocate for a tiered "Defense-in-Depth" model that combines process-wide safety with surgical thread-level containment:
  
-The main JVM threads (GC, JIT, API listeners) remain unconstrained, ensuring the stability of the runtime. But the moment a task is submitted to a "Contained Executor," the worker thread enters a restricted state that it can never leave. 
+1.  **Tier 1: Global Process Lockdown:** At application startup, we apply a minimal `Policy.NO_EXEC` filter to the entire JVM process. This permanently disables the ability to spawn a shell (`execve`), providing a massive security baseline with almost zero stability risk.
+2.  **Tier 2: Surgical Thread Containment:** For specific worker pools handling untrusted data (like a JSON parser or an image processor), we apply much stricter policies—blocking network access (`Policy.NO_NETWORK`) or even all file operations (`Policy.PURE_COMPUTE`).
+ 
+By isolating these high-risk tasks into "Contained Executors," the worker thread enters a restricted state that it can never leave, while the main JVM threads (GC, JIT, API listeners) remain unconstrained.
  
 ### Stopping the "Shellcode" without Breaking the JIT
  
