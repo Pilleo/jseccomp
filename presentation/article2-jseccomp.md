@@ -42,6 +42,55 @@ In Part 1, we mentioned **fileless malware** using `memfd_create`. By creating a
  
 In a `jseccomp` environment, these syscalls are blocked by default in restricted policies. Even if an attacker gains code execution, the kernel physically prevents them from creating these memory descriptors or spawning new processes. They are trapped inside a purely computational sandbox.
 
+## Seccomp vs. BPF-LSM: The Privilege Trade-off
+
+If you are following the bleeding edge of Linux kernel security, you might be asking: *Why use Seccomp instead of the newer BPF-LSM (Linux Security Modules)?* 
+
+BPF-LSM is undeniably more powerful. While Seccomp only sees raw memory addresses and is vulnerable to Time-of-Check to Time-of-Use (TOCTOU) attacks when inspecting file paths or IP addresses, BPF-LSM hooks deep into the kernel *after* these objects are safely resolved. A BPF-LSM program can inspect the exact canonical file path (`/etc/passwd`) or destination IP and enforce surgical policies.
+
+However, there is a massive architectural trade-off: **Privilege**.
+
+To load a BPF-LSM program into the kernel, the process requires high privileges (like `CAP_BPF` or `CAP_MAC_ADMIN`). A standard, secure JVM should never run with these capabilities. Therefore, to use BPF-LSM, you must deploy a highly privileged node agent (like a Kubernetes DaemonSet) to manage the policies on behalf of the application.
+
+Seccomp, on the other hand, allows an entirely unprivileged application to *self-restrict*. As long as the `NoNewPrivileges` flag is set, a worker thread can unilaterally strip away its own capabilities. `jseccomp` requires zero external agents, daemonsets, or cluster-level privileges—it is pure, developer-driven "shift left" security.
+
+## The Concept of Scopes: When is a Behavior Expected?
+
+A Bill of Behavior (BoB) isn't just a flat list of syscalls; to be effective, it must be context-aware. This is where the concept of **Scopes** becomes critical. We can categorize these into two main groups: those that are practically achievable today, and those that remain aspirational.
+
+### 1. Lifecycle Scopes (The Pragmatic Path)
+The most realistic way to implement Scopes is by aligning with the application's natural lifecycle. This approach is currently being implemented in **Kubescape**:
+
+*   **Startup Scope:** Broad permissions needed to load configurations, establish connection pools, and initialize the JIT. This scope ends once the application passes its first health check.
+*   **Runtime Scope:** A much narrower "steady-state" set of permissions. This is where the majority of an application's life is spent.
+*   **Shutdown Scope:** Permissions required for graceful termination, such as flushing logs or closing connections.
+
+By using Kubernetes health checks as a trigger, the runtime engine can automatically "rotate" the active security contract. This provides a clear, automated enforcement boundary that matches how developers already think about their apps.
+
+### 2. Granular Scopes (The Experimental Frontier)
+Beyond lifecycle phases, we can theoretically define scopes at a much deeper level. While these make for powerful Proofs of Concept (PoC), turning them into stable, production-ready technology faces significant architectural challenges:
+
+*   **Process/Thread Scopes:** Restricting behavior based on which specific OS thread is executing (the core of the `jseccomp` experiment).
+*   **Module/Library Scopes:** Restricting behavior based on which JAR or package is currently on the stack.
+*   **Stacktrace Scopes:** Using the calling context to decide if a syscall is valid (e.g., "Allow `socket()` only if called via the AWS SDK").
+
+While these granular scopes represent the "dream" of behavioral security, they often introduce high performance overhead or require deep integration with the language runtime. For now, Lifecycle Scopes remain the most viable path for widespread adoption.
+
+## Beyond Java: The Portability Trade-off
+
+While the principles of syscall containment are universal, the implementation strategy—process-level vs. thread-level—depends heavily on your language's runtime.
+
+### Process-Level: Universally Portable
+Process-level enforcement (`installOnProcess`) works in virtually any language—Go, Rust, Python, Node.js, or C++. Because the filter applies to the entire OS process, it doesn't matter how the language manages its internal concurrency. If you block `execve` for the process, no part of that application can ever spawn a shell. This remains the strongest baseline for any backend service.
+
+### Thread-Level: The Scheduler Challenge
+Surgical, thread-scoped containment is much more selective. It relies on a stable 1:1 mapping between your application's concurrency primitive and the underlying OS thread.
+
+*   **Logical Choices (Rust, C++, Python, Node.js):** These environments use native OS threads or explicit worker processes. You can "poison" a specific worker thread with a restrictive seccomp filter and be confident that only the untrusted task will be affected.
+*   **The Go Problem (M:N Scheduling):** Go is a notable example where thread-scoped enforcement is currently impractical. Because Go uses an M:N scheduler, thousands of **goroutines** are multiplexed onto a small pool of OS threads. If you apply a seccomp filter to an OS thread to secure one specific goroutine, the Go runtime might context-switch a completely different, trusted goroutine onto that "poisoned" thread. The trusted goroutine would then instantly crash the moment it tries to perform a valid syscall that the previous goroutine was forbidden from using. 
+
+Without major refactoring to the Go runtime (or using performance-killing workarounds like `runtime.LockOSThread()`), surgical thread-level containment remains a specialized tool for runtimes with predictable thread affinity, like the JVM or Rust.
+
 ## See It in Action
  
 The `jseccomp` library provides a simple, idiomatic wrapper around standard Java `Executors`. 
