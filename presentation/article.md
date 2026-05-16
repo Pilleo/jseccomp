@@ -38,7 +38,7 @@ And BoB is the clipboard the bouncer carries—the exact list of what each visit
 To be precise, the clipboard and the bouncer are separate pieces of the architecture. BoB is the declaration. Enforcement is handled by a runtime engine that observes behavior and decides whether to alert, learn, or block. But the industry is rapidly moving toward a world where these pieces interlock: software ships with a behavioral contract, and the runtime knows exactly how to act on it.
  
 Without this explicit contract, runtime security is forced into unsatisfying compromises: broad generic rules, noisy anomaly detection, or painstakingly hand-crafted policies that no development team has the time to maintain.
-The Catalyst: How eBPF Changed the Game
+The Catalyst: Practical Runtime Observation with eBPF
  
 For a long time, precise runtime behavioral security was too expensive, too invasive, or too brittle to apply at scale. That changed with eBPF.
  
@@ -72,11 +72,11 @@ If an SBOM is the bill of materials for software composition, a BoB (Bill of Beh
  
 In practical terms, a BoB captures expected runtime boundaries: network communication, file access, process execution, and Linux capabilities.
  
-But the most revolutionary aspect of BoB isn't just that this profile exists. It is who authors it.
+But the most significant architectural shift with BoB isn't just that this profile exists. It is who authors it.
  
 Today, runtime security forces the end user to infer safe behavior after deployment. Platform engineers watch logs, tune detection rules, silence false positives, and slowly assemble a fragile model of what the software seems to be doing.
  
-BoB flips the script: The producer of the software should ship the first behavioral contract.
+BoB introduces a different model: The producer of the software should ship the first behavioral contract.
  
 The vendor is the only party that actually knows what the software is intended to do, what the test coverage looks like, which behaviors are essential, and how those behaviors change across releases. Instead of forcing thousands of customers to reverse-engineer the same runtime policy from scratch, the software producer ships a reviewable baseline.
 This Isn’t New—Server-Side Is Just Late
@@ -100,11 +100,11 @@ If a vendor attests, “This is how our software behaves,” and your staging en
 
 AI will certainly play a role in inferring baselines. But purely learned, black-box models are opaque, difficult to review, hard to compare across environments, and impossible to treat as a contract. BoB makes runtime behavior explicit, reviewable, attributable, and portable. In security, a verifiable contract beats an opaque model every time.
 
-The Great Descent: Why Backend Developers are Reaching for the Kernel
+Why Backend Developers Must Understand the Kernel
 
 For a decade, the backend developer’s mental model of "the system" has stopped at the framework or the container. We lived in `application.yml` and `Dockerfile`. Security was something that happened "around" our code—in the WAF, the service mesh, or the IAM policy.
 
-That is changing. We are entering the era of the **Great Descent**, where the most important security boundaries are moving from the application layer down to the Linux kernel. 
+That is changing. The most effective security boundaries are moving from the application layer down to the Linux kernel. 
 
 Soon, understanding syscalls will be as essential for a senior backend engineer as understanding database indexes or garbage collection. And that is great news for security for three reasons:
 
@@ -112,7 +112,7 @@ Soon, understanding syscalls will be as essential for a senior backend engineer 
 2. **Surgical Precision:** Instead of blunt "allow/deny" container rules, we can now express fine-grained intent. We can say: *"The JVM is allowed to use `clone()` to create new threads, but it is strictly forbidden from using it to fork new processes."* Or: *"This app can use `mmap()` to allocate memory, but if it ever requests `PROT_EXEC` (executable memory), block it immediately."* This stops shellcode in its tracks without breaking the app.
 3. **Security as a Contract:** When security is defined at the syscall level, it becomes a stable, reviewable contract that survives across deployments and cloud providers. It moves security from a "runtime guess" to a "build-time declaration."
 
-By learning the language of the kernel, we aren't just becoming better "sysadmins"—we are gaining the ability to build applications that are inherently, provably safe by design.
+By understanding kernel-level interactions, we gain the ability to build applications that are more secure by design.
 
 What You Can Do Today
 
@@ -133,7 +133,7 @@ These practices don't replace BoB. They train engineering teams to think in the 
 
 Next Up: The JVM Thought Experiment
  
-In Part 2 of this series, we are going to move from theory to a concrete thought experiment: applying BoB to the Java Virtual Machine (JVM).
+In Part 2 of this series, we are going to move from theory to applying similar sys call restriction with seccomp as well as  a thought experiment: applying BoB to the Java Virtual Machine (JVM).
  
 Java applications are notoriously complex at runtime. They rely heavily on reflection, dynamic proxies, classloading, JVM agents, and framework lifecycle magic. This dynamic nature makes them an incredibly interesting challenge for any behavioral contract.
  
@@ -155,9 +155,7 @@ This interactive, browser-based Linux environment lets you:
 
 No setup required—it runs directly in your browser.
 
-**Prefer to just watch?** Here is a 30-second recording of the demo:
 
-![Demo Recording](demo.svg)
 
 ---
 
