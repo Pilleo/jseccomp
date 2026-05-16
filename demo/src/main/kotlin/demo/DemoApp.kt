@@ -4,13 +4,19 @@ import java.io.File
 import kotlin.system.exitProcess
 
 fun main(args: Array<String>) {
-    val mode = args.getOrNull(0) ?: "help"
+    val mode = args.getOrNull(0) ?: "both"
     
     when (mode) {
         "unsafe" -> runUnsafe()
         "safe" -> runSafe()
+        "both" -> {
+            println("=== Running in UNSAFE mode ===")
+            runUnsafe()
+            println("\n=== Running in SAFE mode ===")
+            runSafe()
+        }
         else -> {
-            println("Usage: DemoApp [unsafe|safe]")
+            println("Usage: DemoApp [unsafe|safe|both]")
             exitProcess(1)
         }
     }
