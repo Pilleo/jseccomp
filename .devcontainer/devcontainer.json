@@ -4,22 +4,15 @@
   "service": "jseccomp",
   "workspaceFolder": "/workspace",
   "remoteEnv": {
-    "JAVA_HOME": "/opt/java/openjdk"
+    "JAVA_HOME": "/opt/java/openjdk",
   },
   "customizations": {
     "vscode": {
       "extensions": [
         "vscjava.vscode-java-pack",
         "vscjava.vscode-gradle",
-        "fwcd.kotlin"
-      ]
-    }
+        "fwcd.kotlin",
+      ],
+    },
   },
-  "features": {
-    "ghcr.io/devcontainers/features/common-utils:1": {
-      "installZsh": true,
-      "configureZshAsDefaultShell": true,
-      "upgradePackages": true
-    }
-  }
 }

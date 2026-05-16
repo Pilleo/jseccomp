@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     git \
     unzip \
+    zsh \
     && rm -rf /var/lib/apt/lists/*
 
 # The project uses Gradle Toolchains to download Java 25.
