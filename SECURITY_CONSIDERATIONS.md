@@ -37,6 +37,12 @@ Attackers can create anonymous, memory-backed file descriptors using `memfd_crea
 Attackers may use `execveat` to execute programs relative to a directory file descriptor. This can sometimes bypass filters that only monitor the absolute path arguments of the classic `execve`.
 *   **Mitigation:** `jseccomp` explicitly blocks `EXECVEAT` in all `NO_EXEC` policies.
 
+### Asynchronous Evasion (`io_uring`)
+Modern Linux systems support `io_uring` for high-performance asynchronous I/O. Attackers increasingly abuse this subsystem to bypass seccomp filters. Because operations are submitted via a shared memory ring queue rather than individual syscalls, a standard seccomp profile might not "see" the read/write/exec operations happening inside the ring.
+
+A useful mental model is this: **eBPF sees the action; Seccomp only sees the ring.** Because Seccomp is "blind" to the contents of these shared memory buffers, `jseccomp` adopts a conservative stance: *"Since I can't see into your rings, you aren't allowed to have rings."*
+*   **Mitigation:** `jseccomp` explicitly blocks `io_uring_setup` in its strict policies. The standard JVM (currently) relies heavily on standard NIO/epoll and does not require `io_uring` for application-level worker threads.
+
 ### Binary Shellcode Injection
 If an attacker cannot spawn a process, they will attempt to inject raw machine code (shellcode) into the JVM's memory. To run this code, they must mark the memory as executable using `mprotect` or `mmap`.
 *   **Mitigation:** As detailed in the "Argument Inspection" section, `jseccomp` monitors the `PROT_EXEC` bit. It allows the JVM to manage its memory but physically prevents any thread under a policy from making a memory region executable.
