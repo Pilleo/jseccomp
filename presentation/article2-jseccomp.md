@@ -54,30 +54,15 @@ To load a BPF-LSM program into the kernel, the process requires high privileges 
 
 Seccomp, on the other hand, allows an entirely unprivileged application to *self-restrict*. As long as the `NoNewPrivileges` flag is set, a worker thread can unilaterally strip away its own capabilities. `jseccomp` requires zero external agents, daemonsets, or cluster-level privileges—it is pure, developer-driven "shift left" security.
 
-## The Concept of Scopes: When is a Behavior Expected?
+## Internal Micro-segmentation: The Scalpel vs. The Shield
 
-A Bill of Behavior (BoB) isn't just a flat list of syscalls; to be effective, it must be context-aware. This is where the concept of **Scopes** becomes critical. We can categorize these into two main groups: those that are practically achievable today, and those that remain aspirational.
+A common question is: *If I use a cluster-wide tool like Kubescape with eBPF, do I still need thread-level containment?*
 
-### 1. Lifecycle Scopes (The Pragmatic Path)
-The most realistic way to implement Scopes is by aligning with the application's natural lifecycle. This approach is currently being implemented in **Kubescape**:
+The answer is **Defense-in-Depth**. Think of cluster-wide security as the "shield" protecting the perimeter of your building. It’s essential, but it’s blunt. `jseccomp` is the "scalpel" used for internal micro-segmentation. 
 
-*   **Startup Scope:** Broad permissions needed to load configurations, establish connection pools, and initialize the JIT. This scope ends once the application passes its first health check.
-*   **Runtime Scope:** A much narrower "steady-state" set of permissions. This is where the majority of an application's life is spent.
-*   **Shutdown Scope:** Permissions required for graceful termination, such as flushing logs or closing connections.
-
-By using Kubernetes health checks as a trigger, the runtime engine can automatically "rotate" the active security contract. This provides a clear, automated enforcement boundary that matches how developers already think about their apps.
-
-### 2. Granular Scopes (The Experimental Frontier)
-Beyond lifecycle phases, we can theoretically define scopes at a much deeper level. While these make for powerful Proofs of Concept (PoC), turning them into stable, production-ready technology faces significant architectural challenges:
-
-*   **Process/Thread Scopes:** Restricting behavior based on which specific OS thread is executing (the core of the `jseccomp` experiment).
-*   **Module/Library Scopes:** Restricting behavior based on which JAR or package is currently on the stack.
-*   **Stacktrace Scopes:** Using the calling context to decide if a syscall is valid (e.g., "Allow `socket()` only if called via the AWS SDK").
-
-While these granular scopes represent the "dream" of behavioral security, they often introduce high performance overhead or require deep integration with the language runtime. For now, Lifecycle Scopes remain the most viable path for widespread adoption.
+External tools see your container as a black box; they don't know when a specific high-risk worker thread is processing untrusted data. `jseccomp` allows you to lock the individual safes inside the rooms of your building, applying restrictions based on internal application logic that an external orchestrator simply cannot see.
 
 ## Beyond Java: The Portability Trade-off
-
 While the principles of syscall containment are universal, the implementation strategy—process-level vs. thread-level—depends heavily on your language's runtime.
 
 ### Process-Level: Universally Portable
@@ -114,25 +99,20 @@ safeExecutor.submit {
  
 You can reproduce this containment yourself. The repository includes a demonstration of a Log4Shell exploit being neutralized by `jseccomp` at the kernel level.
  
-**Prerequisites:**
-*   Linux (x86_64 or aarch64)
-*   JDK 22+ (Uses the new Foreign Function & Memory API)
-*   Docker or Podman
- 
-**Steps:**
-1.  **Clone the Repo:**
+1.  **Clone & Run:**
     ```bash
     git clone https://github.com/leanid/jseccomp.git
     cd jseccomp
-    ```
-2.  **Run the Tests:**
-    The project uses a custom Seccomp filter, so the container must run with `unconfined` security options to allow the nested filters to be installed.
-    ```bash
     docker compose up -d
     docker compose exec jseccomp ./gradlew test
     ```
-3.  **Explore the Demo:**
-    Look at the `demo` module to see how a vulnerable logging setup is protected. The tests in `ExploitDemonstrationTest` and `ProtectionDemonstrationTest` show exactly how the kernel intervenes.
+*(Note: The container runs with `seccomp=unconfined` so our nested Java filters can be applied).*
+
+When you explore the `demo` module, you'll see the kernel physically rejecting the attack. The JVM doesn't just fail to spawn the shell; the OS throws a hard `EPERM` (Operation not permitted), surfaced cleanly in Java:
+```text
+java.util.concurrent.ExecutionException: io.contained.ContainmentViolationException: 
+Thread attempted a prohibited system call (EPERM).
+```
 
 ## Conclusion
  
