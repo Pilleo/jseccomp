@@ -30,6 +30,7 @@ object ContainedExecutors {
     @Volatile private var PROCESS_ALLOWS_MMAP_EXEC = true
     @Volatile private var PROCESS_ALLOWS_NON_THREAD_CLONE = true
     private val PROCESS_FILTER_DEPTH = AtomicInteger(0)
+    private val processLock = Any()
 
     /**
      * Installs the given policies onto the current thread immediately.
@@ -76,47 +77,51 @@ object ContainedExecutors {
             return
         }
 
-        // Synchronize with both thread-local and process-wide state
-        val currentlyBlocked = THREAD_BLOCKED.get() + PROCESS_BLOCKED
-        val currentlyAllowsMmapExec = THREAD_ALLOWS_MMAP_EXEC.get() && PROCESS_ALLOWS_MMAP_EXEC
-        val currentlyAllowsNonThreadClone = THREAD_ALLOWS_NON_THREAD_CLONE.get() && PROCESS_ALLOWS_NON_THREAD_CLONE
-        val currentDepth = FILTER_DEPTH.get() + PROCESS_FILTER_DEPTH.get()
+        // We use a lock to ensure process-wide updates are deterministic and prevent TOCTOU races
+        // between reading PROCESS_BLOCKED and applying the thread's filter.
+        synchronized(processLock) {
+            // Synchronize with both thread-local and process-wide state
+            val currentlyBlocked = THREAD_BLOCKED.get() + PROCESS_BLOCKED
+            val currentlyAllowsMmapExec = THREAD_ALLOWS_MMAP_EXEC.get() && PROCESS_ALLOWS_MMAP_EXEC
+            val currentlyAllowsNonThreadClone = THREAD_ALLOWS_NON_THREAD_CLONE.get() && PROCESS_ALLOWS_NON_THREAD_CLONE
+            val currentDepth = FILTER_DEPTH.get() + PROCESS_FILTER_DEPTH.get()
 
-        val newBlocks = policy.blocked - currentlyBlocked
-        val needsMmapProtection = !policy.allowMmapExec && currentlyAllowsMmapExec
-        val needsCloneProtection = !policy.allowNonThreadClone && currentlyAllowsNonThreadClone
+            val newBlocks = policy.blocked - currentlyBlocked
+            val needsMmapProtection = !policy.allowMmapExec && currentlyAllowsMmapExec
+            val needsCloneProtection = !policy.allowNonThreadClone && currentlyAllowsNonThreadClone
 
-        if (newBlocks.isNotEmpty() || needsMmapProtection || needsCloneProtection) {
-            if (currentDepth >= 32) {
-                throw IllegalStateException("Cannot install more than 32 seccomp filters on a single thread (including process-wide filters).")
-            }
-            if (currentDepth > 10) {
-                logger.warning("Thread ${Thread.currentThread().name} has $currentDepth seccomp filters.")
-            }
+            if (newBlocks.isNotEmpty() || needsMmapProtection || needsCloneProtection) {
+                if (currentDepth >= 32) {
+                    throw IllegalStateException("Cannot install more than 32 seccomp filters on a single thread (including process-wide filters).")
+                }
+                if (currentDepth > 10) {
+                    logger.warning("Thread ${Thread.currentThread().name} has $currentDepth seccomp filters.")
+                }
 
-            // Use PureJavaBpfEngine exclusively for zero-dependency enforcement
-            val incrementalPolicy = Policy.builder()
-                .block(*newBlocks.toTypedArray())
-            
-            if (policy.allowMmapExec) incrementalPolicy.allowMmapExec()
-            if (policy.allowNonThreadClone) incrementalPolicy.allowNonThreadClone()
-            
-            val toInstall = incrementalPolicy.build()
+                // Use PureJavaBpfEngine exclusively for zero-dependency enforcement
+                val incrementalPolicy = Policy.builder()
+                    .block(*newBlocks.toTypedArray())
+                
+                if (policy.allowMmapExec) incrementalPolicy.allowMmapExec()
+                if (policy.allowNonThreadClone) incrementalPolicy.allowNonThreadClone()
+                
+                val toInstall = incrementalPolicy.build()
 
-            if (processWide) {
-                PureJavaBpfEngine.installOnProcess(toInstall)
-                // Update global state
-                PROCESS_BLOCKED.addAll(newBlocks)
-                if (!policy.allowMmapExec) PROCESS_ALLOWS_MMAP_EXEC = false
-                if (!policy.allowNonThreadClone) PROCESS_ALLOWS_NON_THREAD_CLONE = false
-                PROCESS_FILTER_DEPTH.incrementAndGet()
-            } else {
-                PureJavaBpfEngine.install(toInstall)
-                // Update thread-local state
-                THREAD_BLOCKED.set(THREAD_BLOCKED.get() + newBlocks)
-                if (!policy.allowMmapExec) THREAD_ALLOWS_MMAP_EXEC.set(false)
-                if (!policy.allowNonThreadClone) THREAD_ALLOWS_NON_THREAD_CLONE.set(false)
-                FILTER_DEPTH.set(FILTER_DEPTH.get() + 1)
+                if (processWide) {
+                    PureJavaBpfEngine.installOnProcess(toInstall)
+                    // Update global state
+                    PROCESS_BLOCKED.addAll(newBlocks)
+                    if (!policy.allowMmapExec) PROCESS_ALLOWS_MMAP_EXEC = false
+                    if (!policy.allowNonThreadClone) PROCESS_ALLOWS_NON_THREAD_CLONE = false
+                    PROCESS_FILTER_DEPTH.incrementAndGet()
+                } else {
+                    PureJavaBpfEngine.install(toInstall)
+                    // Update thread-local state
+                    THREAD_BLOCKED.set(THREAD_BLOCKED.get() + newBlocks)
+                    if (!policy.allowMmapExec) THREAD_ALLOWS_MMAP_EXEC.set(false)
+                    if (!policy.allowNonThreadClone) THREAD_ALLOWS_NON_THREAD_CLONE.set(false)
+                    FILTER_DEPTH.set(FILTER_DEPTH.get() + 1)
+                }
             }
         }
     }
@@ -162,7 +167,7 @@ object ContainedExecutors {
         return null
     }
 
-    private val VIOLATION_MESSAGE_REGEX = Regex("Operation not permitted|Permission denied|error=1,|error=13,")
+    private val VIOLATION_MESSAGE_REGEX = Regex("(?i)Operation not permitted|Permission denied|error=1\\b|error=13\\b|denied|refusé|verweigert|negado")
 
     private fun isDirectContainmentViolation(t: Throwable): Boolean {
         // EPERM (1) is the standard seccomp return code.

@@ -50,10 +50,15 @@ object LinuxNative {
     }
 
     private fun downcall(name: String, desc: FunctionDescriptor, vararg options: Linker.Option): MethodHandle {
-        val symbol = stdlib.find(name).orElse(null) ?: return MethodHandles.insertArguments(
-            MethodHandles.throwException(desc.returnLayout().get().javaWithFallback(), UnsupportedOperationException::class.java),
-            0, UnsupportedOperationException("Symbol $name not found in libc")
-        )
+        val symbol = stdlib.find(name).orElse(null) ?: run {
+            val ex = UnsupportedOperationException("Symbol $name not found in libc")
+            val throwingHandle = MethodHandles.insertArguments(
+                MethodHandles.throwException(desc.returnLayout().get().javaWithFallback(), UnsupportedOperationException::class.java),
+                0, ex
+            )
+            val argTypes = desc.argumentLayouts().map { it.javaWithFallback() }.toTypedArray()
+            return MethodHandles.dropArguments(throwingHandle, 0, *argTypes)
+        }
         return linker.downcallHandle(symbol, desc, *options)
     }
 
@@ -139,9 +144,9 @@ object LinuxNative {
     val LANDLOCK_RULESET_ATTR_NET_OFFSET = LANDLOCK_RULESET_ATTR_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("handled_access_net"))
 
     val LANDLOCK_PATH_BENEATH_ATTR_LAYOUT = MemoryLayout.structLayout(
-        ValueLayout.JAVA_LONG.withName("allowed_access"),
-        ValueLayout.JAVA_INT.withName("parent_fd")
-        // kernel struct is __attribute__((packed)) so no padding here
+        ValueLayout.JAVA_LONG.withByteAlignment(1).withName("allowed_access"),
+        ValueLayout.JAVA_INT.withByteAlignment(1).withName("parent_fd")
+        // unaligned values prevent Java from adding padding, matching kernel packed struct
     )
     val LANDLOCK_PATH_BENEATH_ATTR_ACCESS_OFFSET = LANDLOCK_PATH_BENEATH_ATTR_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("allowed_access"))
     val LANDLOCK_PATH_BENEATH_ATTR_FD_OFFSET = LANDLOCK_PATH_BENEATH_ATTR_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("parent_fd"))

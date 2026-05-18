@@ -13,7 +13,7 @@ class MemfdCreateBypassTest {
 
     @Test
     @EnabledOnOs(OS.LINUX)
-    fun `NO_EXEC does not block memfd_create - demonstrating the bypass`() {
+    fun `NO_EXEC blocks memfd_create as of recent security update`() {
         if (!Platform.isSupported()) return
 
         val executor = Executors.newSingleThreadExecutor()
@@ -22,12 +22,13 @@ class MemfdCreateBypassTest {
                 ContainedExecutors.installOnCurrentThread(Policy.NO_EXEC)
 
                 val arch = Arch.current()
-                // memfd_create is NOT blocked by NO_EXEC
+                // memfd_create IS blocked by NO_EXEC
                 val res = java.lang.foreign.Arena.ofConfined().use { arena ->
                     val name = arena.allocateFrom("test_memfd")
                     LinuxNative.syscall(arch.memfdCreate.toLong(), name.address(), 0, java.lang.foreign.MemorySegment.NULL)
                 }
-                assertTrue(res.returnValue >= 0, "memfd_create should be allowed by NO_EXEC")
+                assertTrue(res.returnValue < 0, "memfd_create should be blocked by NO_EXEC")
+                assertTrue(res.errno == LinuxNative.EPERM, "Expected EPERM, got ${res.errno}")
             }.get()
         } finally {
             executor.shutdown()

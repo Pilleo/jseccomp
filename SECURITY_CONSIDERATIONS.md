@@ -49,7 +49,7 @@ If an attacker cannot spawn a process, they will attempt to inject raw machine c
 
 ---
 
-## 4. Escaping Process-Level Containment
+## 5. Escaping Process-Level Containment
 
 Even with process-wide `NO_EXEC`, an attacker with ACE can theoretically escape to the host OS if other security layers are missing:
 
@@ -59,7 +59,7 @@ Even with process-wide `NO_EXEC`, an attacker with ACE can theoretically escape 
 
 ---
 
-## 4. Defense-in-Depth Requirements
+## 6. Defense-in-Depth Requirements
 
 To make seccomp an effective barrier, the host environment **must** implement these complementary controls:
 
@@ -69,19 +69,34 @@ To make seccomp an effective barrier, the host environment **must** implement th
 
 ---
 
-## 5. Technical Safeguards: Argument Inspection
+## 7. Technical Safeguards: Argument Inspection
 
 `contained-executors` uses BPF argument inspection to provide fine-grained control over critical syscalls, allowing the JVM to function while blocking malicious actions.
 
 ### Executable Memory Protection (`mmap`)
 We inspect the `prot` argument of `mmap`. Standard mappings are allowed, but the library triggers an immediate `EPERM` if the `PROT_EXEC` (0x04) bit is set. This blocks binary shellcode execution while allowing the JIT and GC to function normally.
+> **Note on 32-bit Truncation:** BPF jump/load instructions natively operate on 32-bit words. The filter loads the lower 32 bits of the `prot` argument to check for `PROT_EXEC`. Since the Linux kernel internally casts the `prot` flag to an `unsigned long` but only honors the standard lower bits defined in POSIX, this 32-bit truncation is secure and matches kernel behavior.
 
 ### JVM Stability Protection (`clone`)
-We inspect the `flags` argument of `clone`. We allow `clone` only if it includes `CLONE_THREAD` or `CLONE_VM` (indicating a new thread). Standard process forking (`fork`) is blocked. `clone3` is blocked with `ENOSYS` to force runtimes to fallback to the inspectable legacy `clone`.
+We inspect the `flags` argument of `clone`. We allow `clone` only if it includes **both** `CLONE_THREAD` and `CLONE_VM` (indicating a new thread). Standard process forking (`fork`) and memory-sharing processes (`CLONE_VM` without `CLONE_THREAD`) are blocked. `clone3` is blocked with `ENOSYS` to force runtimes to fallback to the inspectable legacy `clone`.
 
 ---
 
-## 6. Information Leaks (Side Channels)
+## 8. Known Limitations & Caveats
+
+### Inherited File Descriptors
+Seccomp filtering applies to *syscalls*, not *data structures*. If a thread inherits an open socket file descriptor (or receives one via `SCM_RIGHTS`) before the `NO_NETWORK` policy is applied, it can still call `recvmsg`, `recvfrom`, `write`, or `writev` on that existing descriptor. `NO_NETWORK` prevents the creation of *new* sockets (`socket`, `connect`, `bind`, `accept`), but does not block generic read/write syscalls which are essential for standard JVM I/O.
+
+### Non-English Locales and Violation Exceptions
+Java's core `IOException` classes do not expose the raw OS `errno` values. To detect containment violations (which throw `EPERM` or `EACCES`), this library matches the localized exception messages (e.g., "Operation not permitted" or "Permission denied") combined with specific JVM error codes (`error=1` or `error=13`).
+On non-English locales, if the JVM translates these messages entirely, a blocked syscall will still be successfully intercepted by the kernel, but the application may throw a generic `IOException` rather than the specific `ContainmentViolationException`. The security guarantee remains intact; only the exception wrapping is affected.
+
+### Platform Support
+Seccomp-BPF and Landlock are Linux-only features. The library safely performs an OS-level check (`Platform.isSupported()`) before initializing native FFM bindings. On macOS or Windows, the library degrades gracefully based on the `IO_CONTAINED_FALLBACK` policy (failing fast or logging a warning and running uncontained) without throwing `UnsatisfiedLinkError` or `WrongMethodTypeException`.
+
+---
+
+## 9. Information Leaks (Side Channels)
 
 Seccomp restricts **actions** (syscalls), but it does not provide **data isolation**. 
 *   A contained thread can still read any static variable or heap object it can reference.

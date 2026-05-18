@@ -61,10 +61,11 @@ class Policy private constructor(
             .block(Syscall.BIND, Syscall.LISTEN, Syscall.ACCEPT, Syscall.ACCEPT4)
             .build()
 
-        /** Blocks process execution syscalls only. */
+        /** Blocks process execution syscalls and bypasses like fileless execution. */
         val NO_EXEC: Policy = builder()
             .block(Syscall.EXECVE, Syscall.EXECVEAT)
             .block(Syscall.FORK, Syscall.VFORK)
+            .block(Syscall.MEMFD_CREATE, Syscall.IO_URING_SETUP, Syscall.PTRACE)
             .build()
 
         fun builder(): Builder = Builder()
@@ -115,6 +116,9 @@ class Policy private constructor(
          * Note: Setting any FS paths enables Landlock enforcement for this policy.
          */
         fun allowFsRead(path: String): Builder {
+            require(path.isNotEmpty()) { "Path cannot be empty" }
+            require(path.startsWith("/")) { "Path must be absolute" }
+            require(!path.contains('\u0000')) { "Path cannot contain null bytes" }
             allowedFsReadPaths.add(path)
             return this
         }
@@ -126,14 +130,17 @@ class Policy private constructor(
          */
         fun allowJvmClasspath(): Builder {
             val javaHome = System.getProperty("java.home")
-            if (javaHome != null) allowFsRead(javaHome)
+            if (!javaHome.isNullOrEmpty()) allowFsRead(javaHome)
             
             val classPath = System.getProperty("java.class.path")
             if (classPath != null) {
                 classPath.split(java.io.File.pathSeparator).forEach {
-                    val file = java.io.File(it)
-                    if (file.exists()) {
-                        allowFsRead(if (file.isDirectory) file.absolutePath else file.parent)
+                    if (it.isNotEmpty()) {
+                        val file = java.io.File(it)
+                        if (file.exists()) {
+                            val path = if (file.isDirectory) file.absolutePath else file.absoluteFile.parent
+                            if (path != null) allowFsRead(path)
+                        }
                     }
                 }
             }
@@ -145,6 +152,9 @@ class Policy private constructor(
          * Note: Setting any FS paths enables Landlock enforcement for this policy.
          */
         fun allowFsWrite(path: String): Builder {
+            require(path.isNotEmpty()) { "Path cannot be empty" }
+            require(path.startsWith("/")) { "Path must be absolute" }
+            require(!path.contains('\u0000')) { "Path cannot contain null bytes" }
             allowedFsWritePaths.add(path)
             return this
         }

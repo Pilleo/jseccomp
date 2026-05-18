@@ -80,10 +80,12 @@ object BpfFilter {
 
         // clone
         if (!allowNonThreadClone) {
-            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 4, arch.clone))
+            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 5, arch.clone))
             filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_DATA_ARGS_OFFSET))
-            // if flags set, skip 1 instruction (the ret deny)
-            filters.add(SockFilter((BPF_JMP or 0x40 or BPF_K).toShort(), 1, 0, 0x00010100)) 
+            // AND the flags with our mask (CLONE_VM | CLONE_THREAD)
+            filters.add(SockFilter((0x54 or BPF_K).toShort(), 0, 0, 0x00010100)) 
+            // JEQ: if result equals the mask (both bits are set), skip 1 (the ret deny)
+            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 1, 0, 0x00010100)) 
             filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyAction))
             filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_DATA_NR_OFFSET))
         }
