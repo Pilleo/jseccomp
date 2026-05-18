@@ -36,6 +36,8 @@ A blunt Seccomp filter that blocks `PROT_EXEC` will crash the JVM instantly.
 *   **Executable Mapping (`PROT_EXEC`):** Blocked. If an attacker tries to inject binary shellcode and mark it as executable, the kernel returns `EPERM`.
  
 Because this filter is applied only to the worker thread, the background JIT threads on the same JVM continue to function perfectly. We have surgically neutralized shellcode execution without affecting application performance.
+ 
+*   **The ROP/JOP Reality Check:** It is important to note that while blocking `PROT_EXEC` prevents the introduction of *new* malicious binary code (shellcode), it is not a silver bullet. Sophisticated attackers may use **Return-Oriented Programming (ROP)** or **Jump-Oriented Programming (JOP)** to chain together existing, valid code snippets (gadgets) already present in the JVM's memory to achieve their goals. Modern systems rely on complementary defenses like **ASLR (Address Space Layout Randomization)** and **CFI (Control Flow Integrity)** to mitigate these risks. Seccomp is the lock on the door for new code; these other layers are the internal motion sensors.
 
 ## Neutralizing Fileless Malware
  
