@@ -95,32 +95,31 @@ These are real constraints that require architectural discipline. **For the PoC 
 
 ---
 
-## GraalVM: The Clearest PoC Platform
+## GraalVM: The AOT Paradigm Shift
 
-If the goal is to prove that automated SBoB generation is architecturally feasible, GraalVM Native Image is currently the strongest platform to attempt it on.
+If standard JIT-compiled JVM applications render static analysis practically useless, **GraalVM Native Image represents a fundamental paradigm shift that restores the feasibility of static analysis.**
+
+Standard Java security is completely reactive: it relies on dynamic observation to see what the application does, which is forever vulnerable to test coverage gaps. GraalVM changes the mathematical model by introducing the **Closed-World Assumption**. 
+
+Under this closed-world model, the compiler requires that all classes, methods, and fields that will exist at runtime must be known and reachable at compile time. Any dynamic features—such as reflection, dynamic proxies, resources, or native JNI loading—must be explicitly declared ahead of time in **Reachability Metadata**. 
+
+This constraint allows the static native image builder to construct a **provably complete call graph** of the entire application before compilation. Unreachable code paths are not just skipped; they are physically removed from the binary via Dead Code Elimination (DCE).
 
 ### Dead Code Elimination as a Pruning Mechanism
 
-GraalVM's Ahead-of-Time (AOT) compiler performs aggressive Dead Code Elimination (DCE). If your application uses the AWS SDK but never calls the S3 client, the S3 code paths — and their associated syscall behaviors — are eliminated from the binary at compile time.
+In a hypothetical future tooling pipeline, GraalVM’s closed-world compilation solves the "Merge Fallacy" mechanically rather than dynamically:
 
-This is not primarily a security feature, but it has a direct BoB implication: **DCE provides a mechanical basis for pruning the Merge Fallacy.** In a hypothetical future tooling pipeline:
+1. **Statically Traced Call-Graphs:** Since the compiler constructs a complete, explicit call graph, static analysis tools can trace exactly which library call sites are reachable from the application entry point.
+2. **Deterministic Pruning:** If your application depends on a large library (like the AWS SDK) but only initializes a DynamoDB client, the compiler's AOT analysis statically proves that the Kinesis and S3 clients are unreachable. 
+3. **Physical Capability Dropping:** The S3 code paths—and their associated syscall behaviors—are permanently deleted from the final binary. The associated capabilities (e.g. TCP connect permissions to S3 buckets) are mechanically dropped from the SBoB without requiring dynamic observation.
 
-1. Each library's BoB capability carries stacktrace attribution: *"This `connect()` call is reachable via `S3Client.putObject() → SdkHttpClient.execute() → ...`"*
-2. GraalVM's compiler statically determines that `S3Client` is not instantiated in the application's call graph
-3. DCE eliminates `S3Client` code from the binary
-4. The associated `connect()` capability is mechanically dropped from the merged BoB
+Instead of trying to deduce the application's actual behavior by running incomplete integration tests (which is reactive), GraalVM lets us **mathematically prove** the upper bound of the application's capabilities.
 
-This exact tooling does not exist yet. What GraalVM provides is the foundational architecture to build it — a static, closed-world binary where unreachable code is genuinely absent, not just unlikely to execute.
+### Leveraging Reachability Metadata
 
-> *Oligo Security is doing something adjacent in the JIT world — library-level runtime profiling that correlates observed behaviors with library attribution. Their approach relies on dynamic observation rather than static elimination, but it's the closest existence proof that this category of tooling is viable.*
+Because the Java ecosystem has heavily standardized around GraalVM's reachability metadata (driven by the Spring Boot and Quarkus native compilation initiatives), an SBoB generation tool does not need to invent dynamic dispatch resolution from scratch. It can directly ingest the application's `reflect-config.json`, `proxy-config.json`, and `jni-config.json` to map the runtime boundaries of dynamic Java features.
 
-### Reachability Metadata
-
-GraalVM's [Reachability Metadata](https://www.graalvm.org/latest/reference-manual/native-image/metadata/) solves the reflection, dynamic proxy, and JNI resolution problem — the primary reason static analysis fails on standard JVM applications. The metadata tells the AOT compiler which reflective paths are actually used, enabling correct DCE even for dynamically dispatched code.
-
-An SBoB generation tool targeting GraalVM could piggyback on this metadata maturity rather than solving dynamic dispatch resolution from scratch.
-
-**The limitation to state clearly:** Reachability metadata tells GraalVM what code to *include*. It doesn't tell you what that code *does* at the kernel level. You still need syscall-level observation; GraalVM just makes the target more tractable.
+**The operational gap to acknowledge:** Reachability metadata tells the compiler what code to *keep*. It does not describe what that code *does* at the kernel level. You still need syscall-level tracing to map the final leaf nodes of the call graph to system call numbers; GraalVM simply makes the static analysis target tractable.
 
 ### eBPF Profiling: Cleaner Than JIT
 
@@ -128,9 +127,16 @@ Profiling a standard JVM with eBPF-based syscall tracers is extremely noisy. The
 
 A GraalVM native binary eliminates this noise almost entirely. The binary behaves more like a standard C executable — startup syscalls are predictable, steady-state syscalls are stable, and there are no ongoing JIT recompilation events.
 
-**The gap to acknowledge:** DWARF debug symbol support in GraalVM Native Image is still maturing. Specifically, **inlined functions lose call-site attribution** — a function inlined by the AOT compiler does not appear as a distinct frame in the symbol table, making it impossible to attribute syscalls to the original source-level call site via `uprobes`. This directly limits the precision of a BoB generation tool that relies on stacktrace attribution of syscalls. You can observe the syscall; attributing it to the exact library-level call site is harder than it sounds.
+**The dynamic tracing gap:** DWARF debug symbol support in GraalVM Native Image is still maturing. Specifically, **inlined functions flatten the call-stack context**. Because the AOT compiler aggressively inlines hot methods, an inlined function does not appear as a distinct frame in the symbol table. This makes it impossible for an eBPF tool using `uprobes` to map a system call stacktrace back to the original source library that initiated it. You can observe the syscall; attributing it to the exact library-level call site is incredibly hard.
 
-This is the most significant open engineering challenge for GraalVM-based BoB generation today.
+#### The Compiler Mitigation
+
+To build accurate profiling-based SBoBs, developers must instruct the GraalVM compiler to retain frame information. This is accomplished using specific compiler flags during the profiling build:
+
+* **`-H:PreserveFrameInformation`**: Instructs the native image builder to preserve stack trace frame details for all methods, including inlined ones.
+* **`-H:-InlineBeforeAnalysis`**: Prevents the optimizer from performing function inlining prior to the points-to call-graph analysis, ensuring that symbols remain distinct and map cleanly to the original libraries.
+
+While these flags slightly increase binary size and can incur minor performance overheads, they are **mandatory** during the profiling and SBoB generation phase to guarantee high-precision system call attribution.
 
 ### Control Flow Integrity
 

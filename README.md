@@ -1,12 +1,17 @@
-# contained-executors
+# jseccomp
 
-**Kernel-enforced containment for Java threads. No agents. No SecurityManager. Just seccomp.**
+**Kernel-enforced thread-scoped sandboxing for JVM applications. No agents. No SecurityManager. Just pure Linux Seccomp & Landlock.**
+
+---
+
+> [!WARNING]
+> **Experimental Research Proof-of-Concept.** This library is an untested research prototype exploring thread-scoped sandboxing on modern Linux kernels. It is not production-ready, contains known stability and security limitations, and must **not** be deployed in production environments.
 
 ---
 
 ## The Solution
 
-Wrap the executor that runs untrusted code. The kernel enforces the policy — no JVM bytecode can circumvent it.
+Modern application security layers are often too broad (process-wide containers) or highly brittle (application-level parsing checks). `jseccomp` provides surgical, unprivileged self-restriction at the OS thread boundary. By wrapping the executor that runs untrusted data-parsing tasks, the kernel enforces the security policy — no JVM bytecode or dynamic vulnerability can circumvent it.
 
 ```kotlin
 val safe = ContainedExecutors.wrap(
@@ -14,37 +19,66 @@ val safe = ContainedExecutors.wrap(
     Policy.NO_EXEC
 )
 
-// The exploit payload reaches the vulnerable logger...
+// The exploit payload reaches a vulnerable library...
 val future = safe.submit { vulnerableLogger.log(maliciousInput) }
 
 // ...but the kernel intercepts execve() and returns EPERM.
-// The reverse shell never spawns. Attack neutralized.
-future.get() // throws ExecutionException { cause: ContainmentViolationException }
+// The reverse shell never spawns. The attack is completely neutralized.
+future.get() // Throws ExecutionException { cause: ContainmentViolationException }
 ```
 
 ## How It Works
 
-`contained-executors` uses **Linux seccomp-bpf** to install system call filters. The implementation is 100% pure Java, using the Foreign Function & Memory (FFM) API to interact with the kernel.
+`jseccomp` uses **Linux Seccomp-BPF** and **Landlock LSM** to install unprivileged security filters. The implementation is 100% pure Java, utilizing the **Foreign Function & Memory (FFM) API** (JDK 22+) to interface directly with the kernel without the need for native C dependencies.
 
-Prohibited syscalls trigger a `SECCOMP_RET_ERRNO` with `EPERM`, causing standard Java IO/NIO methods to throw exceptions (like `AccessDeniedException`). The executor wrapper catches these to wrap them in a `ContainmentViolationException`.
+Prohibited syscalls trigger a `SECCOMP_RET_ERRNO` with `EPERM` (or Landlock file permissions return `EACCES`), causing standard Java I/O or JNI calls to fail. The executor wrapper catches these failures, matches them, and throws a `ContainmentViolationException`.
+
+---
+
+## Features & Roadmap
+
+### Existing Capabilities
+* **Tier 1 - Process-Wide Lockdown:** Apply `Policy.NO_EXEC` to the entire JVM at startup, rendering shell spawning completely impossible.
+* **Tier 2 - Thread-Scoped Surgical Containment:** Wrap dedicated platform thread pools to strip capabilities (such as network access or dynamic memory execution) from worker threads.
+* **Dual-Syscall JIT Memory Protection:** Generates linear BPF bytecode that inspects both `mmap` and `mprotect` arguments, blocking `PROT_EXEC` modifications to stop shellcode injection without interfering with the JVM's JIT compiler.
+* **Path-Aware Filesystem Sandboxing:** Seamlessly integrates **Landlock** to restrict directories (e.g. allowing reads in `/data/incoming` while blocking `/etc` and the host filesystem).
+* **Automatic Classpath Authorization:** Auto-whitelists the JVM classpath and `java.home` to avoid lazy classloading crashes inside Landlock.
+
+### Roadmap: Native `SIGSYS` Trapping (SECCOMP_RET_TRAP)
+The current implementation relies on `SECCOMP_RET_ERRNO` and parsing localized JVM exception strings. We are actively planning a roadmap to transition to a native `SIGSYS` trapping architecture:
+1. **`SECCOMP_RET_TRAP` Execution:** Instruct the kernel BPF filter to trigger a `SIGSYS` signal upon a violation.
+2. **Native Signal Handler Integration:** Register a native C signal handler using `sigaction` via FFM.
+3. **Instruction Pointer Advancement:** Intercept the signal, asynchronously record registers and violation metadata, modify `rax` to `-EPERM`, and increment the instruction pointer (`rip` / `pc`) past the 2-byte `syscall` instruction to resume Java execution safely.
+4. **Deterministic Java Exception Mapping:** Map violations deterministically to Java exceptions without relying on brittle exception message parsing.
+
+---
 
 ## Quick Start
 
-### Try It Live (No Setup Required)
-- **[Interactive Playground on Killercoda](https://killercoda.com/YOUR_USERNAME/scenario/jsecomp)** – A free, browser-based Linux environment.
-- **[Watch the Demo](#)** – 30-second terminal recording.
+### 1. Run the Tests Locally
 
-### 2. Configure a Thread Pool with File Restrinctions (Landlock)
+To run the integration suite in a contained environment with nested seccomp support:
 
-Modern Linux kernels support [Landlock LSM](https://landlock.io/), which allows unprivileged processes to sandbox their own filesystem access. `jseccomp` automatically applies Landlock rules alongside Seccomp:
+```bash
+git clone https://github.com/leanid/jseccomp.git
+cd jseccomp
+
+# Start the container under the custom seccomp profile
+docker compose up -d
+docker compose exec jseccomp ./gradlew test
+```
+
+> **Note on Container Security:** Rather than running completely unconfined (which is insecure), `jseccomp` includes a custom [docker-seccomp.json](file:///home/leanid/Documents/code/java/jseccomp/docker-seccomp.json) profile that is automatically configured in [docker-compose.yml](file:///home/leanid/Documents/code/java/jseccomp/docker-compose.yml). This profile whitelists `seccomp(2)` and `prctl(2)` filter stacking, enabling the JVM inside the container to apply nested thread-level policies while keeping the container fully isolated from the host.
+
+### 2. Configure a Path-Restricted Thread Pool (Landlock)
 
 ```kotlin
-// Allow processing files in /data/incoming, but strictly block network and execution
+// Restrict filesystem access, block process execution, and disable network
 val policy = Policy.builder()
     .base(Policy.PURE_COMPUTE)
-    .allowJvmClasspath() // Crucial: allow lazy loading of JVM classes
-    .allowFsRead("/data/incoming")
-    .allowFsWrite("/data/processed")
+    .allowJvmClasspath()             // Crucial: allow lazy loading of JVM classes
+    .allowFsRead("/data/incoming")   // Allow read-only access here
+    .allowFsWrite("/data/processed") // Allow write-only access here
     .build()
 
 val executor = ContainedExecutors.wrap(
@@ -53,7 +87,7 @@ val executor = ContainedExecutors.wrap(
 )
 
 executor.submit {
-    // This will work:
+    // This will succeed:
     val data = File("/data/incoming/task1.json").readText()
     File("/data/processed/result.json").writeText(data)
     
@@ -62,48 +96,26 @@ executor.submit {
 }
 ```
 
-### 3. Graceful Degradation
+---
 
-### Local Development
-- **Linux** (x86_64 or aarch64)
-- **JDK 22+** (requires FFM API)
-- **Docker:** `docker compose up -d && docker compose exec jseccomp ./gradlew test`
-- **Podman:** `podman run --security-opt seccomp=unconfined -it --rm -v $(pwd):/app:Z -w /app fedora:40 ./gradlew test`
+## Built-In Policies
 
-> **Note:** Containers must run with `seccomp=unconfined` because the project applies its own nested filters.
+| Policy | Blocked Syscalls / Primitives | Best Use Case |
+|---|---|---|
+| `Policy.NO_EXEC` | `execve`, `execveat`, `fork`, `vfork`, `memfd_create`, `io_uring_setup` | Process-wide startup lockdown baseline. |
+| `Policy.NO_NETWORK` | All execution blocks + `connect`, `socket`, `bind`, `accept` | Data parsers that require local filesystem access but no internet. |
+| `Policy.PURE_COMPUTE` | All network and execution blocks + `open`, `ioctl`, `prctl` | Algorithmic worker pools (image decoding, cryptographic operations). |
 
-## Usage
+---
 
-**Wrap a thread pool:**
-```kotlin
-val executor = ContainedExecutors.wrap(
-    Executors.newFixedThreadPool(4),
-    Policy.NO_EXEC
-)
-```
+## Critical JVM Constraints
 
-**Global process lockdown:**
-```kotlin
-ContainedExecutors.installOnProcess(Policy.NO_NETWORK)
-```
+* **Loom Virtual Thread Contamination:** Thread-scoped seccomp sandboxes the underlying OS thread. Since virtual threads share OS carrier threads via a ForkJoinPool, applying a filter inside a virtual thread will permanently "poison" that carrier thread. `jseccomp` explicitly detects virtual threads at runtime and throws `IllegalStateException` to prevent this bypass.
+* **GC & Safepoint Deadlock Risk:** Custom policies must never block JVM coordination syscalls (`futex`, `sched_yield`, `rt_sigreturn`, `madvise`, `gettid`). Blocking synchronization primitives will lead to VM-wide deadlocks during the next GC cycle.
+* **Shared-Memory ACE Bypass:** Thread-scoped seccomp is not an absolute sandbox. If an attacker achieves native Arbitrary Code Execution (ACE) on a thread, they can manipulate the shared JVM heap/stack to corrupt unrestricted carrier or parent threads. Combine with process-wide `NO_EXEC` (Tier 1) for strong defense-in-depth.
 
-**Built-in policies:**
+---
 
-| Policy                | Blocked syscalls                            |
-|-----------------------|---------------------------------------------|
-| `Policy.NO_EXEC`      | `execve`, `fork`, etc.                      |
-| `Policy.NO_NETWORK`   | `connect`, `socket`, `bind`, etc.           |
-| `Policy.PURE_COMPUTE` | All of the above + `open`, `ioctl`, `prctl` |
+## License
 
-> **Important:** Seccomp filters are permanent. Never share a contained thread pool with uncontained tasks. See the **Javadocs in `ContainedExecutors`** for critical details on thread pool poisoning and virtual thread limitations.
-
-## Building
-
-```bash
-./gradlew build
-```
-
-| Module  | Purpose                                    |
-|---------|--------------------------------------------|
-| `utils` | The `io.contained` library                 |
-| `demo`  | Log4Shell exploit/protection demonstration |
+This project is licensed under the Apache License 2.0.

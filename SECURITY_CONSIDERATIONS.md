@@ -6,15 +6,24 @@ Using seccomp-bpf within the JVM introduces specific architectural risks. This d
 
 ## 1. Thread-Level vs. Process-Level Isolation
 
-Seccomp filters on Linux can be applied to a single thread or the entire process. This library supports both via `installOnCurrentThread` and `installOnProcess`.
+Seccomp filters on Linux can be applied to a single thread or the entire process. `jseccomp` supports both via `installOnCurrentThread` (Tier 2) and `installOnProcess` (Tier 1).
 
 ### The "Elasticsearch Approach" (Process-Wide)
 For years, industry leaders like **Elasticsearch** have successfully used a minimal, process-wide seccomp filter to prevent Remote Code Execution (RCE). By blocking a small set of syscalls (`fork`, `vfork`, `execve`, `execveat`) globally at startup, they ensure that even if a vulnerability like Log4Shell is exploited, the attacker cannot spawn a shell.
 
 **Recommendation:** Use `ContainedExecutors.installOnProcess(Policy.NO_EXEC)` as your foundational baseline defense.
 
-### Thread-Level Mitigation & The "Pivot" Risk
-Thread-level containment (e.g., wrapping an `ExecutorService`) is a powerful "blast radius" mitigator, but it is not an absolute sandbox. Because Java threads share a single heap, an attacker with **Arbitrary Code Execution (ACE)** can theoretically "pivot" to an unrestricted thread (e.g., by submitting a task to the JVM's `ForkJoinPool.commonPool()`).
+### Thread-Level Mitigation & The "ACE Shared-Memory Pivot" Threat Model
+Thread-level containment (e.g., wrapping an `ExecutorService` with restrictive policies like `PURE_COMPUTE`) is a powerful tool to minimize the blast radius of un-trusted library execution. However, **thread-scoped seccomp is not an absolute security boundary against an attacker who achieves Arbitrary Code Execution (ACE) on that thread.**
+
+Because the JVM runs within a single Linux process, **all JVM threads share the same physical address space, virtual memory maps, and heap.** 
+
+If an attacker achieves native code execution (e.g., via a buffer overflow in a native JNI dependency or using raw Java FFM/`Unsafe` pointer manipulation) inside a sandboxed worker thread, they cannot make blocked system calls *on that thread*. However, they can compromise the rest of the JVM process by:
+1. **Memory Corruption:** Corrupting the stacks or memory blocks of unrestricted parent or sister threads running in the same process space.
+2. **Dynamic Thread Injection / Task Poisoning:** Accessing the JVM's internal structures (like the `ForkJoinPool.commonPool()` queue or JVM scheduler queues) directly in memory using pointer arithmetic, and injecting malicious tasks to be executed by unrestricted threads.
+3. **Internal JVM Structure Hijacking:** Overwriting JVM function tables, class metadata, or garbage collector structures to trigger code execution on unrestricted helper threads.
+
+**The Architectural Floor:** Therefore, thread-level seccomp must **never** be treated as a strong VM boundary (like a Docker container or gVisor sandbox). It is a highly effective, low-overhead shield that prevents contained libraries from making direct system calls (e.g. initiating SSRF or spawning shells), but process-wide `NO_EXEC` (Tier 1) remains mandatory to prevent the attacker from escalating an ACE pivot.
 
 ---
 
@@ -76,10 +85,10 @@ To make seccomp an effective barrier, the host environment **must** implement th
 
 ## 7. Technical Safeguards: Argument Inspection
 
-`contained-executors` uses BPF argument inspection to provide fine-grained control over critical syscalls, allowing the JVM to function while blocking malicious actions.
+`jseccomp` uses BPF argument inspection to provide fine-grained control over critical syscalls, allowing the JVM to function while blocking malicious actions.
 
-### Executable Memory Protection (`mmap`)
-We inspect the `prot` argument of `mmap`. Standard mappings are allowed, but the library triggers an immediate `EPERM` if the `PROT_EXEC` (0x04) bit is set. This blocks binary shellcode execution while allowing the JIT and GC to function normally.
+### Executable Memory Protection (`mmap` & `mprotect`)
+We inspect the `prot` argument (the 3rd argument, `args[2]` in `seccomp_data`) of both `mmap` and `mprotect`. Standard mappings are allowed, but the library triggers an immediate `EPERM` if the `PROT_EXEC` (0x04) bit is set. This blocks binary shellcode execution while allowing the JIT and GC to function normally on other threads.
 > **Note on 32-bit Truncation:** BPF jump/load instructions natively operate on 32-bit words. The filter loads the lower 32 bits of the `prot` argument to check for `PROT_EXEC`. Since the Linux kernel internally casts the `prot` flag to an `unsigned long` but only honors the standard lower bits defined in POSIX, this 32-bit truncation is secure and matches kernel behavior.
 
 ### JVM Stability Protection (`clone`)
@@ -87,13 +96,66 @@ We inspect the `flags` argument of `clone`. We allow `clone` only if it includes
 
 ---
 
-## 8. Known Limitations & Caveats
+## 8. HotSpot JVM Whitelist Risks (Safepoints & GC Deadlocks)
+
+A critical technical risk of thread-scoped seccomp sandboxing in the JVM is **Safepoint and GC deadlock**. 
+
+JVM application threads are not fully isolated; they must periodically synchronize during safepoints (e.g. for dynamic compilation, deoptimization, thread dumps, or garbage collection). During these periods, application threads execute JVM runtime paths which invoke systems-level synchronization and scheduling operations:
+* `futex`: Used extensively by the JVM for thread park/unpark and monitor synchronization.
+* `sched_yield`: Called by threads during spin-lock contention.
+* `rt_sigreturn`: Executed to return from signal handlers (HotSpot uses `SIGSEGV` for safepoint polling and `SIGUSR1` for thread suspension).
+* `madvise` / `mprotect`: Invoked by garbage collection threads (e.g. ZGC or G1) to manage page tables and memory barriers.
+* `gettid`: Used to identify native threads.
+
+If a custom `jseccomp` policy aggressively blocks any of these coordination syscalls, the next safepoint or GC sweep will cause a **catastrophic, permanent deadlock of the entire JVM**.
+
+### JVM Platform Comparison: JIT vs. AOT
+* **HotSpot JVM (JIT):** Requires a highly permissive system call floor. Because of dynamic compilation, runtime stack walking, and lazy classloading, application threads must leave synchronization, timing, and memory management syscalls unblocked to avoid deadlocks.
+* **GraalVM Native Image (AOT):** Enables a much stricter security floor. With no JIT thread, no dynamic classloading, and a highly streamlined runtime footprint, a native executable can run safely under policies that block timing, scheduling, and signal return syscalls that standard HotSpot would require.
+
+---
+
+## 9. The Trapping Architecture: Native `SIGSYS` Signal Interception
+
+The default mode of `jseccomp` is to return `SECCOMP_RET_ERRNO` with `EPERM` (1) upon a policy violation. While robust and secure, detecting these violations in Java relies on parsing exception String messages (e.g. "Operation not permitted"), which is fragile and locale-sensitive.
+
+The ultimate production roadmap for the library is to pivot to a native **`SECCOMP_RET_TRAP`** architecture:
+
+```
+[ Syscall Violation ]
+       │
+       ▼ (BPF returns SECCOMP_RET_TRAP)
+[ Kernel sends SIGSYS ]
+       │
+       ▼ (Intercepted by Native Signal Handler)
+[ C Signal Handler (FFM/sigaction) ]
+ ├── 1. Capture ucontext_t (registers, rip, rax, si_syscall)
+ ├── 2. Write structured, async-signal-safe audit log to stderr/disk
+ ├── 3. Modify ucontext_t context:
+ │      ├── Set rax = -EPERM (simulate syscall error return)
+ │      └── Advance rip += 2 (skip the 2-byte syscall instruction)
+ └── 4. Set thread-local violation flag
+       │
+       ▼ (Return from Signal Handler)
+[ Java Task Execution Resumes ]
+ ├── Syscall returns EPERM in Java
+ └── Java raises IOException → jseccomp reads thread-local flag → Throws deterministic exception
+```
+
+### Technical implementation requirements for `SIGSYS`:
+1. **Async-Signal-Safe Interception:** The handler must run in a signal context. Calling Java code directly from the handler is unsafe and will crash the VM. The handler must be a small native C helper that records the violation details in a lock-free thread-local buffer or write to a pipe.
+2. **Instruction Pointer Manipulation:** To prevent the thread from spinning in an infinite syscall-retry loop, the C handler must modify the CPU register state in `ucontext_t`: setting the return register (`rax` on x86_64, `x0` on aarch64) to `-EPERM` and incrementing the instruction pointer (`rip` / `pc`) past the 2-byte `syscall` instruction (`0x0f 0x05`).
+3. **Graceful Failures:** This trapping architecture enables perfect stack traces, dynamic threat intelligence logging, and locale-independent exception mapping, but it must be written in a static native library companion to be 100% stable.
+
+---
+
+## 10. Known Limitations & Caveats
 
 ### Inherited File Descriptors
 Seccomp filtering applies to *syscalls*, not *data structures*. If a thread inherits an open socket file descriptor (or receives one via `SCM_RIGHTS`) before the `NO_NETWORK` policy is applied, it can still call `recvmsg`, `recvfrom`, `write`, or `writev` on that existing descriptor. `NO_NETWORK` prevents the creation of *new* sockets (`socket`, `connect`, `bind`, `accept`), but does not block generic read/write syscalls which are essential for standard JVM I/O.
 
 ### Non-English Locales and Violation Exceptions
-Java's core `IOException` classes do not expose the raw OS `errno` values. To detect containment violations (which throw `EPERM` or `EACCES`), this library matches the localized exception messages (e.g., "Operation not permitted" or "Permission denied") combined with specific JVM error codes (`error=1` or `error=13`).
+Java's core `IOException` classes do not expose the raw OS `errno` values. Under the current experimental `SECCOMP_RET_ERRNO` approach, `jseccomp` detects containment violations by matching localized exception messages (e.g., "Operation not permitted" or "Permission denied") combined with specific JVM error codes (`error=1` or `error=13`).
 On non-English locales, if the JVM translates these messages entirely, a blocked syscall will still be successfully intercepted by the kernel, but the application may throw a generic `IOException` rather than the specific `ContainmentViolationException`. The security guarantee remains intact; only the exception wrapping is affected.
 
 ### Platform Support
@@ -101,7 +163,7 @@ Seccomp-BPF and Landlock are Linux-only features. The library safely performs an
 
 ---
 
-## 9. Information Leaks (Side Channels)
+## 11. Information Leaks (Side Channels)
 
 Seccomp restricts **actions** (syscalls), but it does not provide **data isolation**. 
 *   A contained thread can still read any static variable or heap object it can reference.
@@ -115,4 +177,89 @@ Seccomp restricts **actions** (syscalls), but it does not provide **data isolati
 | :--- | :--- | :--- | :--- |
 | `NO_EXEC` | High | Low | Global process-wide lockdown (Elasticsearch model). |
 | `NO_NETWORK` | High | Medium | Data parsing, report generation. |
-| `PURE_COMPUTE`| Critical | High | Pure algorithmic tasks (image processing, crypto). |
+| `PURE_COMPUTE`| Critical | High (HotSpot) / Medium (GraalVM) | Pure algorithmic tasks (image processing, crypto). |
+
+---
+
+## 12. Kubernetes (K8s) Production Deployment Pattern
+
+To run a containerized JVM using `jseccomp` securely inside a Kubernetes cluster, you must avoid running pods with privileged security contexts (e.g. `privileged: true` or running unconfined). 
+
+Instead, configure Kubernetes to use the **Localhost custom seccomp profile** pattern.
+
+### Step 1: Place the Custom Seccomp Profile on Kubernetes Nodes
+Kubelet looks for custom seccomp profiles in its local filesystem at:
+`/var/lib/kubelet/seccomp/`
+
+You must place a copy of `docker-seccomp.json` into a subdirectory on each host node (for example, as `/var/lib/kubelet/seccomp/profiles/jseccomp.json`).
+
+*   **Automation tip:** Use a lightweight Kubernetes **DaemonSet** with a `hostPath` mount to distribute and keep this profile file synchronized across all nodes automatically:
+    ```yaml
+    apiVersion: apps/v1
+    kind: DaemonSet
+    metadata:
+      name: jseccomp-profile-initializer
+      namespace: kube-system
+    spec:
+      selector:
+        matchLabels:
+          name: jseccomp-profile-initializer
+      template:
+        metadata:
+          labels:
+            name: jseccomp-profile-initializer
+        spec:
+          containers:
+          - name: initializer
+            image: busybox:1.36
+            command: ["sh", "-c", "mkdir -p /var/lib/kubelet/seccomp/profiles && cp /config/jseccomp.json /var/lib/kubelet/seccomp/profiles/jseccomp.json && sleep 3600"]
+            volumeMounts:
+            - name: kubelet-seccomp
+              mountPath: /var/lib/kubelet
+            - name: config
+              mountPath: /config
+          volumes:
+          - name: kubelet-seccomp
+            hostPath:
+              path: /var/lib/kubelet
+          - name: config
+            configMap:
+              name: jseccomp-profile-configmap
+    ```
+
+### Step 2: Apply the Seccomp Profile in the Pod Manifest
+In your application’s Pod or Deployment manifest, specify the custom profile within the container or pod `securityContext`. 
+
+Additionally, you **must** configure `allowPrivilegeEscalation: false`. This ensures the container sets `PR_SET_NO_NEW_PRIVS`, which is a kernel requirement for unprivileged threads to load/stack their own nested seccomp filters.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secure-parser-app
+spec:
+  replicas: 3
+  template:
+    spec:
+      securityContext:
+        # 1. Instruct Kubelet to apply our custom profile from node's seccomp directory
+        seccompProfile:
+          type: Localhost
+          localhostProfile: profiles/jseccomp.json
+      containers:
+      - name: jseccomp-service
+        image: my-registry.internal/parser-service:1.2.0
+        securityContext:
+          # 2. Prevent privilege escalation (sets NO_NEW_PRIVS in host kernel)
+          allowPrivilegeEscalation: false
+          # 3. Standard hardening (read-only root fs, non-root user)
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 10001
+          capabilities:
+            drop:
+            - ALL
+```
+
+### Compatibility with K8s Pod Security Standards (PSA)
+This custom configuration is **100% compliant with the strict "Restricted" Pod Security Standard** (PSA). The Restricted standard requires pods to enforce `seccompProfile.type: RuntimeDefault` or `Localhost` with a profile. Because we use a verified `Localhost` custom profile that drops standard system privileges while leaving stacking whitelisted, the deployment remains secure, compliant, and unprivileged.

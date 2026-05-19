@@ -12,8 +12,25 @@ import org.junit.jupiter.api.condition.OS
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
+/**
+ * Integration tests verifying that [BpfFilter] correctly performs argument inspection on both
+ * `mmap` and `mprotect` system calls to prevent dynamic shellcode execution.
+ * 
+ * Specifically, the BPF filter intercepts these system calls and validates the third argument
+ * (`prot` at `args[2]` in `struct seccomp_data`, mapped at offset 32), returning `EPERM` if the
+ * `PROT_EXEC` (0x04) bit is set. This protects worker threads from creating executable memory 
+ * regions without interfering with JIT compilation running on unrestricted threads.
+ */
 class MmapProtectionTest {
 
+    /**
+     * Verifies that attempting to allocate executable memory directly using `mmap` with the 
+     * `PROT_EXEC` flag set causes the kernel to block the call with `EPERM`, which propagates
+     * as a [ContainmentViolationException].
+     * 
+     * The BPF filter performs argument inspection on `mmap` by loading the lower 32 bits of 
+     * `args[2]` (offset 32) and checking if `PROT_EXEC` (0x04) is present.
+     */
     @Test
     @EnabledOnOs(OS.LINUX)
     fun `mmap with PROT_EXEC is blocked even if mmap syscall is allowed`() {
@@ -53,6 +70,14 @@ class MmapProtectionTest {
         }
     }
 
+    /**
+     * Verifies that attempting to mark an existing non-executable memory region as executable
+     * using `mprotect` with `PROT_EXEC` causes the kernel to block the call with `EPERM`, which
+     * propagates as a [ContainmentViolationException].
+     * 
+     * The BPF filter performs argument inspection on `mprotect` by loading the lower 32 bits of 
+     * `args[2]` (offset 32) and checking if `PROT_EXEC` (0x04) is present.
+     */
     @Test
     @EnabledOnOs(OS.LINUX)
     fun `mprotect with PROT_EXEC is blocked even if mprotect syscall is allowed`() {

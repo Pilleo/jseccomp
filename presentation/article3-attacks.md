@@ -1,4 +1,4 @@
-# Contained: The Attacks jseccomp Actually Stops
+# jseccomp: The Attacks We Actually Stop
 
 > **Series overview:** This is Part 3 of a 4-part series on behavioral security for cloud-native applications.
 
@@ -117,35 +117,46 @@ The test calls the kernel directly via FFM, bypassing all Java wrappers — the 
 
 ---
 
-## Attack 3: Binary Shellcode Injection (`mmap PROT_EXEC`)
+## Attack 3: Binary Shellcode Injection (`mmap` and `mprotect` with `PROT_EXEC`)
 
-**The attack:** An attacker with arbitrary write primitives (buffer overflow, unsafe memory access) writes machine code into the process address space and marks the target region executable:
+**The attack:** An attacker with arbitrary write primitives (buffer overflow, unsafe memory access, or JNI manipulation) writes raw machine code into the process address space. To execute it, they must mark the target memory region executable. This is typically done either directly during allocation:
 
 ```c
+// Method A: Direct executable allocation
+void *region = mmap(NULL, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANON | MAP_PRIVATE, -1, 0);
+```
+
+Or, more commonly, by modifying an existing readable/writable data region:
+
+```c
+// Method B: Allocating RW memory, writing payload, then converting to RX
 void *region = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
 memcpy(region, shellcode, size);
-mprotect(region, size, PROT_READ | PROT_EXEC);  // make it executable
+mprotect(region, size, PROT_READ | PROT_EXEC);  // pivot to executable
 ((void(*)())region)();                           // jump to shellcode
 ```
 
-**Why this is hard to block naively:** The JVM's JIT compiler does exactly this — allocates memory, writes compiled native code, marks it executable. A filter that blocks all `mmap(PROT_EXEC)` crashes the JVM immediately.
+**Why this is hard to block naively:** The JVM's JIT compiler does exactly this — it allocates heap segments and uses `mprotect` or `mmap` to mark them executable so it can compile native code. If a naive Seccomp filter blocks all `mmap` or `mprotect` calls, the JVM will fail to run.
 
-**How `jseccomp` handles it:** BPF argument inspection. The filter loads the `prot` argument from the syscall context and checks the `PROT_EXEC` bit (0x4):
+**How `jseccomp` handles it:** **Dual-Syscall BPF argument inspection**. The library generates BPF instructions that hook *both* `mmap` and `mprotect` syscalls. The filter extracts the `prot` argument (which is the 3rd argument, `args[2]` for both system calls) and performs a bitwise-AND test against `PROT_EXEC` (0x4):
 
 ```
 Worker Thread (contained, Policy.PURE_COMPUTE)
   mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_ANON, -1, 0)
-    → prot = 0x3, PROT_EXEC bit (0x4) not set → ALLOWED
+    → prot = 0x3, PROT_EXEC bit (0x4) not set → ALLOWED (data heap ok)
+
+  mmap(NULL, 4096, PROT_READ|PROT_EXEC, MAP_ANON, -1, 0)
+    → prot = 0x5, PROT_EXEC bit (0x4) IS set → EPERM (blocked!)
 
   mprotect(region, 4096, PROT_READ|PROT_EXEC)
-    → prot = 0x5, PROT_EXEC bit (0x4) IS set → EPERM
+    → prot = 0x5, PROT_EXEC bit (0x4) IS set → EPERM (blocked!)
 
 JIT Thread (uncontained — different OS thread)
   mmap(NULL, 65536, PROT_READ|PROT_EXEC, MAP_ANON, -1, 0)
     → no filter on this thread → ALLOWED (JIT functions normally)
 ```
 
-The contained worker thread cannot create executable memory. The JIT thread — on a different OS thread with no filter — is completely unaffected.
+By inspecting both system calls at the argument level, the contained worker thread is completely barred from introducing new executable machine code into the process address space. The JIT threads running on other OS threads continue compiled code optimization unimpeded.
 
 **Verified by test** (`MmapProtectionTest`):
 ```kotlin
@@ -196,11 +207,14 @@ val NO_EXEC: Policy = builder()
 
 ## Attack 5: Kernel Module Injection (LPE Vector)
 
-**The attack:** An attacker who has compromised a worker thread seeks local privilege escalation (LPE) to break out of the container. A common modern Linux LPE strategy is to trigger the dynamic loading of obscure, vulnerable kernel modules (such as DCCP, RDS, SCTP, or old filesystem drivers) by calling `socket()` with unusual families or calling `mount()`. The kernel automatically fires off `modprobe` / `kmod` to load the dormant module, exposing the kernel's vulnerable attack surface. Alternatively, if the container holds administrative capabilities (`CAP_SYS_MODULE`), the attacker can attempt to load a malicious rootkit directly using `init_module` or `finit_module`.
+**The attack:** An attacker who has compromised a worker thread seeks local privilege escalation (LPE) to break out of the container. 
+A naive security approach might just block direct module-loading syscalls like `init_module` or `finit_module`. However, **an attacker can bypass this via dynamic auto-loading**. 
 
-**The jseccomp response:** Block module-loading syscalls completely.
+If the attacker calls `socket(AF_RDS, ...)` (creating a socket using the RDS protocol) or invokes `mount` to attach an obscure filesystem, and the kernel does not currently have that driver loaded, the Linux kernel will **automatically trigger a dynamic modprobe helper** (`kmod`) to search for and load that module from host disk. This immediately exposes the kernel's vulnerable attack surface (e.g. legacy packet parsing bugs) to local exploitation, even if `init_module` itself was blocked. 
 
-A JVM worker pool handling REST requests, parsing XML, or compiling reports has **zero** legitimate business loading kernel modules. By adding `Syscall.INIT_MODULE` and `Syscall.FINIT_MODULE` to our `NO_EXEC` and `PURE_COMPUTE` presets, we neutralize this dynamic injection vector at the thread level. Even if an exploit achieves capabilities within the container namespace, the kernel blocks the module load with `EPERM`.
+**The `jseccomp` response:** Blocking both direct loading and indirect auto-loading.
+
+While `NO_EXEC` blocks the direct injection commands (`init_module`, `finit_module`), `jseccomp`'s **`PURE_COMPUTE`** policy goes much deeper: it blocks the entire `socket` and `mount` syscall families. By completely stripping the thread's ability to initialize sockets or attach mounts, `jseccomp` successfully plugs the dynamic auto-loading loophole at the thread boundary. A thread parsing JSON has **zero** legitimate reasons to create sockets or mount filesystems. Even if the underlying host kernel is highly vulnerable to legacy protocol exploits, the contained JVM thread is physically blocked from initiating the transitions that trigger module loading.
 
 ### The Host-Level Counterpart: ModuleJail
 

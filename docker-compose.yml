@@ -3,10 +3,10 @@ services:
     build: .
     volumes:
       - .:/workspace
-    # The application applies its own seccomp filters. 
-    # Docker's default seccomp profile may interfere with these tests.
+    # Use our custom seccomp profile that whitelists filter stacking
+    # rather than running completely unconfined in production.
     security_opt:
-      - seccomp=unconfined
+      - seccomp=./docker-seccomp.json
     working_dir: /workspace
     # Default to keeping the container alive for execution
     command: tail -f /dev/null
