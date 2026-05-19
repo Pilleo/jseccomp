@@ -3,7 +3,7 @@ package io.contained
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
-import java.util.concurrent.Executors
+
 import kotlin.test.assertTrue
 
 class StackingIntegrationTest {
@@ -49,11 +49,14 @@ class StackingIntegrationTest {
         t.start()
         t.join()
 
-        assertTrue(depthException != null, "Expected IllegalStateException after 32 filters")
+        val exception = depthException
+        assertTrue(exception != null, "Expected IllegalStateException after 32 filters")
+        val message = exception.message
         assertTrue(
-            depthException!!.message!!.contains("Cannot install more than 32 seccomp filters"),
-            "Unexpected exception message: ${depthException!!.message}"
+            message != null && message.contains("Cannot install more than 32 seccomp filters"),
+            "Unexpected exception message: $message"
         )
     }
 }
+
 

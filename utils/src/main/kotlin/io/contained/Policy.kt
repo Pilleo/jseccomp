@@ -53,6 +53,7 @@ class Policy private constructor(
             .block(Syscall.USERFAULTFD, Syscall.UNSHARE, Syscall.SETNS)
             .block(Syscall.MOUNT, Syscall.UMOUNT2, Syscall.PIVOT_ROOT, Syscall.CHROOT)
             .block(Syscall.IOCTL, Syscall.PRCTL)
+            .block(Syscall.INIT_MODULE, Syscall.FINIT_MODULE)
             .build()
 
         /** Blocks outbound network syscalls only. */
@@ -66,7 +67,9 @@ class Policy private constructor(
             .block(Syscall.EXECVE, Syscall.EXECVEAT)
             .block(Syscall.FORK, Syscall.VFORK)
             .block(Syscall.MEMFD_CREATE, Syscall.IO_URING_SETUP, Syscall.PTRACE)
+            .block(Syscall.INIT_MODULE, Syscall.FINIT_MODULE)
             .build()
+
 
         fun builder(): Builder = Builder()
 
