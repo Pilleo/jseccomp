@@ -68,6 +68,11 @@ docker compose up -d
 docker compose exec jseccomp ./gradlew test
 ```
 
+> [!IMPORTANT]
+> **Podman + Docker Compose V2 Compatibility:** This project's `docker-compose.yml` is specifically optimized for **Podman** using the `docker compose` V2 binary. 
+> 
+> Standard `security_opt: seccomp=...` triggers a bug where the full JSON profile is passed as a string over the socket, causing Podman to fail with a "file name too long" (`ENAMETOOLONG`) error. We bypass this using the Podman-native annotation `io.podman.annotations.seccomp`. If you are using standard Docker, you must manually revert this to a standard `security_opt` block.
+
 > **Note on Container Security:** Rather than running completely unconfined (which is insecure), `jseccomp` includes a custom [docker-seccomp.json](docker-seccomp.json) profile that is automatically configured in [docker-compose.yml](docker-compose.yml). This profile whitelists `seccomp(2)` filter stacking, enabling the JVM inside the container to apply nested thread-level policies while keeping the container fully isolated from the host.
 
 ### 2. Configure a Path-Restricted Thread Pool (Landlock)
