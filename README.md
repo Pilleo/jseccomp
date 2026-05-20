@@ -68,7 +68,7 @@ docker compose up -d
 docker compose exec jseccomp ./gradlew test
 ```
 
-> **Note on Container Security:** Rather than running completely unconfined (which is insecure), `jseccomp` includes a custom [docker-seccomp.json](file:///home/leanid/Documents/code/java/jseccomp/docker-seccomp.json) profile that is automatically configured in [docker-compose.yml](file:///home/leanid/Documents/code/java/jseccomp/docker-compose.yml). This profile whitelists `seccomp(2)` and `prctl(2)` filter stacking, enabling the JVM inside the container to apply nested thread-level policies while keeping the container fully isolated from the host.
+> **Note on Container Security:** Rather than running completely unconfined (which is insecure), `jseccomp` includes a custom [docker-seccomp.json](docker-seccomp.json) profile that is automatically configured in [docker-compose.yml](docker-compose.yml). This profile whitelists `seccomp(2)` filter stacking, enabling the JVM inside the container to apply nested thread-level policies while keeping the container fully isolated from the host.
 
 ### 2. Configure a Path-Restricted Thread Pool (Landlock)
 
@@ -105,6 +105,14 @@ executor.submit {
 | `Policy.NO_EXEC` | `execve`, `execveat`, `fork`, `vfork`, `memfd_create`, `io_uring_setup` | Process-wide startup lockdown baseline. |
 | `Policy.NO_NETWORK` | All execution blocks + `connect`, `socket`, `bind`, `accept` | Data parsers that require local filesystem access but no internet. |
 | `Policy.PURE_COMPUTE` | All network and execution blocks + `open`, `ioctl`, `prctl` | Algorithmic worker pools (image decoding, cryptographic operations). |
+
+## System Call Reference
+
+When designing custom security policies, you should consult the authoritative Linux documentation for each system call.
+
+*   **Linux Man Pages:** Use `man 2 <syscall_name>` in your terminal (e.g., `man 2 prctl`, `man 2 seccomp`) to read the exact signature, argument descriptions, and potential error codes (`errno`).
+*   **Online Reference:** The [man7.org Section 2](https://man7.org/linux/man-pages/dir_section_2.html) portal provides the most up-to-date web-based version of the Linux manual pages.
+*   **Architecture Tables:** For architecture-specific syscall numbers (ID mapping), refer to [syscalls.me](https://syscalls.me/) or [filippo.io/linux-syscall-table/](https://filippo.io/linux-syscall-table/).
 
 ---
 
