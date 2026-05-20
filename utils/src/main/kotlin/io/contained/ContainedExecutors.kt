@@ -178,28 +178,41 @@ object ContainedExecutors {
         return null
     }
 
-    private val VIOLATION_MESSAGE_REGEX =
-        Regex("(?i)Operation not permitted|Permission denied|error=1\\b|error=13\\b|\\bdenied\\b|refusé|verweigert|negado")
+    // Priority 1: JVM-encoded errno (most reliable — locale-independent)
+    private val ERRNO_REGEX = Regex("\\berror=(1|13)\\b")
+
+    // Priority 2: OS message fallback (locale-sensitive, narrowed to known safe patterns)
+    private val OS_MSG_REGEX = Regex(
+        "(?i)\\bOperation not permitted\\b|\\bPermission denied\\b|\\brefusé\\b|\\bverweigert\\b|\\bnegado\\b"
+    )
 
     private fun isDirectContainmentViolation(t: Throwable): Boolean {
-        // EPERM (1) is the standard seccomp return code.
-        if (t is AccessDeniedException || t is java.nio.file.FileSystemException && t.message?.contains("Operation not permitted") == true) {
+        // AccessDeniedException is a direct native translation of EACCES/EPERM for path operations
+        if (t is AccessDeniedException) return true
+
+        // FileSystemException from java.nio.file has structured OS translation
+        if (t is java.nio.file.FileSystemException && t.message?.contains("Operation not permitted") == true) {
             return true
         }
 
         val msg = t.message ?: return false
 
-        // Check for explicit JVM error codes first to avoid locale-fragile string matching
-        if (msg.contains("error=1\b") || msg.contains("error=13\b") || (t is IOException && msg.contains("error=1"))) {
+        // Check for explicit JVM-encoded error codes first (locale-independent)
+        if (ERRNO_REGEX.containsMatchIn(msg)) {
             return true
         }
 
-        if (VIOLATION_MESSAGE_REGEX.containsMatchIn(msg)) {
-            return true
+        // Restrict OS message parsing to I/O and networking contexts to avoid false positives in business logic
+        if (t is IOException || t is SocketException) {
+            if (OS_MSG_REGEX.containsMatchIn(msg)) {
+                return true
+            }
+            if (msg.contains("Cannot run")) {
+                return true
+            }
         }
 
-        return (t is SocketException && (msg.contains("Permission") || msg.contains("denied")))
-                || (t is IOException && msg.contains("Cannot run"))
+        return false
     }
 
     private fun isViolationInCauseChain(t: Throwable): Boolean {

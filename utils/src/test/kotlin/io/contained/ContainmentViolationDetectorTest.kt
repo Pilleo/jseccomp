@@ -131,4 +131,22 @@ class ContainmentViolationDetectorTest {
         val found = ContainedExecutors.findViolationCause(primary)
         assertTrue(found === suppressed, "Expected the suppressed SocketException, got $found")
     }
+
+    @Test
+    fun `non-IO exception containing denied is not detected`() {
+        val e = RuntimeException("Access denied by application rule")
+        assertFalse(ContainedExecutors.isContainmentViolation(e))
+    }
+
+    @Test
+    fun `non-IO exception containing Permission denied is not detected`() {
+        val e = IllegalStateException("Database query returned: Permission denied")
+        assertFalse(ContainedExecutors.isContainmentViolation(e))
+    }
+
+    @Test
+    fun `IOException containing unrelated denied is not detected`() {
+        val e = IOException("Authentication denied by endpoint")
+        assertFalse(ContainedExecutors.isContainmentViolation(e))
+    }
 }
