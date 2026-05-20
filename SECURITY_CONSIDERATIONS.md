@@ -61,7 +61,61 @@ It is critical to understand that Seccomp monitors **system calls**, not interna
 By chaining together existing snippets of code (gadgets), an attacker can perform **Return-Oriented Programming (ROP)** or **Jump-Oriented Programming (JOP)** to execute arbitrary logic without ever calling `mprotect` or `mmap`. 
 *   **Mitigation:** Protection against ROP/JOP relies on complementary OS and compiler-level features such as **ASLR (Address Space Layout Randomization)**, **Stack Canaries**, and **Control Flow Integrity (CFI)**. Seccomp provides a hard barrier against environment-altering actions (spawn shell, network access), but it is not a complete solution for all memory corruption exploitation techniques.
 
+
 ---
+
+## 4. The Ironic Security Shield: `PR_SET_NO_NEW_PRIVS` & Privilege Locking
+
+To load a seccomp filter without root privileges (`CAP_SYS_ADMIN`), the Linux kernel enforces a strict requirement: the process must first enable the **`PR_SET_NO_NEW_PRIVS`** flag via a `prctl` call:
+
+```kotlin
+// Enforced by Linux before loading unprivileged seccomp filters:
+LinuxNative.prctl(LinuxNative.PR_SET_NO_NEW_PRIVS, 1L, 0L, 0L, 0L)
+```
+
+This flag tells the kernel: *"From this moment on, this process and all of its descendants can never transition to a higher privilege level via `execve()`."* 
+
+While technically an operational constraint, it functions as an incredibly powerful **automatic security shield** that permanently neutralizes three major kernel-level escalation pathways:
+
+### A. Setuid/Setgid Binary De-escalation
+In Unix-like operating systems, certain administrative binaries have the `setuid` or `setgid` permission bits set (e.g., `/usr/bin/sudo`, `/usr/bin/su`, `/usr/bin/passwd`, `/usr/bin/pkexec`). When executed, the kernel automatically elevates the calling process to run with the permissions of the file's owner (typically `root`).
+
+Under `no_new_privs`, **the kernel completely ignores the setuid and setgid bits.** Any elevated binary executed by the JVM (or its children) will execute strictly with the unprivileged context of the JVM user.
+
+This single mechanism provides absolute immunity to famous local privilege escalation exploits:
+*   **CVE-2021-4034 (PwnKit):** A 12-year-old memory corruption vulnerability in PolicyKit's `/usr/bin/pkexec` that granted instant root access to local attackers. Under `no_new_privs`, the exploit executes without setuid elevation, rendering it completely inert.
+*   **CVE-2021-3156 (Baron Samedit):** A heap-based buffer overflow in `sudo` allowing unprivileged local users to elevate to root. With `no_new_privs` active, the binary runs as the standard unprivileged JVM user, preventing any root transition regardless of the exploit outcome.
+
+### B. File Capabilities Neutralization
+Modern Linux distributions replace heavy, monolithic `setuid` root permissions with granular **File Capabilities** (e.g., `setcap cap_net_raw+ep /usr/bin/ping` to allow ping to open raw sockets without running as full root).
+
+Under `no_new_privs`, the kernel completely neutralizes file capability transitions. Executed binaries can only use capabilities already possessed by the JVM process (which is typically empty).
+
+### C. LSM Profile Transition Lock (SELinux / AppArmor)
+Security modules like AppArmor and SELinux are often configured to transition a process to a different, more permissive profile when executing specific binaries. `no_new_privs` disables any profile transition that would result in a net gain of privileges, securing the process boundary.
+
+### Operational Implications for the Application
+Developers must understand the exact boundaries this locking mechanism establishes:
+
+1.  **You CAN start the JVM as root:** If you run your application as `root` (e.g. `sudo java -jar app.jar`), it starts at the highest privilege level. When `jseccomp` sets `no_new_privs`, it locks you at root. The app will run fine as root (subject to your seccomp filters), but it cannot go "above" root.
+2.  **You CAN execute standard child processes:** Spawning standard helper scripts or binaries (e.g. calling `ls` or executing a python utility via `ProcessBuilder`) works perfectly. They inherit the exact unprivileged context and seccomp filters of the parent JVM.
+3.  **You CANNOT escalate using sudo/su inside Java code:** If your JVM runs as a standard unprivileged user (e.g. `leanid`), calling `Runtime.getRuntime().exec("sudo systemctl restart nginx")` will **fail immediately**, even if the user is fully authorized in the host's `/etc/sudoers` file. The `sudo` binary will execute but will be denied root transition by the kernel.
+
+### Security Analysis of Nested Seccomp in OCI Runtimes
+
+OCI runtimes (such as `runc`, `containerd`, and Docker) restrict the `seccomp(2)` system call and specific `prctl(2)` options within their default profiles. This design decision is part of a defense-in-depth strategy aimed at reducing the host kernel's attack surface, preventing untrusted processes within containers from interacting with the kernel's BPF verifier or constructing arbitrary syscall filters.
+
+However, the necessity of this OCI-level block can be evaluated against kernel-level invariants:
+1.  **Enforced State Monotonicity:** The Linux kernel strictly requires the `PR_SET_NO_NEW_PRIVS` flag to be set before an unprivileged process can load a seccomp filter. Once active, the process and all descendants are permanently barred from privilege transitions (such as setuid, setgid, or file capability elevations).
+2.  **Filter Monotonicity:** Seccomp filters can only restrict the current syscall capabilities; they cannot be removed, bypassed, or relaxed by subsequent nested filters.
+3.  **Kernel Limits:** Modern kernels cap seccomp filter depth and BPF program complexity, preventing simple kernel memory exhaustion vectors.
+
+Given these kernel-level invariants, blocking unprivileged seccomp filter installation inside containers does not prevent privilege escalation, since the kernel already enforces an immutable boundary. The primary risk re-introduced by whitelisting `seccomp` and `prctl(PR_SET_SECCOMP)` is a minor increase in BPF verifier exposure. 
+
+A potential architectural alternative for OCI specifications would be to permit nested filter installation by default whenever the container is configured with `allowPrivilegeEscalation: false` (which pre-emptively enforces `PR_SET_NO_NEW_PRIVS`). This would allow secure, application-level sandboxing (such as thread-scoped containment) to be deployed natively within standardized container environments without requiring custom profiles.
+
+---
+
 
 ## 5. Escaping Process-Level Containment
 
