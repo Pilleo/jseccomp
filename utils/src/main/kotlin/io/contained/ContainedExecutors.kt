@@ -31,6 +31,8 @@ object ContainedExecutors {
     private var PROCESS_ALLOWS_MMAP_EXEC = true
     @Volatile
     private var PROCESS_ALLOWS_NON_THREAD_CLONE = true
+    @Volatile
+    private var PROCESS_ALLOWS_UNSAFE_PRCTL = true
     private val PROCESS_FILTER_DEPTH = AtomicInteger(0)
     private val processLock = Any()
 
@@ -88,13 +90,15 @@ object ContainedExecutors {
             val currentlyBlocked = THREAD_BLOCKED.get() + PROCESS_BLOCKED
             val currentlyAllowsMmapExec = THREAD_ALLOWS_MMAP_EXEC.get() && PROCESS_ALLOWS_MMAP_EXEC
             val currentlyAllowsNonThreadClone = THREAD_ALLOWS_NON_THREAD_CLONE.get() && PROCESS_ALLOWS_NON_THREAD_CLONE
+            val currentlyAllowsUnsafePrctl = THREAD_ALLOWS_UNSAFE_PRCTL.get() && PROCESS_ALLOWS_UNSAFE_PRCTL
             val currentDepth = FILTER_DEPTH.get() + PROCESS_FILTER_DEPTH.get()
 
             val newBlocks = policy.blocked - currentlyBlocked
             val needsMmapProtection = !policy.allowMmapExec && currentlyAllowsMmapExec
             val needsCloneProtection = !policy.allowNonThreadClone && currentlyAllowsNonThreadClone
+            val needsPrctlProtection = !policy.allowUnsafePrctl && currentlyAllowsUnsafePrctl
 
-            if (newBlocks.isNotEmpty() || needsMmapProtection || needsCloneProtection) {
+            if (newBlocks.isNotEmpty() || needsMmapProtection || needsCloneProtection || needsPrctlProtection) {
                 if (currentDepth >= 32) {
                     throw IllegalStateException("Cannot install more than 32 seccomp filters on a single thread (including process-wide filters).")
                 }
@@ -108,6 +112,7 @@ object ContainedExecutors {
 
                 if (policy.allowMmapExec) incrementalPolicy.allowMmapExec()
                 if (policy.allowNonThreadClone) incrementalPolicy.allowNonThreadClone()
+                if (policy.allowUnsafePrctl) incrementalPolicy.allowUnsafePrctl()
 
                 val toInstall = incrementalPolicy.build()
 
@@ -117,6 +122,7 @@ object ContainedExecutors {
                     PROCESS_BLOCKED.addAll(newBlocks)
                     if (!policy.allowMmapExec) PROCESS_ALLOWS_MMAP_EXEC = false
                     if (!policy.allowNonThreadClone) PROCESS_ALLOWS_NON_THREAD_CLONE = false
+                    if (!policy.allowUnsafePrctl) PROCESS_ALLOWS_UNSAFE_PRCTL = false
                     PROCESS_FILTER_DEPTH.incrementAndGet()
                 } else {
                     PureJavaBpfEngine.install(toInstall)
@@ -124,6 +130,7 @@ object ContainedExecutors {
                     THREAD_BLOCKED.set(THREAD_BLOCKED.get() + newBlocks)
                     if (!policy.allowMmapExec) THREAD_ALLOWS_MMAP_EXEC.set(false)
                     if (!policy.allowNonThreadClone) THREAD_ALLOWS_NON_THREAD_CLONE.set(false)
+                    if (!policy.allowUnsafePrctl) THREAD_ALLOWS_UNSAFE_PRCTL.set(false)
                     FILTER_DEPTH.set(FILTER_DEPTH.get() + 1)
                 }
             }
@@ -214,6 +221,7 @@ object ContainedExecutors {
     private val THREAD_BLOCKED = ThreadLocal.withInitial { emptySet<Syscall>() }
     private val THREAD_ALLOWS_MMAP_EXEC = ThreadLocal.withInitial { true }
     private val THREAD_ALLOWS_NON_THREAD_CLONE = ThreadLocal.withInitial { true }
+    private val THREAD_ALLOWS_UNSAFE_PRCTL = ThreadLocal.withInitial { true }
     private val FILTER_DEPTH = ThreadLocal.withInitial { 0 }
     private val THREAD_LANDLOCK_APPLIED = ThreadLocal.withInitial { false }
 

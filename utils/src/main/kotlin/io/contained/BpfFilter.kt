@@ -22,7 +22,13 @@ object BpfFilter {
     private const val SECCOMP_DATA_ARGS_OFFSET = 16
 
     fun build(arch: Arch, policy: Policy): Array<SockFilter> =
-        buildFromNumbers(arch, policy.blockedSyscalls(arch), policy.allowMmapExec, policy.allowNonThreadClone)
+        buildFromNumbers(
+            arch, 
+            policy.blockedSyscalls(arch), 
+            policy.allowMmapExec, 
+            policy.allowNonThreadClone,
+            policy.allowUnsafePrctl
+        )
 
     /**
      * Constructs the BPF bytecode using a linear scan approach.
@@ -43,7 +49,8 @@ object BpfFilter {
         arch: Arch, 
         blocked: IntArray, 
         allowMmapExec: Boolean = false, 
-        allowNonThreadClone: Boolean = false
+        allowNonThreadClone: Boolean = false,
+        allowUnsafePrctl: Boolean = false
     ): Array<SockFilter> {
         val filters = mutableListOf<SockFilter>()
         val denyAction = LinuxNative.SECCOMP_RET_ERRNO or LinuxNative.EPERM
@@ -93,6 +100,20 @@ object BpfFilter {
         // clone3
         filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 1, arch.clone3))
         filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, enosysAction))
+
+        // prctl argument-inspection
+        if (!allowUnsafePrctl && arch.prctl >= 0) {
+            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 9, arch.prctl))
+            filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_DATA_ARGS_OFFSET))
+            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 6, 0, 15)) // PR_SET_NAME
+            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 5, 0, 16)) // PR_GET_NAME
+            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 4, 0, 21)) // PR_GET_SECCOMP
+            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 3, 0, 22)) // PR_SET_SECCOMP
+            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 2, 0, 38)) // PR_SET_NO_NEW_PRIVS
+            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 1, 0, 39)) // PR_GET_NO_NEW_PRIVS
+            filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyAction))
+            filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_DATA_NR_OFFSET))
+        }
 
         // 4. Block-based checks (Linear Scan)
         // Since BPF jump offsets are only 8-bit (max 255), and we have ~100 syscalls, 

@@ -28,6 +28,7 @@ class Policy private constructor(
     internal val blocked: Set<Syscall>,
     internal val allowMmapExec: Boolean = false,
     internal val allowNonThreadClone: Boolean = false,
+    internal val allowUnsafePrctl: Boolean = false,
     internal val allowedFsReadPaths: Set<String> = emptySet(),
     internal val allowedFsWritePaths: Set<String> = emptySet()
 ) {
@@ -52,7 +53,7 @@ class Policy private constructor(
             .block(Syscall.PROCESS_VM_WRITEV, Syscall.PROCESS_VM_READV)
             .block(Syscall.USERFAULTFD, Syscall.UNSHARE, Syscall.SETNS)
             .block(Syscall.MOUNT, Syscall.UMOUNT2, Syscall.PIVOT_ROOT, Syscall.CHROOT)
-            .block(Syscall.IOCTL, Syscall.PRCTL)
+            .block(Syscall.IOCTL)
             .block(Syscall.INIT_MODULE, Syscall.FINIT_MODULE)
             .build()
 
@@ -78,12 +79,14 @@ class Policy private constructor(
             val union = policies.flatMap { it.blocked }.toSet()
             val mmapExec = policies.any { !it.allowMmapExec }
             val cloneNonThread = policies.any { !it.allowNonThreadClone }
+            val unsafePrctl = policies.any { !it.allowUnsafePrctl }
             val fsReads = policies.flatMap { it.allowedFsReadPaths }.toSet()
             val fsWrites = policies.flatMap { it.allowedFsWritePaths }.toSet()
             return Policy(
                 union, 
                 allowMmapExec = !mmapExec, 
                 allowNonThreadClone = !cloneNonThread,
+                allowUnsafePrctl = !unsafePrctl,
                 allowedFsReadPaths = fsReads,
                 allowedFsWritePaths = fsWrites
             )
@@ -94,6 +97,7 @@ class Policy private constructor(
         private val blocked = mutableSetOf<Syscall>()
         private var allowMmapExec = false
         private var allowNonThreadClone = false
+        private var allowUnsafePrctl = false
         private val allowedFsReadPaths = mutableSetOf<String>()
         private val allowedFsWritePaths = mutableSetOf<String>()
 
@@ -109,6 +113,7 @@ class Policy private constructor(
             blocked.addAll(policy.blocked)
             if (policy.allowMmapExec) allowMmapExec = true
             if (policy.allowNonThreadClone) allowNonThreadClone = true
+            if (policy.allowUnsafePrctl) allowUnsafePrctl = true
             allowedFsReadPaths.addAll(policy.allowedFsReadPaths)
             allowedFsWritePaths.addAll(policy.allowedFsWritePaths)
             return this
@@ -180,10 +185,21 @@ class Policy private constructor(
             return this
         }
 
+        /**
+         * Allows unrestricted `prctl` calls. By default, unsafe/hazardous options of
+         * `prctl` are blocked, while safe options needed by the JVM (like `PR_SET_NAME`)
+         * are allowed via BPF argument inspection.
+         */
+        fun allowUnsafePrctl(): Builder {
+            this.allowUnsafePrctl = true
+            return this
+        }
+
         fun build(): Policy = Policy(
             blocked.toSet(), 
             allowMmapExec, 
             allowNonThreadClone,
+            allowUnsafePrctl,
             allowedFsReadPaths.toSet(),
             allowedFsWritePaths.toSet()
         )
