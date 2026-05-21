@@ -9,100 +9,186 @@ As an AI agent pair-programming on this project, you are assisting in transition
 ## 1. Core Engineering Philosophy & Tone
 
 ### Zero Hype, Absolute Certainty
-*   **No Marketing or Speculative Language:** Avoid promotional, flashy, or hand-wavy descriptions. There is no room for overpromising, untold risks, or ambiguity. This library operates at the kernel-user space boundary where errors lead to fatal JVM deadlocks or JVM bypasses.
-*   **Rigorous Decision Making:** Every choice in the code must be double and triple checked. A single missed detail or incorrect assumption can result in catastrophic failure (such as JVM deadlocks, kernel instability, or silent security bypasses). All pros and cons of any proposed architectural or implementation approach must be exhaustively weighed.
+*   **No Marketing or Speculative Language:** Avoid promotional, flashy, or hand-wavy descriptions. This library operates at the kernel-user space boundary where errors lead to fatal JVM deadlocks or JVM bypasses.
+*   **Rigorous Decision Making:** Every choice must be double and triple checked. A single missed detail can result in catastrophic failure (JVM deadlocks, kernel instability, silent security bypasses).
 *   **Honest Limitations:** Every security boundary must be documented with its exact threat model, caveats, and failure modes. If you are not 100% sure about a kernel behavior, JVM internal mechanism, or system call side-effect:
     1.  **Do not guess or assume.**
-    2.  Search the codebase or Linux manual pages.
+    2.  Search the codebase, `SECURITY_CONSIDERATIONS.md`, `profiler_design.md`, `containment_design.md`, and Linux manual pages — in that order. These files contain hard-won, project-specific kernel behavior discoveries that man pages do not cover.
     3.  Flag the uncertainty explicitly in comments and discuss it with the developer.
 *   **Documentation Split:**
-    *   **Presentation Folder (`/presentation`):** Articles here are addressed to general Backend/Software Engineers. They must be conceptually accessible, focus on architectural diagrams, threat models, and real-world exploit showcases (e.g. neutralizing Log4Shell, fileless malware). Avoid extremely dense kernel-level assembly or BPF jump tables here.
-    *   **Core Code, Javadocs, & Design Docs:** Must be highly rigorous and detail-oriented. Explain the exact system call numbers, FFM memory layouts, signal contexts, register transitions, and kernel invariants. Javadocs and KDocs are highly encouraged on all classes and methods.
-*   **Mandatory Documentation of Findings:** Any new important architectural finding, kernel behavior discovery, or security nuance uncovered during development or discussion *must* be immediately documented in the appropriate Markdown file (e.g., `SECURITY_CONSIDERATIONS.md`, `README.md`, or inside the `/presentation` folder). Do not leave critical insights isolated in conversation histories.
+    *   **`/presentation`:** Addressed to general Backend/Software Engineers. Conceptually accessible; no BPF jump tables.
+    *   **Core code, KDocs, & design docs:** Highly rigorous. Exact syscall numbers, FFM memory layouts, kernel invariants.
+*   **Mandatory Documentation of Findings:** Any new architectural finding, kernel behavior discovery, or security nuance *must* be documented immediately in the appropriate Markdown file. Do not leave critical insights in conversation histories.
 
 ---
 
 ## 2. Strict Protection Against Unsafe Fallback / Bypass Scenarios
 
 > [!WARNING]
-> **CRITICAL SECURITY INSTRUCTION:** AI agents historically tend to implement "fail-safe" or "silent bypass" fallback behavior in order to avoid compiler/runtime errors and make code demonstrations or tests "just work." **This is strictly unacceptable in a security library.**
+> **CRITICAL SECURITY INSTRUCTION:** AI agents historically tend to implement "fail-safe" or "silent bypass" fallback behavior to make code "just work." **This is strictly unacceptable in a security library.**
 
-*   **Never Implement Silent Bypasses:** Do not catch exceptions silently or downgrade a failed seccomp/Landlock installation to a "warning and bypass" unless that fallback is explicitly defined in the policy's fallback configuration.
-*   **Fail Closed by Default:** If a security mechanism cannot be initialized, a system call cannot be resolved, or an environment constraint is not met, the library must fail-closed (e.g., throwing a terminal `UnsupportedOperationException` or `IllegalStateException`) rather than silently leaving the application uncontained.
-*   **No Unconsulted Fallbacks:** Do not design or write automatic recovery loops or mock environments (like simulating a system call return value via register manipulation) without explicitly alignment and review from the developer.
+*   **Never Implement Silent Bypasses:** Do not catch exceptions silently or downgrade a failed seccomp/Landlock installation to a warning-and-bypass unless that fallback is explicitly configured by the operator.
+*   **Fail Closed by Default:** The **default `FallbackBehavior` is `FAIL`** (see `Platform.configuredFallback()` — it returns `FallbackBehavior.FAIL` unless the operator explicitly overrides via `-Dio.contained.fallback=WARN_AND_BYPASS` or `IO_CONTAINED_FALLBACK=WARN_AND_BYPASS`). This is intentional and must not be changed.
+*   **No Unconsulted Fallbacks:** Do not write automatic recovery loops or mock environments (like simulating a syscall return value via register manipulation) without explicit review from the developer.
 
 ---
 
 ## 3. Directory Structure & Architecture
 
-The repository is organized as a multi-module Gradle project:
-*   **`/utils` (Core Library):** The main implementation module containing the native bridges, policy models, and thread wrapping.
-    *   `Platform.kt`: Determines OS support (Linux x86_64 or aarch64) and handles fallback configuration.
-    *   `LinuxNative.kt`: High-performance native bindings using the JDK FFM API to invoke system calls (`prctl`, `syscall`, `sigaction`).
-    *   `Arch.kt`: Architecture-specific maps containing CPU AUDIT identifiers and system call tables (x86_64 and aarch64).
-    *   `BpfFilter.kt`: Pure Java/Kotlin compilation of BPF linear instruction streams for Seccomp argument inspection.
-    *   `Policy.kt`: Composable security policies (e.g. `PURE_COMPUTE`, `NO_NETWORK`, `NO_EXEC`).
-    *   `Landlock.kt`: Path-aware sandboxing configuration using Linux Landlock LSM, handling JVM classpath automatic whitelisting to prevent classloading failures.
-    *   `ContainedExecutors.kt`: The public API wrapping `ExecutorService` to load seccomp filters when worker threads initialize.
-*   **`/demo` (Log4Shell Showcase):**
-    *   Demonstrates a simulated JNDI-like remote code execution vulnerability blocked by wrapping the executing thread pool in a contained executor running under `Policy.NO_EXEC`.
-*   **`/presentation`:** Markdown files detailing developer articles on deep-dive topics, design trade-offs, and issues backlog.
+The repository is organized as a multi-module Gradle project. The **`/utils`** module is the core library. Its source files are organized into two tiers.
+
+### Enforcement Tier
+
+| File | Responsibility |
+|------|----------------|
+| `Policy.kt` | Composable security policies (`PURE_COMPUTE`, `NO_NETWORK`, `NO_EXEC`). Builder pattern. Holds blocked `Syscall` set, argument-inspection flags, and Landlock FS paths. |
+| `Syscall.kt` | `enum class Syscall` with `numberFor(arch)` dispatch. |
+| `Arch.kt` | Architecture maps: CPU AUDIT identifiers, seccomp syscall numbers, per-syscall numbers for x86_64 and aarch64. |
+| `BpfFilter.kt` | Compiles a `Policy` to a raw BPF instruction stream. Linear scan (not BST) to stay within 8-bit jump limit. Contains argument-inspection sequences for `mmap`/`mprotect`, `clone`, `clone3`, and `prctl`. See `containment_design.md §2-3`. |
+| `SeccompEngine.kt` | Interface: `install(policy)`, `installOnProcess(policy)`, `isSupported`. |
+| `PureJavaBpfEngine.kt` | `SeccompEngine` implementation. Sets `PR_SET_NO_NEW_PRIVS`, installs via `seccomp(2)` (falls back to `prctl(PR_SET_SECCOMP)` for old kernels), verifies with `PR_GET_SECCOMP`. If TSYNC fails, fails hard. See `containment_design.md §6`. |
+| `LinuxNative.kt` | FFM-based syscall bindings. All calls capture `errno` via `Linker.Option.captureCallState("errno")`. |
+| `Platform.kt` | OS/arch support check and `FallbackBehavior` resolution. Default: `FAIL`. |
+| `Landlock.kt` | Landlock LSM integration. Negotiates highest supported ABI version. Handles JVM classpath whitelisting. See `containment_design.md §5`. |
+| `ContainedExecutors.kt` | Primary public API. Wraps `ExecutorService`, provides `installOnCurrentThread()` / `installOnProcess()`. Manages incremental filter stacking with deduplication and depth enforcement. See `containment_design.md §4`. |
+| `ContainmentViolationException.kt` | Typed exception for EPERM/EACCES violations. Always wraps the original exception as its cause. |
+
+### Profiling Tier
+
+| File | Responsibility |
+|------|----------------|
+| `Profiler.kt` | High-level USER_NOTIF profiler API. Spawns `ProfilerDaemon`, installs BPF with `SECCOMP_FILTER_FLAG_NEW_LISTENER`, passes fd via coordinator thread over SCM_RIGHTS. |
+| `ProfilerDaemon.kt` | Out-of-process daemon. Receives USER_NOTIF fd, loops on `SECCOMP_IOCTL_NOTIF_RECV`, resolves paths from `/proc/<pid>/fd/`, sends `TraceEvent` structs back, issues `FLAG_CONTINUE`. |
+| `BobCompiler.kt` | Compiles raw `TraceEvent` lists into a `BillOfBehavior`. |
+| `BillOfBehavior.kt` | Immutable record of kernel-level observations. SBoB-aligned. Produces `Policy` via `toPolicy()` or Kotlin DSL via `toDsl()`. |
+| `TraceEvent.kt` | Wire-level event record: `(pid, syscallName, args, paths)`. |
+| `ProfilingResult.kt` | `(returnValue: T, behavior: BillOfBehavior)`. |
+| `IterativeProfiler.kt` | Tier A profiler (no daemon, no USER_NOTIF). Progressive Landlock restriction with `AccessDeniedException` retry to discover FS paths. |
+
+### Additional Modules
+*   **`/demo`:** Log4Shell-style RCE showcase blocked by `Policy.NO_EXEC`.
+*   **`/presentation`:** Developer articles and design trade-offs.
+*   **`/docs`:** Additional documentation and references.
+*   **`/killercoda`:** Interactive tutorial environment configuration.
 
 ---
 
 ## 4. Critical JVM & Linux Kernel Safety Rules (The Hard Limits)
 
-Any modification you make to the BPF builders, custom policies, or native integration must comply with these hard architectural constraints:
-
 ### Rule A: Never Block JVM Coordination System Calls
-Application threads running within the HotSpot JVM periodically enter **Safepoints** for Garbage Collection, Thread Dumps, or Deoptimization. If your policy blocks system calls required for thread scheduling or memory management, the next safepoint will permanently freeze the entire JVM.
-*   **Prohibited from Blocking:**
-    *   `futex` (used for thread synchronization and JVM parking).
-    *   `sched_yield` (invoked during spinlock contention).
-    *   `rt_sigreturn` (needed to return from JVM internal signal handlers).
-    *   `madvise` / `mprotect` (used by GC threads for page allocation).
-    *   `gettid` (required for thread identification).
-*   **Enforce Guards:** Ensure `Policy.Builder` asserts that these system calls cannot be added to a blocked category.
+
+If your policy blocks syscalls required for thread scheduling or memory management, the next JVM safepoint will permanently freeze the entire JVM. **No recovery is possible.**
+
+**Prohibited from blocking:**
+*   `futex` — JVM thread synchronization and parking
+*   `sched_yield` — spinlock contention
+*   `rt_sigreturn` — return from JVM signal handlers
+*   `rt_sigaction` / `sigaction` — HotSpot installs its own signal handlers during JVM init
+*   `close` — JVM and FFM close fds constantly; blocking leaks fds and destabilizes the runtime
+*   `gettid` — thread identification
+*   `mmap` — JVM heap and code cache; `BpfFilter` blocks only `mmap(PROT_EXEC)` via argument inspection
+*   `madvise` / `mprotect` — GC page allocation; `BpfFilter` blocks only `mprotect(PROT_EXEC)` via argument inspection
+*   `clone` **with `CLONE_THREAD` flag** — JVM thread creation. `BpfFilter` inspects clone flags rather than blocking the syscall number. **Adding `Syscall.CLONE` to a policy block list will deadlock the JVM at the next thread creation.**
+*   `prctl` — JVM calls `prctl(PR_SET_NAME, ...)` for thread naming. `BpfFilter` whitelists safe options via argument inspection. Do not block `prctl` by syscall number alone.
+
+**When modifying `BpfFilter.kt`:** preserve the multi-instruction argument-inspection sequences for `mmap`/`mprotect`, `clone`, and `prctl`. See `containment_design.md §3` for the exact sequences. Replacing them with simple `BPF_JEQ` checks against the syscall number silently deletes the nuanced protections.
 
 ### Rule B: Prevent Loom Virtual Thread Carrier Poisoning
-Seccomp filters apply strictly to the underlying Linux OS thread (LWP). 
-*   **The Hazard:** Loom Virtual Threads share carrier OS threads in a dynamic pool (`ForkJoinPool`). If you load a seccomp filter from within a Virtual Thread, that filter remains bound to the underlying carrier thread forever. Subsequent Virtual Threads mapped to that carrier will inherit the restricted security context, causing unexpected application crashes.
-*   **The Protection:** Always maintain runtime guardrails that detect Virtual Threads (`Thread.currentThread().isVirtual`) and throw `IllegalStateException` to prevent seccomp stacking on carrier threads. Virtual thread execution must always proactively configure restricted carrier pools as outlined in `plan.md`.
+
+Seccomp filters bind permanently to the underlying Linux OS thread (LWP). If a filter is installed from within a Virtual Thread, it binds to the carrier thread and poisons all subsequent virtual threads scheduled on that carrier.
+
+*   **The Protection:** All seccomp installation entry points detect virtual threads via `Thread.currentThread().isVirtual` and throw `IllegalStateException`. **Any new entry point that installs a seccomp filter must include this same guard.**
+*   **The correct pattern for virtual threads + seccomp:** Pre-restrict carrier threads before mounting virtual threads on them:
+
+    ```kotlin
+    val carriers = Executors.newFixedThreadPool(4)
+    val latch = CountDownLatch(4)
+    repeat(4) {
+        carriers.submit {
+            ContainedExecutors.installOnCurrentThread(Policy.NO_EXEC)
+            latch.countDown()
+        }
+    }
+    latch.await()
+    val vtFactory = Thread.ofVirtual().scheduler(carriers).factory()
+    val pool = Executors.newThreadPerTaskExecutor(vtFactory)
+    ```
 
 ### Rule C: Shared-Memory ACE Escape Caveat
-*   **The Threat Model:** Thread-scoped seccomp is not an absolute security boundary against an attacker who achieves **Arbitrary Code Execution (ACE)** inside the sandboxed thread.
-*   **The Mechanism:** Because all JVM threads share the same physical address space (heap, class metadata, stacks), an attacker with native execution capabilities can bypass seccomp by altering JVM memory tables or writing tasks directly into unrestricted thread queues.
-*   **The Action:** Frame thread-scoped seccomp as a highly effective, low-overhead shield against standard application data attacks (SSRF, Path Traversal, XXE, SQL Injection), but mandate process-wide `NO_EXEC` (Tier 1) at JVM startup for absolute protection against process execution escalation.
+
+Thread-scoped seccomp is not an absolute security boundary against an attacker with Arbitrary Code Execution (ACE) on the sandboxed thread. All JVM threads share the same address space. Frame thread-scoped seccomp as a blast-radius mitigator against data attacks (SSRF, XXE, SQL injection); mandate process-wide `NO_EXEC` at startup for absolute protection against process execution escalation.
+
+### Rule D: Profiler ACK Deadlock Prevention
+
+> [!CAUTION]
+> If you modify `ProfilerDaemon.kt` or `Profiler.startTraceListener()`, every code path that receives a USER_NOTIF event **must** either send `SECCOMP_USER_NOTIF_FLAG_CONTINUE` (via the `0x41` ACK byte protocol) or `SECCOMP_USER_NOTIF_FLAG_KILL_THREAD`. A missed continue permanently deadlocks the worker OS thread with no timeout and no JVM-level detection. See `profiler_design.md` for the full protocol.
+
+### Rule E: Landlock Must Be Applied Before Seccomp
+
+Landlock's own syscalls (`landlock_create_ruleset`, `landlock_add_rule`, `landlock_restrict_self`) are blocked by a restrictive seccomp policy if seccomp is installed first. The `applyContainment()` method in `ContainedExecutors.ContainedExecutorWrapper` enforces the correct order: **Landlock first, then `installOnCurrentThread()`**. Do not change this order.
 
 ---
 
 ## 5. Development & Coding Conventions
 
 ### A. FFM API Patterns
-We do not use JNI or native C libraries. All kernel communication must use pure Kotlin/Java FFM API (`java.lang.foreign`):
-*   Target strictly **Java 25**. Make sure FFM features utilized match the latest specifications in JDK 25.
-*   Use `Arena.ofConfined()` or structured `Arena` scopes for safe off-heap allocations (`MemorySegment`).
-*   Always use `Linker.Option.captureCallState("errno")` when linking system calls. The standard JVM does not maintain `errno` states, so you must capture and translate it immediately via `Native.getLastError()` or the captured state segment to avoid race conditions with other JVM threads.
-*   Ensure proper struct alignment and offsets when packing BPF arrays (e.g. `sock_fprog` and `sock_filter`).
+
+*   Target strictly **Java 25**.
+*   Use `Arena.ofConfined()` with `.use { }` for safe off-heap allocations (`MemorySegment`).
+*   **Always capture `errno`** using `Linker.Option.captureCallState("errno")`. Read it from the captured state `MemorySegment` **immediately** after the call, before any other FFM call can overwrite it. See `containment_design.md §8` for the exact pattern.
+*   Use `ValueLayout.JAVA_INT` (4 bytes) for 32-bit kernel fields like `sock_filter.k`. Using `JAVA_LONG` produces silently-corrupt BPF programs.
+*   **`SECCOMP_FILTER_FLAG_NEW_LISTENER` and `SECCOMP_FILTER_FLAG_TSYNC` are mutually exclusive.** `NEW_LISTENER` is used by `Profiler`. `TSYNC` is used by `installOnProcess`. Never combine them.
 
 ### B. Containment Exception Translation
-Because the Java Standard Library does not expose raw OS `errno` integers directly, violation detection must rely on a reliable translation strategy:
-1.  **Priority 1:** Match exact JVM-encoded error numbers (e.g. `"error=1"` for `EPERM`, `"error=13"` for `EACCES`). This is completely locale-insensitive.
-2.  **Priority 2:** Match OS error message patterns (e.g., `Permission denied`, `Operation not permitted`), but **only** for `IOException` or `SocketException` subclasses.
-3.  **Prohibited:** Do not use broad fragments like `"denied"` without class restrictions, as this will trigger false positives on non-system-call exceptions (e.g. "Access denied by application rule").
+
+The violation detector in `ContainedExecutors.isDirectContainmentViolation()` uses a two-priority strategy:
+
+1.  **Priority 1 (locale-independent):** `\berror[=:]\s*(1|13)\b` — matches JVM-encoded errno 1 (`EPERM`) and 13 (`EACCES`).
+2.  **Priority 2 (for `IOException`/`SocketException` only):** `(?i)\bOperation not permitted\b|\bPermission denied\b|\brefusé\b|\bverweigert\b|\bnegado\b` and `"Cannot run"`.
+3.  `AccessDeniedException` (`java.nio.file`) — always treated as a violation.
+4.  **Prohibited:** broad fragments like `"denied"` without class restrictions (false positives on business logic exceptions).
+
+Always call `isContainmentViolation(t)` (the full cause-chain traversal), not `isDirectContainmentViolation(t)` alone.
 
 ---
 
 ## 6. Testing and Verification Guidelines
 
-To verify changes securely:
-*   **Testing is Mandatory:** This is a security library; untested code is a vulnerability. Any bugfix, behavioral change, or new important architectural detail **must** be accompanied by an automated test.
-*   **OCI Sandbox Stacking:** The Linux kernel requires `PR_SET_NO_NEW_PRIVS` to stack seccomp filters. Standard OCI and Docker environments block unprivileged seccomp installation unless configured explicitly.
-*   **Running Tests:** Always run tests using the custom OCI profile:
+*   **Testing is Mandatory.** Untested code in a security library is a vulnerability. Any bugfix, behavioral change, or new architectural detail **must** be accompanied by an automated test.
+*   **Running Tests:** Always run using the custom OCI profile:
     ```bash
     docker compose up -d
     docker compose exec jseccomp ./gradlew test
     ```
-    This profile (`docker-seccomp.json`) whitelists `seccomp(2)` to allow filter stacking safely without requiring root or broad container privileges.
-*   **Platform Guards:** Always guard Linux-only system call integration tests using JUnit's `@EnabledOnOs(OS.LINUX)` or platform-compatibility checks to avoid breaking macOS/Windows developer environments.
-*   **GraalVM Support Roadmap:** Keep in mind that native AOT presets are not actively implemented, but are planned for future integration. Write code with clean separation to facilitate this future shift.
+    The container is named `jseccomp` (see `docker-compose.yml`). The profile (`docker-seccomp.json`) whitelists `seccomp(2)` for unprivileged filter stacking.
+
+*   **Test tier requirements:**
+
+    | Test File | Requires Docker? | Requires Linux? | Kernel min |
+    |-----------|-----------------|-----------------|------------|
+    | `BpfFilterTest.kt` | No | No (pure unit) | — |
+    | `PolicyTest.kt` | No | No (pure unit) | — |
+    | `ContainedExecutorsTest.kt` | **Yes** | Yes | 4.8+ |
+    | `VirtualThreadGuardrailTest.kt` | **Yes** | Yes | 4.8+ |
+    | `StackingIntegrationTest.kt` | **Yes** | Yes | 4.8+ |
+    | `MmapProtectionTest.kt` | **Yes** | Yes | 4.8+ |
+    | `PrctlProtectionTest.kt` | **Yes** | Yes | 4.8+ |
+    | `ProfilerIntegrationTest.kt` | **Yes** | Yes | 5.0+ (USER_NOTIF) |
+    | `LandlockTest.kt` | No | Yes | 5.13+ |
+    | `IterativeProfilerTest.kt` | No | Yes | 5.13+ |
+
+*   **Platform Guards:** Use `@EnabledOnOs(OS.LINUX)` on all Linux-only integration tests.
+*   **Yama `ptrace_scope`:** `Profiler` calls `prctl(PR_SET_PTRACER, daemonPid)` to allow the daemon to read worker memory under Yama LSM. Do not remove this call.
+*   **GraalVM roadmap:** Native AOT is planned but not yet implemented. Keep a clean separation between FFM native bindings and high-level policy logic.
+
+---
+
+## 7. Key Design Documents
+
+Before modifying components in the profiling or enforcement tiers, read the relevant design document first:
+
+| Document | Covers |
+|----------|--------|
+| `containment_design.md` | BPF linear scan rationale, argument-inspection BPF sequences, incremental filter stacking, Landlock ordering, `PureJavaBpfEngine` install sequence, FFM struct layouts, errno capture pattern |
+| `profiler_design.md` | USER_NOTIF architecture (Tier S/A/B), safepoint deadlock discovery, out-of-process daemon design, ACK protocol, `BillOfBehavior` SBoB alignment |
+| `SECURITY_CONSIDERATIONS.md` | Threat model, ACE escape caveat, `mmap`/`mprotect`/`clone` argument inspection rationale, `prctl` attack surface, `PR_SET_NO_NEW_PRIVS` implications, K8s deployment, Yama `ptrace_scope` |
