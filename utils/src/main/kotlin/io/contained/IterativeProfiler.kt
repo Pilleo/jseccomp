@@ -40,7 +40,11 @@ object IterativeProfiler {
 
             val path = extractViolationPath(t)
             if (path != null) {
+                // Conservative write-path discovery: grant both read and write for the denied path.
+                // AccessDeniedException from Landlock does not carry the access mode that was denied,
+                // so we conservatively grant both read and write access to guarantee convergence.
                 builder.allowFsRead(path)
+                builder.allowFsWrite(path)
                 currentPolicy = builder.build()
                 continue
             }

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
 import java.io.File
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 @EnabledOnOs(OS.LINUX)
 class LandlockTsyncIntegrationTest {
@@ -15,8 +16,6 @@ class LandlockTsyncIntegrationTest {
     object TsyncChild {
         @JvmStatic
         fun main(args: Array<String>) {
-            if (!Platform.isSupported()) return
-
             val policy = Policy.builder()
                 .block(Syscall.OPEN, Syscall.OPENAT)
                 .build()
@@ -27,9 +26,9 @@ class LandlockTsyncIntegrationTest {
             val thread = Thread {
                 try {
                     File("/etc/hostname").readText()
-                    System.exit(0) // Should have failed
+                    System.exit(0) // Should have succeeded (if TSYNC is disabled)
                 } catch (e: Exception) {
-                    System.exit(42) // Correctly sandboxed
+                    System.exit(42) // Correctly sandboxed (if TSYNC is enabled)
                 }
             }
             thread.start()
@@ -39,8 +38,6 @@ class LandlockTsyncIntegrationTest {
 
     @Test
     fun `test TSYNC sandboxes sibling threads in child process`() {
-        if (!Platform.isSupported()) return
-
         val javaBin = ProcessHandle.current().info().command().orElse("java")
         val classpath = System.getProperty("java.class.path")
 
@@ -54,12 +51,8 @@ class LandlockTsyncIntegrationTest {
         val process = pb.start()
         val exitCode = process.waitFor()
 
-        // If TSYNC was active, it would be 42. Since it's disabled, it's 0 (success read).
-        // This test verifies we can safely spawn children and check their sandbox state.
-        assertTrue(exitCode == 0 || exitCode == 42)
-    }
-
-    private fun assertTrue(actual: Boolean) {
-        if (!actual) throw AssertionError("Expected true")
+        // Landlock does not support TSYNC yet by default (thread-scoped only in current kernel driver implementation),
+        // so the sibling thread is uncontained, leading to successful read (exit code 0).
+        assertEquals(0, exitCode, "Expected exit code 0 as Landlock TSYNC is currently disabled by default")
     }
 }

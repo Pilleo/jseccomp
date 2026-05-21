@@ -22,3 +22,11 @@ tasks.withType<Test> {
         showStandardStreams = true
     }
 }
+
+tasks.register<JavaExec>("runScratch") {
+    group = "application"
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("io.contained.Scratch")
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+}
+

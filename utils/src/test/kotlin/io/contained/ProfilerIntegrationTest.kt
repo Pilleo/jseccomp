@@ -8,142 +8,103 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertTrue
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 
 @EnabledOnOs(OS.LINUX)
 class ProfilerIntegrationTest {
 
     @Test
-    fun `test profiler intercepts and logs file opens with path resolving via process_vm_readv`() {
-        if (!Platform.isSupported()) return
+    fun `test profiler intercepts and logs file opens with path resolving and stack trace capture`() {
+        val targetFile = File("/etc/hostname")
+        assertTrue(targetFile.exists(), "/etc/hostname should exist on Linux")
 
-        val baseExecutor = Executors.newSingleThreadExecutor()
-        // Create a policy blocking file opens
-        val openPolicy = Policy.builder()
-            .block(Syscall.OPEN, Syscall.OPENAT)
-            .build()
-
-        val profilerExecutor = Profiler.wrap(baseExecutor, openPolicy)
-
-        try {
-            val targetFile = File("/etc/hostname")
-            assertTrue(targetFile.exists(), "/etc/hostname should exist on Linux")
-
-            // Submit a task that opens and reads /etc/hostname inside the sandboxed thread
-            val future = profilerExecutor.submit(java.util.concurrent.Callable {
-                targetFile.readText()
-            })
-
-            // Wait for completion. Under Profiler, the daemon intercepts it, reads the path, logs it, and continues it.
-            val content = future.get(10, TimeUnit.SECONDS)
-            assertTrue(content.isNotEmpty())
-
-            // Polling loop for trace events
-            awaitTrace { event ->
-                (event.syscallName == "OPEN" || event.syscallName == "OPENAT") &&
-                        event.paths.contains("/etc/hostname")
-            }
-
-        } finally {
-            profilerExecutor.shutdownNow()
-            baseExecutor.shutdownNow()
+        // Submit task inside the new stateless profile block
+        val result = Profiler.profile {
+            targetFile.readText()
         }
+
+        assertTrue(result.value.isNotEmpty())
+        val bob = result.behavior
+
+        // Verify we captured the OPEN or OPENAT syscall in bob
+        assertTrue(
+            bob.syscalls.contains(Syscall.OPEN) ||
+            bob.syscalls.contains(Syscall.OPENAT) ||
+            bob.syscalls.contains(Syscall.OPENAT2),
+            "Should capture file open syscall. Observed: ${bob.syscalls}"
+        )
+        assertTrue(bob.opens.contains("/etc/hostname"), "Should contain opened path /etc/hostname")
+
+        // Assert that the stackProfile contains the trace event and its stack trace has our test class name!
+        assertTrue(bob.stackProfile.isNotEmpty(), "Stack profile should not be empty")
+        val hasOurClass = bob.stackProfile.values.any { frames ->
+            frames.any { frame -> frame.className.contains("ProfilerIntegrationTest") }
+        }
+        assertTrue(hasOurClass, "Stack trace should contain the ProfilerIntegrationTest call frame")
     }
 
     @Test
     fun `test profiler robustly handles grandchild process execution without crashing`() {
-        if (!Platform.isSupported()) return
-
-        val baseExecutor = Executors.newSingleThreadExecutor()
-        val profilerExecutor = Profiler.wrap(baseExecutor, Policy.NO_EXEC)
-
-        try {
-            // Submit a task that runs a ProcessBuilder (triggers execve/execveat in grandchild)
-            val future = profilerExecutor.submit {
-                val pb = ProcessBuilder("echo", "hello-profiler")
-                val process = pb.start()
-                val exitCode = process.waitFor()
-                assertEquals(0, exitCode)
-            }
-
-            // Wait for completion.
-            future.get(10, TimeUnit.SECONDS)
-
-            awaitTrace { event ->
-                event.syscallName == "EXECVE" || event.syscallName == "EXECVEAT"
-            }
-
-        } finally {
-            profilerExecutor.shutdownNow()
-            baseExecutor.shutdownNow()
+        // Submit a task that runs a ProcessBuilder (triggers execve/execveat in grandchild)
+        val result = Profiler.profile {
+            val pb = ProcessBuilder("echo", "hello-profiler")
+            val process = pb.start()
+            val exitCode = process.waitFor()
+            assertEquals(0, exitCode)
         }
+
+        val bob = result.behavior
+        assertTrue(
+            bob.syscalls.contains(Syscall.EXECVE) || bob.syscalls.contains(Syscall.EXECVEAT),
+            "Should capture process execution syscall. Observed: ${bob.syscalls}"
+        )
     }
 
     @Test
     fun `test profiler end-to-end compilation creates a valid policy and dsl`() {
-        if (!Platform.isSupported()) return
+        val targetFile = File("/etc/hostname")
+        assertTrue(targetFile.exists())
 
-        val baseExecutor = Executors.newSingleThreadExecutor()
-
-        // PURE_COMPUTE blocks file open and network
-        val profilerExecutor = Profiler.wrap(baseExecutor, Policy.PURE_COMPUTE)
-
-        Profiler.clear()
-
-        try {
-            val targetFile = File("/etc/hostname")
-            assertTrue(targetFile.exists())
-
-            // Read the file inside the sandboxed thread (triggers OPEN/OPENAT/OPENAT2)
-            val future = profilerExecutor.submit(java.util.concurrent.Callable {
-                targetFile.readText()
-            })
-
-            val content = future.get(10, TimeUnit.SECONDS)
-            assertTrue(content.isNotEmpty())
-
-            awaitTrace { event ->
-                (event.syscallName == "OPEN" || event.syscallName == "OPENAT" || event.syscallName == "OPENAT2") &&
-                        event.paths.contains("/etc/hostname")
-            }
-
-            // Let's compile!
-            val compiledPolicy = Profiler.compilePolicy()
-            val dsl = Profiler.compileToDsl()
-            println("Profiler compiled DSL:\n$dsl")
-
-            // The compiled policy should have the open variant unblocked!
-            val arch = Arch.current()
-            val blocked = compiledPolicy.blockedSyscalls(arch).toSet()
-
-            val openNr = Syscall.OPEN.numberFor(arch)
-            val openatNr = Syscall.OPENAT.numberFor(arch)
-
-            val openUnblocked = (openNr >= 0 && openNr !in blocked) || (openatNr >= 0 && openatNr !in blocked)
-            assertTrue(openUnblocked, "At least one of OPEN or OPENAT should be unblocked in compiled policy")
-
-            // The compiled policy should allow reading from /etc/hostname
-            assertTrue(
-                compiledPolicy.allowedFsReadPaths.contains("/etc/hostname"),
-                "Should contain read-path for /etc/hostname"
-            )
-
-            // Verify DSL has the correct builder and allowFsRead
-            assertTrue(dsl.contains("Policy.builder()"))
-            assertTrue(dsl.contains("allowFsRead(\"/etc/hostname\")"))
-
-        } finally {
-            profilerExecutor.shutdownNow()
-            baseExecutor.shutdownNow()
+        // Read the file inside the sandboxed thread (triggers OPEN/OPENAT/OPENAT2)
+        val result = Profiler.profile {
+            targetFile.readText()
         }
+
+        assertTrue(result.value.isNotEmpty())
+        val bob = result.behavior
+
+        // Let's compile!
+        val compiledPolicy = bob.toPolicy(Policy.PURE_COMPUTE)
+        val dsl = bob.toDsl("Policy.PURE_COMPUTE", Policy.PURE_COMPUTE)
+        println("Profiler compiled DSL:\n$dsl")
+
+        // The compiled policy should have the open variant unblocked!
+        val arch = Arch.current()
+        val blocked = compiledPolicy.blockedSyscalls(arch).toSet()
+
+        val openNr = Syscall.OPEN.numberFor(arch)
+        val openatNr = Syscall.OPENAT.numberFor(arch)
+
+        val openUnblocked = (openNr >= 0 && openNr !in blocked) || (openatNr >= 0 && openatNr !in blocked)
+        assertTrue(openUnblocked, "At least one of OPEN or OPENAT should be unblocked in compiled policy")
+
+        // The compiled policy should allow reading from /etc/hostname
+        assertTrue(
+            compiledPolicy.allowedFsReadPaths.contains("/etc/hostname"),
+            "Should contain read-path for /etc/hostname"
+        )
+
+        // Verify DSL has the correct builder and allowFsRead
+        assertTrue(dsl.contains("Policy.builder()"))
+        assertTrue(dsl.contains("allowFsRead(\"/etc/hostname\")"))
     }
 
     @Test
-    fun `test profiler rejects wrapping virtual thread executors`() {
+    fun `test profiler rejects being run inside virtual thread`() {
         val vExecutor = Executors.newVirtualThreadPerTaskExecutor()
         try {
-            val profilerExecutor = Profiler.wrap(vExecutor, Policy.PURE_COMPUTE)
-            val future = profilerExecutor.submit { println("running") }
+            val future = vExecutor.submit {
+                Profiler.profile { println("inside virtual thread") }
+            }
             val ex = org.junit.jupiter.api.assertThrows<java.util.concurrent.ExecutionException> {
                 future.get(5, TimeUnit.SECONDS)
             }
@@ -152,14 +113,5 @@ class ProfilerIntegrationTest {
         } finally {
             vExecutor.shutdownNow()
         }
-    }
-
-    private fun awaitTrace(timeoutMs: Long = 5000, condition: (TraceEvent) -> Boolean) {
-        val start = System.currentTimeMillis()
-        while (System.currentTimeMillis() - start < timeoutMs) {
-            if (Profiler.recentLogs.any(condition)) return
-            Thread.sleep(100)
-        }
-        throw AssertionError("Timed out waiting for expected trace event. Current events: ${Profiler.recentLogs}")
     }
 }

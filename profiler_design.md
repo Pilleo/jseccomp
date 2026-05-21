@@ -60,11 +60,19 @@ To bypass these constraints, we designed a **Tiered Profiling System** that prov
 ### Tier S: Out-of-Process `USER_NOTIF` Supervisor (The Production Default)
 Placing the supervisor thread inside the *same* JVM leads to fatal safepoint deadlocks. Relying on `strace` leads to noisy, process-wide telemetry and brittle text scraping. Instead, we use `SECCOMP_RET_USER_NOTIF` backed by a lightweight sidecar process communicating via Unix Domain Sockets using a structured binary protocol to prevent log injection.
 
+**Synchronous & Stateless `profile<T>` API:**
+The profiling session is run synchronously inside a dedicated OS platform thread via `Profiler.profile { block() }`. Spawning a dedicated thread ensures the seccomp filter is discarded once the thread exits, preventing filter leakage.
+
+**Timing-Safe JVM Stack Capture:**
+The Unix domain socket protocol includes a round-trip acknowledgment. The supervisor daemon blocks the worker thread in-kernel using seccomp, sends the `TraceEvent` to the parent JVM, and waits for an ACK byte. While the worker thread is blocked in-kernel, the trace listener in the parent JVM safely and stably captures the worker's Java stack trace via `Thread.stackTrace` on a best-effort basis, before sending the ACK. Once acknowledged, the daemon sends `FLAG_CONTINUE` to resume worker execution. This eliminates race conditions during stack profiling.
+
+**SBoB-Aligned Composable Output:**
+The profiler produces a `BillOfBehavior` representing raw observations of `opens`, `fsWritePaths`, `syscalls`, and `execs`, aligned to the Software Bill of Behavior (SBoB) spec draft v0.0.1. Bills from multiple runs can be composed using `+`, and transpiled to concrete enforcement policies via `bill.toPolicy(base)`.
+
 **Audit-Assisted Asynchronous Profiling (`io_uring`):**
-Because Seccomp-BPF is blind to operations submitted via `io_uring` rings, the Profiler automatically enables an **Audit-Assisted Sensor**. By applying a restrictive Landlock ruleset (denying everything except essential JVM classpath), the kernel is forced to emit `LANDLOCK_ACCESS` audit records for every other VFS or Network operation, including those originating from `io_uring` kernel worker threads. The `ProfilerDaemon` asynchronously ingests these kernel audit logs, extracts absolute paths, and merges them into the trace stream. This allows the profiler to correctly build Bills of Behavior for high-performance async applications while remaining unprivileged (to install).
+Because Seccomp-BPF is blind to operations submitted via `io_uring` rings, the Profiler automatically enables an **Audit-Assisted Sensor**. By applying a restrictive Landlock ruleset (denying everything except essential JVM classpath), the kernel is forced to emit `LANDLOCK_ACCESS` audit records for every other VFS or Network operation, including those originating from `io_uring` kernel worker threads. The `ProfilerDaemon` asynchronously ingests these kernel audit logs, extracts absolute paths, and merges them into the trace stream. This allows the profiler to correctly build Bills of Behavior for high-performance async applications while remaining unprivileged (to install). If the Netlink audit socket creation fails, the daemon logs a warning to stderr and degrades gracefully, leaving standard USER_NOTIF events fully operational.
 
 *   **Targeted Filtering:** The JVM installs a `USER_NOTIF` seccomp filter *only* on the specific worker thread executing the task.
-...
 *   **FD Exfiltration:** Using FFM API and `sendmsg` (`SCM_RIGHTS`), the worker JVM passes the seccomp file descriptor to an external, lightweight Java daemon process.
 *   **Deadlock Immunity:** Because the supervisor runs in a completely separate OS process, its JVM safepoints are physically isolated from the main JVM. It cannot cause a safepoint deadlock.
 *   **Zero-Crash Execution (`FLAG_CONTINUE`):** When a worker thread blocks on a syscall, the external supervisor reads the notification struct. If the syscall takes pointer arguments (like `openat` file paths), the supervisor inspects the worker's memory via `process_vm_readv()` and resolves absolute paths by inspecting `/proc/[pid]/fd/`. After logging the operation to a binary stream back to the JVM, the supervisor replies to the kernel with `SECCOMP_USER_NOTIF_FLAG_CONTINUE` (Linux 5.5+). This guarantees the kernel executes the syscall natively without requiring dangerous user-space emulation.
@@ -181,10 +189,10 @@ internal fun assertSafeCoordination(blocked: Set<Syscall>) {
 
 ## 4. Policy DSL Compilation Example
 
-At the end of a profiling run (regardless of the Tier chosen), the accumulated JSON data is passed to the **DSL Code Generator**, producing clean, copy-pasteable Kotlin or Java code:
+At the end of a profiling run, raw observations are converted into a `BillOfBehavior`. Calling `bill.toDsl("Policy.PURE_COMPUTE")` compiles the bill and produces a clean, copy-pasteable Kotlin DSL code snippet:
 
 ```kotlin
-// Automatically compiled and emitted by BobCompiler:
+// Automatically compiled and emitted by BillOfBehavior.toDsl():
 val policy = Policy.builder()
     .base(Policy.PURE_COMPUTE)
     // Syscall whitelists compiled from trace events:

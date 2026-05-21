@@ -108,6 +108,14 @@ object ProfilerDaemon {
                     val paths = getPathArgs(syscallName, args, pid)
                     sendTraceEvent(socketFd, TraceEvent(pid, syscallName, args, paths))
 
+                    // Wait for ACK from parent JVM to ensure it has processed the event
+                    // and captured stack traces before we continue the thread
+                    val ackBuf = arena.allocate(1)
+                    val readRes = LinuxNative.read(socketFd, ackBuf, 1)
+                    if (readRes.returnValue <= 0) {
+                        break
+                    }
+
                     resp.fill(0)
                     resp.set(ValueLayout.JAVA_LONG, 0L, id)
                     resp.set(ValueLayout.JAVA_LONG, 8L, 0L)
@@ -127,11 +135,13 @@ object ProfilerDaemon {
                 val socketRes = LinuxNative.socket(LinuxNative.AF_NETLINK, 3 /* SOCK_RAW */, LinuxNative.NETLINK_AUDIT)
 
                 if (socketRes.returnValue < 0) {
-                    val failOnMissingAudit = System.getenv("JSECCOMP_PROFILER_FAIL_ON_AUDIT_ERROR") ?: "true"
-                    if (failOnMissingAudit.lowercase() == "true") {
-                        System.err.println("[DAEMON] FATAL: Failed to open Netlink Audit socket (errno=${socketRes.errno}). io_uring support disabled.")
-                        System.exit(1)
-                    }
+                    System.err.println(
+                        "[DAEMON] WARN: Netlink Audit socket unavailable (errno=${socketRes.errno}). " +
+                        "io_uring syscall visibility is DISABLED for this session. " +
+                        "All USER_NOTIF events are still captured normally. " +
+                        "To restore io_uring coverage, run with CAP_AUDIT_READ or grant the " +
+                        "necessary kernel audit permissions."
+                    )
                     return@Thread
                 }
                 val auditFd = socketRes.returnValue.toInt()
