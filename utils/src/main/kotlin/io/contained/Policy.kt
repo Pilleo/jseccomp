@@ -13,8 +13,8 @@ package io.contained
  * - **`clone3`:** Blocked with `ENOSYS` to force runtimes to fallback to the inspectable legacy `clone`.
  *
  * ### JVM Classloading & JIT (Landlock Risks)
- * When using `allowFsRead` or `allowFsWrite`, the thread is restricted by Landlock. If a restricted worker 
- * thread triggers the loading of a new class, the JVM must read `.jar` or `.class` files from the filesystem. 
+ * When using `allowFsRead` or `allowFsWrite`, the thread is restricted by Landlock. If a restricted worker
+ * thread triggers the loading of a new class, the JVM must read `.jar` or `.class` files from the filesystem.
  * If Landlock blocks access to the classpath, the JVM will throw a `NoClassDefFoundError`.
  * **Mitigation:** Ensure all necessary classes are loaded before containment is applied, or explicitly
  * allow read access to the JVM classpath directories.
@@ -77,16 +77,16 @@ class Policy private constructor(
         /** Returns a new Policy that is the union of all blocked syscalls in the given [policies]. */
         fun combine(vararg policies: Policy): Policy {
             val union = policies.flatMap { it.blocked }.toSet()
-            val mmapExec = policies.any { !it.allowMmapExec }
-            val cloneNonThread = policies.any { !it.allowNonThreadClone }
-            val unsafePrctl = policies.any { !it.allowUnsafePrctl }
+            val mmapExec = policies.all { it.allowMmapExec }
+            val cloneNonThread = policies.all { it.allowNonThreadClone }
+            val unsafePrctl = policies.all { it.allowUnsafePrctl }
             val fsReads = policies.flatMap { it.allowedFsReadPaths }.toSet()
             val fsWrites = policies.flatMap { it.allowedFsWritePaths }.toSet()
             return Policy(
-                union, 
-                allowMmapExec = !mmapExec, 
-                allowNonThreadClone = !cloneNonThread,
-                allowUnsafePrctl = !unsafePrctl,
+                union,
+                allowMmapExec = mmapExec,
+                allowNonThreadClone = cloneNonThread,
+                allowUnsafePrctl = unsafePrctl,
                 allowedFsReadPaths = fsReads,
                 allowedFsWritePaths = fsWrites
             )
@@ -124,7 +124,7 @@ class Policy private constructor(
             return this
         }
 
-        /** 
+        /**
          * Allows reading from the specified file or directory path (and its children).
          * Note: Setting any FS paths enables Landlock enforcement for this policy.
          */
@@ -138,13 +138,13 @@ class Policy private constructor(
 
         /**
          * Convenience method to allow reading from the JVM's classpath.
-         * This is CRITICAL if your worker threads might trigger lazy classloading 
+         * This is CRITICAL if your worker threads might trigger lazy classloading
          * after the Landlock ruleset is applied.
          */
         fun allowJvmClasspath(): Builder {
             val javaHome = System.getProperty("java.home")
             if (!javaHome.isNullOrEmpty()) allowFsRead(javaHome)
-            
+
             val classPath = System.getProperty("java.class.path")
             if (classPath != null) {
                 classPath.split(java.io.File.pathSeparator).forEach {
@@ -160,7 +160,7 @@ class Policy private constructor(
             return this
         }
 
-        /** 
+        /**
          * Allows writing to the specified file or directory path (and its children).
          * Note: Setting any FS paths enables Landlock enforcement for this policy.
          */
@@ -172,8 +172,8 @@ class Policy private constructor(
             return this
         }
 
-        /** 
-         * Allows `mmap` with `PROT_EXEC`. By default, this is blocked for all policies 
+        /**
+         * Allows `mmap` with `PROT_EXEC`. By default, this is blocked for all policies
          * to prevent shellcode execution.
          */
         fun allowMmapExec(): Builder {
@@ -201,8 +201,8 @@ class Policy private constructor(
         }
 
         fun build(): Policy = Policy(
-            blocked.toSet(), 
-            allowMmapExec, 
+            blocked.toSet(),
+            allowMmapExec,
             allowNonThreadClone,
             allowUnsafePrctl,
             allowedFsReadPaths.toSet(),
