@@ -57,12 +57,32 @@ object IterativeProfiler {
         if (t is AccessDeniedException) return t.file
         val msg = t.message ?: return null
 
-        // Match absolute paths in typical JVM error messages:
-        // java.io.FileNotFoundException: /etc/hostname (Permission denied)
-        // java.io.FileNotFoundException: /etc/hostname (Operation not permitted)
-        val pathRegex =
-            Regex("""(?i)(/[^\s]+)\b.*?(?:Permission denied|Operation not permitted|refusé|verweigert|negado)""")
-        val match = pathRegex.find(msg)
-        return match?.groupValues?.get(1)?.removeSuffix(":")?.trim()
+        // Search for any of the localized denial phrases
+        var phraseIdx = -1
+        for (phrase in ContainedExecutors.DENIED_PHRASES) {
+            phraseIdx = msg.indexOf(phrase, ignoreCase = true)
+            if (phraseIdx != -1) break
+        }
+
+        if (phraseIdx == -1) return null
+
+        // Find the end of the path by skipping backwards over whitespace and '('
+        var pathEnd = phraseIdx - 1
+        while (pathEnd >= 0 && (msg[pathEnd].isWhitespace() || msg[pathEnd] == '(')) {
+            pathEnd--
+        }
+
+        if (pathEnd < 0) return null
+
+        // Scan further backwards to find the start of the absolute path
+        var pathStart = pathEnd
+        while (pathStart > 0) {
+            val c = msg[pathStart - 1]
+            if (c.isWhitespace() || c == ':') break
+            pathStart--
+        }
+
+        val path = msg.substring(pathStart, pathEnd + 1)
+        return if (path.startsWith("/")) path else null
     }
 }

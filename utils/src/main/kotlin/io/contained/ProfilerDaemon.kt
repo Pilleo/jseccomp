@@ -229,9 +229,6 @@ object ProfilerDaemon {
                     val msg = arena.allocate(LinuxNative.MSGHDR_LAYOUT)
                     msg.fill(0); msg.set(ValueLayout.ADDRESS, 16L, iov); msg.set(ValueLayout.JAVA_LONG, 24L, 1L)
 
-                    val landlockRegex =
-                        Regex("""type=(?:LANDLOCK_ACCESS|1423).*?\bblockers=([\w.,\s]+)\b.*?\bpath="([^"]+)"""")
-
                     while (true) {
                         val res = LinuxNative.recvmsg(auditFd, msg, 0)
                         if (res.returnValue <= 16) continue
@@ -250,16 +247,30 @@ object ProfilerDaemon {
                                         buf.asSlice(offset + 16, payloadLen.toLong()).toArray(ValueLayout.JAVA_BYTE)
                                     val payload = String(payloadBytes, StandardCharsets.UTF_8)
 
-                                    val match = landlockRegex.find(payload)
-                                    if (match != null) {
-                                        val blockers = match.groupValues[1]
-                                        val path = match.groupValues[2]
-                                        val syscallName = if (blockers.contains("fs.execute")) "EXECVE" else "OPENAT"
-                                        val event = TraceEvent(0, syscallName, LongArray(6), listOf(path))
-                                        clientSockets.firstOrNull()?.let { client ->
-                                            try {
-                                                sendTraceEvent(client, event)
-                                            } catch (e: Exception) {
+                                    if (payload.contains("type=LANDLOCK_ACCESS") || payload.contains("type=1423")) {
+                                        val blockersIdx = payload.indexOf("blockers=")
+                                        val pathIdx = payload.indexOf("path=\"")
+
+                                        if (blockersIdx != -1 && pathIdx != -1) {
+                                            val blockersStart = blockersIdx + 9
+                                            val blockersEnd = payload.indexOf(' ', blockersStart)
+                                                .let { if (it == -1) payload.length else it }
+                                            val blockers = payload.substring(blockersStart, blockersEnd)
+
+                                            val pathStart = pathIdx + 6
+                                            val pathEnd = payload.indexOf('"', pathStart)
+
+                                            if (pathEnd != -1) {
+                                                val path = payload.substring(pathStart, pathEnd)
+                                                val syscallName =
+                                                    if (blockers.contains("fs.execute")) "EXECVE" else "OPENAT"
+                                                val event = TraceEvent(0, syscallName, LongArray(6), listOf(path))
+                                                clientSockets.firstOrNull()?.let { client ->
+                                                    try {
+                                                        sendTraceEvent(client, event)
+                                                    } catch (e: Exception) {
+                                                    }
+                                                }
                                             }
                                         }
                                     }

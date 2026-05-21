@@ -6,49 +6,14 @@ Items done in this session:
 - [x] `StackingIntegrationTest`: explicit stable syscall list, `check(size > 32)` guard
 - [x] `StackingIntegrationTest`: resolved all compiler warnings (non-null assertions) and removed unused `Executors` import
 - [x] `ContainedExecutors.wrapCallable/wrapRunnable`: clarifying comments separating containment-install vs task-body exceptions
-
+- [x] `ContainedExecutors.kt`: replaced all `Regex` with zero-allocation manual string scanning.
 
 ---
 
 ## Remaining Issues
 
-### 🔴 High: Violation Detection Regex Is Too Broad
+### 🟡 Medium: Potential for TSYNC race in test runner
 
-**File:** `ContainedExecutors.kt`, line ~170
-
-```kotlin
-private val VIOLATION_MESSAGE_REGEX = Regex(
-    "(?i)Operation not permitted|Permission denied|error=1\\b|error=13\\b|denied|refusé|verweigert|negado"
-)
-```
-
-**Problem:** The bare `"denied"` fragment matches any exception message containing that word — `"Connection denied"`, `"Auth denied"`, `"Access denied by policy"`. This creates false-positive `ContainmentViolationException` wrapping for non-seccomp exceptions.
-
-**Recommended fix:** Prioritize `error=1` and `error=13` pattern matching (which are specific JVM error codes for EPERM and EACCES). Fall back to message matching only for IOException and SocketException subclasses where these JVM error codes are reliable:
-
-```kotlin
-// Priority 1: JVM-encoded errno (most reliable — locale-independent)
-private val ERRNO_REGEX = Regex("\\berror=(1|13)\\b")
-
-// Priority 2: OS message fallback (locale-sensitive, narrowed to known safe patterns)
-private val OS_MSG_REGEX = Regex(
-    "(?i)\\bOperation not permitted\\b|\\bPermission denied\\b|\\brefusé\\b|\\bverweigert\\b|\\bnegado\\b"
-)
-
-private fun isDirectContainmentViolation(t: Throwable): Boolean {
-    if (t is AccessDeniedException) return true
-    val msg = t.message ?: return false
-    if (ERRNO_REGEX.containsMatchIn(msg)) return true
-    if ((t is IOException || t is SocketException) && OS_MSG_REGEX.containsMatchIn(msg)) return true
-    return false
-}
-```
-
-**Note from SECURITY_CONSIDERATIONS.md §8:** On non-English locales, violation detection may degrade to generic `IOException` — this is documented as acceptable (security guarantee holds, only exception typing is affected).
-
----
-
-### 🟡 Medium: `installOnProcess` Stability and Test Coverage
 
 **Context:** `ContainedExecutors.installOnProcess()` is functional but has received significantly less testing than the thread-level path. The Elasticsearch technique is proven; `jseccomp`'s `installOnProcess` wrapper has not been through equivalent production hardening.
 

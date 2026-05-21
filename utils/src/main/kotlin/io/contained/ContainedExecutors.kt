@@ -183,12 +183,69 @@ object ContainedExecutors {
 
     // Priority 1: JVM-encoded errno (most reliable — locale-independent)
     // Matches both "error=1" and "error: 1"
-    private val ERRNO_REGEX = Regex("\\berror[=:]\\s*(1|13)\\b")
+    private fun containsErrno(msg: String): Boolean {
+        var start = 0
+        while (true) {
+            val idx = msg.indexOf("error", start)
+            if (idx == -1) return false
+
+            // Check word boundary before "error"
+            if (idx > 0 && Character.isLetterOrDigit(msg[idx - 1])) {
+                start = idx + 1
+                continue
+            }
+
+            val afterErrorIdx = idx + 5
+            if (afterErrorIdx >= msg.length) return false
+
+            val sep = msg[afterErrorIdx]
+            if (sep != '=' && sep != ':') {
+                start = idx + 1
+                continue
+            }
+
+            var valIdx = afterErrorIdx + 1
+            // Skip optional whitespace after ':'
+            if (sep == ':') {
+                while (valIdx < msg.length && msg[valIdx].isWhitespace()) {
+                    valIdx++
+                }
+            }
+
+            if (valIdx >= msg.length) return false
+
+            val isErr1 = msg[valIdx] == '1'
+            val isErr13 = msg.regionMatches(valIdx, "13", 0, 2)
+
+            if (isErr1 || isErr13) {
+                val nextIdx = if (isErr13) valIdx + 2 else valIdx + 1
+                // Check word boundary after number
+                if (nextIdx < msg.length && Character.isLetterOrDigit(msg[nextIdx])) {
+                    start = idx + 1
+                    continue
+                }
+                return true
+            }
+
+            start = idx + 1
+        }
+    }
 
     // Priority 2: OS message fallback (locale-sensitive, narrowed to known safe patterns)
-    private val OS_MSG_REGEX = Regex(
-        "(?i)\\bOperation not permitted\\b|\\bPermission denied\\b|\\brefusé\\b|\\bverweigert\\b|\\bnegado\\b"
+    internal val DENIED_PHRASES = arrayOf(
+        "Operation not permitted",
+        "Permission denied",
+        "refusé",
+        "verweigert",
+        "negado"
     )
+
+    private fun containsDeniedPhrase(msg: String): Boolean {
+        for (phrase in DENIED_PHRASES) {
+            if (msg.contains(phrase, ignoreCase = true)) return true
+        }
+        return false
+    }
 
     private fun isDirectContainmentViolation(t: Throwable): Boolean {
         // AccessDeniedException is a direct native translation of EACCES/EPERM for path operations
@@ -197,13 +254,13 @@ object ContainedExecutors {
         val msg = t.message ?: return false
 
         // Check for explicit JVM-encoded error codes first (locale-independent)
-        if (ERRNO_REGEX.containsMatchIn(msg)) {
+        if (containsErrno(msg)) {
             return true
         }
 
         // Restrict OS message parsing to I/O and networking contexts to avoid false positives in business logic.
         if (t is java.io.IOException || t is java.net.SocketException) {
-            if (OS_MSG_REGEX.containsMatchIn(msg)) {
+            if (containsDeniedPhrase(msg)) {
                 return true
             }
             if (msg.contains("Cannot run")) {
