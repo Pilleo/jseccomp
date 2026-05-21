@@ -34,6 +34,8 @@ object LinuxNative {
     private val READLINK: MethodHandle
     private val READ: MethodHandle
     private val WRITE: MethodHandle
+    private val RECV: MethodHandle
+    private val FCNTL: MethodHandle
 
     val ERRNO_LAYOUT: StructLayout = Linker.Option.captureStateLayout()
     private val ERRNO_OFFSET = ERRNO_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("errno"))
@@ -95,7 +97,7 @@ object LinuxNative {
         ValueLayout.JAVA_INT.withName("nlmsg_pid")
     )
     val NLMSG_HDRLEN = NLMSGHDR_LAYOUT.byteSize()
-    
+
     val SOCKADDR_NL_LAYOUT = MemoryLayout.structLayout(
         ValueLayout.JAVA_SHORT.withName("nl_family"),
         ValueLayout.JAVA_SHORT.withName("nl_pad"),
@@ -177,12 +179,22 @@ object LinuxNative {
         )
         SOCKET = downcall(
             "socket",
-            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT),
+            FunctionDescriptor.of(
+                ValueLayout.JAVA_INT,
+                ValueLayout.JAVA_INT,
+                ValueLayout.JAVA_INT,
+                ValueLayout.JAVA_INT
+            ),
             Linker.Option.captureCallState("errno")
         )
         BIND = downcall(
             "bind",
-            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT),
+            FunctionDescriptor.of(
+                ValueLayout.JAVA_INT,
+                ValueLayout.JAVA_INT,
+                ValueLayout.ADDRESS,
+                ValueLayout.JAVA_INT
+            ),
             Linker.Option.captureCallState("errno")
         )
         LISTEN = downcall(
@@ -197,17 +209,32 @@ object LinuxNative {
         )
         CONNECT = downcall(
             "connect",
-            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT),
+            FunctionDescriptor.of(
+                ValueLayout.JAVA_INT,
+                ValueLayout.JAVA_INT,
+                ValueLayout.ADDRESS,
+                ValueLayout.JAVA_INT
+            ),
             Linker.Option.captureCallState("errno")
         )
         SENDMSG = downcall(
             "sendmsg",
-            FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT),
+            FunctionDescriptor.of(
+                ValueLayout.JAVA_LONG,
+                ValueLayout.JAVA_INT,
+                ValueLayout.ADDRESS,
+                ValueLayout.JAVA_INT
+            ),
             Linker.Option.captureCallState("errno")
         )
         RECVMSG = downcall(
             "recvmsg",
-            FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT),
+            FunctionDescriptor.of(
+                ValueLayout.JAVA_LONG,
+                ValueLayout.JAVA_INT,
+                ValueLayout.ADDRESS,
+                ValueLayout.JAVA_INT
+            ),
             Linker.Option.captureCallState("errno")
         )
         IOCTL_ADDR = downcall(
@@ -245,24 +272,60 @@ object LinuxNative {
         )
         READLINK = downcall(
             "readlink",
-            FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG),
+            FunctionDescriptor.of(
+                ValueLayout.JAVA_LONG,
+                ValueLayout.ADDRESS,
+                ValueLayout.ADDRESS,
+                ValueLayout.JAVA_LONG
+            ),
             Linker.Option.captureCallState("errno")
         )
         READ = downcall(
             "read",
-            FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG),
+            FunctionDescriptor.of(
+                ValueLayout.JAVA_LONG,
+                ValueLayout.JAVA_INT,
+                ValueLayout.ADDRESS,
+                ValueLayout.JAVA_LONG
+            ),
             Linker.Option.captureCallState("errno")
         )
         WRITE = downcall(
             "write",
-            FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG),
+            FunctionDescriptor.of(
+                ValueLayout.JAVA_LONG,
+                ValueLayout.JAVA_INT,
+                ValueLayout.ADDRESS,
+                ValueLayout.JAVA_LONG
+            ),
+            Linker.Option.captureCallState("errno")
+        )
+        RECV = downcall(
+            "recv",
+            FunctionDescriptor.of(
+                ValueLayout.JAVA_LONG,
+                ValueLayout.JAVA_INT,
+                ValueLayout.ADDRESS,
+                ValueLayout.JAVA_LONG,
+                ValueLayout.JAVA_INT
+            ),
+            Linker.Option.captureCallState("errno")
+        )
+        FCNTL = downcall(
+            "fcntl",
+            FunctionDescriptor.of(
+                ValueLayout.JAVA_INT,
+                ValueLayout.JAVA_INT,
+                ValueLayout.JAVA_INT,
+                ValueLayout.JAVA_LONG
+            ),
             Linker.Option.captureCallState("errno")
         )
     }
 
     data class SyscallResult(val returnValue: Long, val errno: Int)
 
-    private fun Any?.toLong(): Long = when(this) {
+    private fun Any?.toLong(): Long = when (this) {
         is Number -> this.toLong()
         is MemorySegment -> this.address()
         null -> 0L
@@ -272,21 +335,45 @@ object LinuxNative {
     fun prctl(option: Int, arg2: Any? = 0L, arg3: Any? = 0L, arg4: Any? = 0L, arg5: Any? = 0L): SyscallResult {
         Arena.ofConfined().use { arena ->
             val capturedState = arena.allocate(ERRNO_LAYOUT)
-            val ret = PRCTL.invokeExact(capturedState, option, arg2.toLong(), arg3.toLong(), arg4.toLong(), arg5.toLong()) as Int
+            val ret = PRCTL.invokeExact(
+                capturedState,
+                option,
+                arg2.toLong(),
+                arg3.toLong(),
+                arg4.toLong(),
+                arg5.toLong()
+            ) as Int
             val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
             return SyscallResult(ret.toLong(), errno)
         }
     }
 
-    fun syscall(nr: Long, a1: Any? = 0L, a2: Any? = 0L, a3: Any? = 0L, a4: Any? = 0L, a5: Any? = 0L, a6: Any? = 0L): SyscallResult {
+    fun syscall(
+        nr: Long,
+        a1: Any? = 0L,
+        a2: Any? = 0L,
+        a3: Any? = 0L,
+        a4: Any? = 0L,
+        a5: Any? = 0L,
+        a6: Any? = 0L
+    ): SyscallResult {
         Arena.ofConfined().use { arena ->
             val capturedState = arena.allocate(ERRNO_LAYOUT)
-            val ret = SYSCALL.invokeExact(capturedState, nr, a1.toLong(), a2.toLong(), a3.toLong(), a4.toLong(), a5.toLong(), a6.toLong()) as Long
+            val ret = SYSCALL.invokeExact(
+                capturedState,
+                nr,
+                a1.toLong(),
+                a2.toLong(),
+                a3.toLong(),
+                a4.toLong(),
+                a5.toLong(),
+                a6.toLong()
+            ) as Long
             val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
             return SyscallResult(ret, errno)
         }
     }
-    
+
     fun syscall4(nr: Long, a1: Any?, a2: Any?, a3: Any?, a4: Any?): SyscallResult = syscall(nr, a1, a2, a3, a4)
 
     fun open(path: MemorySegment, flags: Int): SyscallResult {
@@ -397,10 +484,18 @@ object LinuxNative {
         }
     }
 
-    fun processVmReadv(pid: Int, localIov: MemorySegment, liovcnt: Long, remoteIov: MemorySegment, riovcnt: Long, flags: Long): SyscallResult {
+    fun processVmReadv(
+        pid: Int,
+        localIov: MemorySegment,
+        liovcnt: Long,
+        remoteIov: MemorySegment,
+        riovcnt: Long,
+        flags: Long
+    ): SyscallResult {
         Arena.ofConfined().use { arena ->
             val capturedState = arena.allocate(ERRNO_LAYOUT)
-            val ret = PROCESS_VM_READV.invokeExact(capturedState, pid, localIov, liovcnt, remoteIov, riovcnt, flags) as Long
+            val ret =
+                PROCESS_VM_READV.invokeExact(capturedState, pid, localIov, liovcnt, remoteIov, riovcnt, flags) as Long
             val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
             return SyscallResult(ret, errno)
         }
@@ -433,6 +528,24 @@ object LinuxNative {
         }
     }
 
+    fun recv(sockfd: Int, buf: MemorySegment, len: Long, flags: Int): SyscallResult {
+        Arena.ofConfined().use { arena ->
+            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val ret = RECV.invokeExact(capturedState, sockfd, buf, len, flags) as Long
+            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
+            return SyscallResult(ret, errno)
+        }
+    }
+
+    fun fcntl(fd: Int, cmd: Int, arg: Long): SyscallResult {
+        Arena.ofConfined().use { arena ->
+            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val ret = FCNTL.invokeExact(capturedState, fd, cmd, arg) as Int
+            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
+            return SyscallResult(ret.toLong(), errno)
+        }
+    }
+
     fun newSockFProg(arena: Arena, filters: Array<SockFilter>): MemorySegment {
         val filterArraySeg = arena.allocate(MemoryLayout.sequenceLayout(filters.size.toLong(), SOCK_FILTER_LAYOUT))
         for (i in filters.indices) {
@@ -457,7 +570,11 @@ object LinuxNative {
                 0,
                 ex
             )
-            return MethodHandles.dropArguments(throwingHandle, 0, *fd.argumentLayouts().map { it.javaType() }.toTypedArray())
+            return MethodHandles.dropArguments(
+                throwingHandle,
+                0,
+                *fd.argumentLayouts().map { it.javaType() }.toTypedArray()
+            )
         }
         return linker.downcallHandle(symbol, fd, *options)
     }
@@ -511,16 +628,16 @@ object LinuxNative {
     const val SECCOMP_IOCTL_NOTIF_ID_VALID = 0x40082102L
 
     const val EPERM = 1
-    
+
     const val PR_SET_SECCOMP = 22
     const val PR_GET_SECCOMP = 21
     const val SECCOMP_MODE_FILTER = 2
     const val SECCOMP_FILTER_FLAG_TSYNC = 1
-    
+
     const val SECCOMP_RET_ALLOW = 0x7fff0000
     const val SECCOMP_RET_ERRNO = 0x00050000
     const val SECCOMP_RET_USER_NOTIF = 0x7fc00000
-    
+
     const val O_PATH = 0x01000000
     const val O_CLOEXEC = 0x00080000
     const val O_NOFOLLOW = 0x00020000

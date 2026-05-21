@@ -9,7 +9,6 @@ data class TraceEvent(
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is TraceEvent) return false
-        if (pid != other.pid) return false
         if (syscallName != other.syscallName) return false
         if (!args.contentEquals(other.args)) return false
         if (paths != other.paths) return false
@@ -17,8 +16,7 @@ data class TraceEvent(
     }
 
     override fun hashCode(): Int {
-        var result = pid
-        result = 31 * result + syscallName.hashCode()
+        var result = syscallName.hashCode()
         result = 31 * result + args.contentHashCode()
         result = 31 * result + paths.hashCode()
         return result

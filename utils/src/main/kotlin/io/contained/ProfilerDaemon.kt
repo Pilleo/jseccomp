@@ -16,6 +16,8 @@ import java.nio.charset.StandardCharsets
 object ProfilerDaemon {
     private val syscallMap = mutableMapOf<Int, String>()
     private val clientSockets = java.util.concurrent.CopyOnWriteArrayList<Int>()
+    private val activeListeners = java.util.concurrent.CopyOnWriteArrayList<Int>()
+    private val isGlobalShutdown = java.util.concurrent.atomic.AtomicBoolean(false)
 
     @JvmStatic
     fun main(args: Array<String>) {
@@ -33,15 +35,32 @@ object ProfilerDaemon {
 
         startGlobalAuditListener()
 
+        // Shutdown hook for the daemon itself
+        Runtime.getRuntime().addShutdownHook(Thread {
+            triggerGlobalShutdown()
+        })
+
         Thread {
             try {
+                // Listen for parent JVM exit via stdin closure
                 System.`in`.read()
             } catch (e: Exception) {
             }
+            triggerGlobalShutdown()
             System.exit(0)
         }.apply { isDaemon = true }.start()
 
         run(socketPath)
+    }
+
+    private fun triggerGlobalShutdown() {
+        if (isGlobalShutdown.getAndSet(true)) return
+        System.err.println("[DAEMON] Initiating graceful shutdown. Releasing tracee threads...")
+        for (fd in activeListeners) {
+            // We can't easily send CONTINUE from here because we don't have the IDs,
+            // but closing the socket from the JVM side will trigger handleConnection to exit.
+            // Actually, the most reliable way is for handleConnection to see the flag.
+        }
     }
 
     private fun run(socketPath: String) {
@@ -65,10 +84,18 @@ object ProfilerDaemon {
             val addrLen = arena.allocate(ValueLayout.JAVA_INT)
             addrLen.set(ValueLayout.JAVA_INT, 0L, 110)
 
-            while (true) {
+            while (!isGlobalShutdown.get()) {
                 val acceptRes = LinuxNative.accept(serverFd, addr, addrLen)
                 if (acceptRes.returnValue < 0) break
                 val clientFd = acceptRes.returnValue.toInt()
+
+                // Check for a "Shutdown Command" connection (no FD sent, just 0x53)
+                if (isShutdownCommand(clientFd)) {
+                    LinuxNative.close(clientFd)
+                    triggerGlobalShutdown()
+                    break
+                }
+
                 Thread {
                     try {
                         handleConnection(clientFd)
@@ -78,22 +105,38 @@ object ProfilerDaemon {
                     }
                 }.start()
             }
+            LinuxNative.close(serverFd)
+        }
+    }
+
+    private fun isShutdownCommand(socketFd: Int): Boolean {
+        // Peek the first byte. If it's 0x53 ('S'), it's a shutdown command.
+        // Profiler.installProfilingFilterForThread sends a descriptor, which
+        // usually starts with SCM_RIGHTS header.
+        Arena.ofConfined().use { arena ->
+            val buf = arena.allocate(1)
+            val res = LinuxNative.recv(socketFd, buf, 1, 2 /* MSG_PEEK */)
+            return res.returnValue == 1L && buf.get(ValueLayout.JAVA_BYTE, 0L) == 0x53.toByte()
         }
     }
 
     private fun handleConnection(socketFd: Int) {
         clientSockets.add(socketFd)
+        var listenerFd = -1
         try {
-            val listenerFd = recvDescriptor(socketFd) ?: return
+            val fd = recvDescriptor(socketFd) ?: return
+            listenerFd = fd
+            activeListeners.add(listenerFd)
             Arena.ofConfined().use { arena ->
                 val ack = arena.allocate(1); ack.set(ValueLayout.JAVA_BYTE, 0L, 0xAC.toByte())
                 LinuxNative.write(socketFd, ack, 1)
             }
+
             Arena.ofConfined().use { arena ->
                 val notif = arena.allocate(LinuxNative.SECCOMP_NOTIF_LAYOUT)
                 val resp = arena.allocate(LinuxNative.SECCOMP_NOTIF_RESP_LAYOUT)
 
-                while (true) {
+                while (!isGlobalShutdown.get()) {
                     notif.fill(0)
                     val ioctlRes = LinuxNative.ioctl(listenerFd, LinuxNative.SECCOMP_IOCTL_NOTIF_RECV, notif)
                     if (ioctlRes.returnValue < 0) break
@@ -108,12 +151,14 @@ object ProfilerDaemon {
                     val paths = getPathArgs(syscallName, args, pid)
                     sendTraceEvent(socketFd, TraceEvent(pid, syscallName, args, paths))
 
-                    // Wait for ACK from parent JVM to ensure it has processed the event
-                    // and captured stack traces before we continue the thread
+                    // Wait for ACK from parent JVM
                     val ackBuf = arena.allocate(1)
                     val readRes = LinuxNative.read(socketFd, ackBuf, 1)
-                    if (readRes.returnValue <= 0) {
-                        break
+                    if (readRes.returnValue <= 0) break
+
+                    val command = ackBuf.get(ValueLayout.JAVA_BYTE, 0L)
+                    if (command == 0x53.toByte()) { // 'S' for Shutdown
+                        triggerGlobalShutdown()
                     }
 
                     resp.fill(0)
@@ -123,8 +168,29 @@ object ProfilerDaemon {
                     resp.set(ValueLayout.JAVA_INT, 20L, LinuxNative.SECCOMP_USER_NOTIF_FLAG_CONTINUE.toInt())
                     LinuxNative.ioctl(listenerFd, LinuxNative.SECCOMP_IOCTL_NOTIF_SEND, resp)
                 }
+
+                if (isGlobalShutdown.get()) {
+                    // Drain notifications
+                    LinuxNative.fcntl(listenerFd, 4 /* F_SETFL */, 2048 /* O_NONBLOCK */)
+                    while (true) {
+                        notif.fill(0)
+                        val ioctlRes = LinuxNative.ioctl(listenerFd, LinuxNative.SECCOMP_IOCTL_NOTIF_RECV, notif)
+                        if (ioctlRes.returnValue < 0) break
+                        val id = notif.get(ValueLayout.JAVA_LONG, 0L)
+                        resp.fill(0)
+                        resp.set(ValueLayout.JAVA_LONG, 0L, id)
+                        resp.set(ValueLayout.JAVA_LONG, 8L, 0L)
+                        resp.set(ValueLayout.JAVA_INT, 16L, 0)
+                        resp.set(ValueLayout.JAVA_INT, 20L, LinuxNative.SECCOMP_USER_NOTIF_FLAG_CONTINUE.toInt())
+                        LinuxNative.ioctl(listenerFd, LinuxNative.SECCOMP_IOCTL_NOTIF_SEND, resp)
+                    }
+                }
             }
         } finally {
+            if (listenerFd != -1) {
+                activeListeners.remove(listenerFd)
+                LinuxNative.close(listenerFd)
+            }
             clientSockets.remove(socketFd)
         }
     }
@@ -279,7 +345,12 @@ object ProfilerDaemon {
             remoteIov.set(ValueLayout.ADDRESS, 0L, MemorySegment.ofAddress(remoteAddress))
             remoteIov.set(ValueLayout.JAVA_LONG, 8L, maxLen.toLong())
             val res = LinuxNative.processVmReadv(pid, localIov, 1, remoteIov, 1, 0)
-            if (res.returnValue < 0) return null
+            if (res.returnValue < 0) {
+                if (res.errno == 1) { // EPERM
+                    System.err.println("[DAEMON] WARN: Permission denied reading memory from PID $pid. (Yama ptrace_scope?)")
+                }
+                return null
+            }
             val bytesRead = res.returnValue.toInt()
             var len = 0
             while (len < bytesRead && localBuf.get(ValueLayout.JAVA_BYTE, len.toLong()) != 0.toByte()) len++

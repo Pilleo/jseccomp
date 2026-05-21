@@ -207,3 +207,26 @@ val policy = Policy.builder()
     .allowFsWrite("/workspace/app/build/tmp/")
     .build()
 ```
+
+---
+
+## 5. Operational Hazards & Kernel Constraints
+
+### Yama LSM & Grandchild Inheritance
+Under Linux Yama LSM (`/proc/sys/kernel/yama/ptrace_scope` >= 1), a process must explicitly grant ptrace permissions to its tracer using `prctl(PR_SET_PTRACER, tracer_pid)`. 
+*   **The Hazard:** This permission is **not inherited across `fork()`**. 
+*   **The Impact:** If the profiled JVM process forks a child (e.g., via `ProcessBuilder`), the child inherits the seccomp filter (and thus traps to the daemon) but does **not** inherit the ptrace permission. 
+*   **The Mitigation:** The `ProfilerDaemon` must gracefully handle `-EPERM` when attempting to read a grandchild's memory via `process_vm_readv`. In such cases, the daemon logs the syscall without absolute path resolution.
+
+### Seccomp Listener `-ENOSYS` JVM Crash
+When a seccomp `USER_NOTIF` listener file descriptor is closed while tracee threads are still blocked in the kernel waiting for a decision:
+*   **The Hazard:** The kernel unblocks the tracees and forces the trapped syscall to return `-ENOSYS` (Function not implemented).
+*   **The Impact:** HotSpot does not expect `-ENOSYS` for standard syscalls like `openat` or `write`. This typically results in an unrecoverable `IOException` or a fatal JVM abort if the syscall was part of a critical internal runtime operation.
+*   **The Mitigation:** The profiler implements a **Graceful Shutdown Protocol**. Before destroying the daemon, the JVM sends a `SHUTDOWN` command (`0x53`). The daemon responds by issuing `SECCOMP_USER_NOTIF_FLAG_CONTINUE` to all pending notifications, allowing threads to resume native execution before the listener is destroyed.
+
+### Landlock Audit Versioning
+Landlock Audit logging (`LANDLOCK_ACCESS` records) is a kernel-specific telemetry feature.
+*   **The Hazard:** `AUDIT_LANDLOCK_ACCESS` was introduced in **Linux 6.13** (Landlock ABI 7). 
+*   **The Impact:** On kernels older than 6.13 (including standard LTS versions like 5.15), applying a restrictive Landlock "Audit" policy will silently block operations with `EACCES` without emitting any audit logs, causing the profiler to miss dependencies and the application to crash.
+*   **The Mitigation:** The profiler performs a kernel version check. If the kernel is `< 6.13`, it refuses to enable the Landlock-assisted sensor and logs a warning to stderr.
+

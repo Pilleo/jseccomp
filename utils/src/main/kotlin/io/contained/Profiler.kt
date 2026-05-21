@@ -115,7 +115,17 @@ object Profiler {
 
                 // Apply Landlock profiling ruleset if requested
                 if (System.getenv("JSECCOMP_PROFILER_AUDIT") == "true") {
-                    Landlock.applyProfilingRuleset()
+                    if (isLandlockAuditSupported()) {
+                        Landlock.applyProfilingRuleset()
+                    } else {
+                        System.err.println(
+                            "[PROFILER] WARN: JSECCOMP_PROFILER_AUDIT requested but not supported on kernel ${
+                                System.getProperty(
+                                    "os.version"
+                                )
+                            }. Requires Linux 6.13+ (ABI 7)."
+                        )
+                    }
                 }
 
                 try {
@@ -143,11 +153,42 @@ object Profiler {
                 Runtime.getRuntime().removeShutdownHook(shutdownHook)
             } catch (e: Exception) {
             }
+            triggerDaemonShutdown(socketPath)
             daemonProcess.destroyForcibly()
             try {
                 socketFile.delete()
             } catch (e: Exception) {
             }
+        }
+    }
+
+    private fun triggerDaemonShutdown(socketPath: String) {
+        try {
+            Arena.ofConfined().use { arena ->
+                val fdRes = LinuxNative.socket(1 /* AF_UNIX */, 1 /* SOCK_STREAM */, 0)
+                if (fdRes.returnValue < 0) return
+                val fd = fdRes.returnValue.toInt()
+                try {
+                    val addr = arena.allocate(LinuxNative.SOCKADDR_UN_LAYOUT)
+                    addr.fill(0)
+                    addr.set(ValueLayout.JAVA_SHORT, 0L, 1.toShort())
+                    val pathBytes = socketPath.toByteArray(Charsets.UTF_8)
+                    val pathSeg = addr.asSlice(2, 108)
+                    for (i in pathBytes.indices) pathSeg.set(ValueLayout.JAVA_BYTE, i.toLong(), pathBytes[i])
+
+                    if (LinuxNative.connect(fd, addr, 110).returnValue == 0L) {
+                        val cmd = arena.allocate(1)
+                        cmd.set(ValueLayout.JAVA_BYTE, 0L, 0x53.toByte()) // 'S' for Shutdown
+                        LinuxNative.write(fd, cmd, 1)
+                        // Give the daemon a moment to process the shutdown
+                        Thread.sleep(100)
+                    }
+                } finally {
+                    LinuxNative.close(fd)
+                }
+            }
+        } catch (e: Exception) {
+            // best effort
         }
     }
 
@@ -468,6 +509,15 @@ object Profiler {
         }.apply { isDaemon = true; name = "trace-listener-$socketFd" }.start()
     }
 
+    private fun isLandlockAuditSupported(): Boolean {
+        val version = System.getProperty("os.version") ?: return false
+        val parts = version.split("-")[0].split(".")
+        if (parts.size < 2) return false
+        val major = parts[0].toIntOrNull() ?: 0
+        val minor = parts[1].toIntOrNull() ?: 0
+        return major > 6 || (major == 6 && minor >= 13)
+    }
+
     class ProfilerExecutorWrapper(
         private val delegate: ExecutorService,
         private val policy: Policy,
@@ -478,6 +528,8 @@ object Profiler {
 
         private val threadApplied = ThreadLocal.withInitial { false }
         val recentLogs = java.util.concurrent.CopyOnWriteArrayList<TraceEvent>()
+        val recentStackProfiles =
+            java.util.concurrent.ConcurrentHashMap<TraceEvent, MutableList<Array<StackTraceElement>>>()
         private val sharedPathCache = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
         override fun execute(command: Runnable) {
@@ -515,14 +567,24 @@ object Profiler {
                     socketPath,
                     policy,
                     recentLogs,
-                    null,
+                    recentStackProfiles,
                     sharedPathCache
                 ) { currentThread }
 
                 // Landlock Audit is non-transparent (denies and logs).
                 // Only enable if explicitly requested for io_uring profiling.
                 if (System.getenv("JSECCOMP_PROFILER_AUDIT") == "true") {
-                    Landlock.applyProfilingRuleset()
+                    if (isLandlockAuditSupported()) {
+                        Landlock.applyProfilingRuleset()
+                    } else {
+                        System.err.println(
+                            "[PROFILER] WARN: JSECCOMP_PROFILER_AUDIT requested but not supported on kernel ${
+                                System.getProperty(
+                                    "os.version"
+                                )
+                            }. Requires Linux 6.13+ (ABI 7)."
+                        )
+                    }
                 }
 
                 threadApplied.set(true)
@@ -555,6 +617,7 @@ object Profiler {
                 // Ignore if already shutting down
             } finally {
                 val tasks = delegate.shutdownNow()
+                triggerDaemonShutdown(socketPath)
                 daemonProcess.destroyForcibly()
                 return tasks
             }

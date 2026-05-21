@@ -201,7 +201,7 @@ object ContainedExecutors {
             return true
         }
 
-        // Restrict OS message parsing to I/O and networking contexts to avoid false positives in business logic
+        // Restrict OS message parsing to I/O and networking contexts to avoid false positives in business logic.
         if (t is java.io.IOException || t is java.net.SocketException) {
             if (OS_MSG_REGEX.containsMatchIn(msg)) {
                 return true

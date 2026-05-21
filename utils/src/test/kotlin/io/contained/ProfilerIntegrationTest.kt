@@ -188,4 +188,29 @@ class ProfilerIntegrationTest {
         assertTrue(result.isNotEmpty())
         assertTrue(finished.get(), "Task should have finished even after shutdown() was called")
     }
+
+    @Test
+    fun `test wrap() executor captures stack traces correctly`() {
+        val targetFile = File("/etc/hostname")
+        val pool = Executors.newSingleThreadExecutor()
+        val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE)
+        try {
+            wrapped.submit(Callable {
+                targetFile.readText()
+            }).get(5, TimeUnit.SECONDS)
+
+            assertTrue(
+                wrapped.recentStackProfiles.isNotEmpty(),
+                "Stack profiles should be captured in wrapped executor"
+            )
+            val hasOurClass = wrapped.recentStackProfiles.values.any { traces ->
+                traces.any { frames ->
+                    frames.any { frame -> frame.className.contains("ProfilerIntegrationTest") }
+                }
+            }
+            assertTrue(hasOurClass, "Stack trace in wrapped executor should contain ProfilerIntegrationTest")
+        } finally {
+            wrapped.shutdownNow()
+        }
+    }
 }
