@@ -32,6 +32,11 @@ Attempting to dynamically bypass blocked syscalls using a C-level signal handler
 2.  **File Descriptors (`open`/`socket`):** Returning `0` mocks a valid file descriptor pointing to standard input (`stdin`). Future operations read garbage data.
 3.  **Buffer-Writing Syscalls (`stat`/`clock_gettime`/`read`):** Returning success without copying correct memory values into the pointer arguments exposes uninitialized stack/heap garbage to HotSpot, causing silent corruption.
 
+### Loom Virtual Thread Carrier Poisoning
+Seccomp filters apply strictly to the underlying Linux OS thread (LWP). If the profiler or test suite executes seccomp loading from within a Virtual Thread, the filter permanently binds to the underlying `ForkJoinPool` carrier thread. Subsequent virtual threads mapped to this carrier will inherit the restricted context and crash. 
+
+**Architectural Guard:** The profiling test harness and the underlying library must detect Virtual Threads (`Thread.currentThread().isVirtual()`) and fail-closed with an `IllegalStateException` to prevent stacking on carrier threads unless specifically configuring a restricted carrier pool.
+
 ---
 
 ## 2. Tiered Profiling System Architecture
@@ -47,42 +52,42 @@ To bypass these constraints, we designed a **Tiered Profiling System** that prov
          |                               |                               |
          ▼                               ▼                               ▼
 +------------------+           +------------------+            +------------------+
-|      Tier A      |           |      Tier B      |            |      Tier C      |
-|  strace Wrapper  |           | Iterative Retry  |            | SECCOMP_RET_LOG  |
-|  (Default - CI)  |           | (Zero-Privilege) |            | (Aspirational)   |
+|      Tier S      |           |      Tier A      |            |      Tier B      |
+|  Out-of-Process  |           | Iterative Retry  |            | SECCOMP_RET_LOG  |
+|   USER_NOTIF     |           | (Zero-Privilege) |            | (Aspirational)   |
 +------------------+           +------------------+            +------------------+
 ```
 
-### Tier A: Out-of-Process `strace` Hooking (The Recommended Default)
-Rather than placing the supervisor inside the JVM, we move it entirely **out-of-process** using standard Linux `ptrace` via an `strace` execution wrapper.
+### Tier S: Out-of-Process `USER_NOTIF` Supervisor (The Production Default)
+Placing the supervisor thread inside the *same* JVM leads to fatal safepoint deadlocks. Relying on `strace` leads to noisy, process-wide telemetry and brittle text scraping. Instead, we use `SECCOMP_RET_USER_NOTIF` backed by a lightweight sidecar process communicating via Unix Domain Sockets.
 
-*   **Deadlock Prevention:** Because `strace` is an external OS process, it is immune to JVM safepoint pauses. If HotSpot triggers GC, `strace` continues to process and resume ptraced system calls normally.
-*   **Zero-Dependency Parsing:** 
-    1.  The test execution runs under:
-        `strace -f -yy -e trace=file,network,process,desc -o build/reports/syscalls.trace ./gradlew test`
-    2.  An analyzer engine parses the text logs to reconstruct the BoB:
-        *   Extracts unique syscall names (e.g. `epoll_create1`, `newfstatat`).
-        *   Extracts dynamic file paths resolved in `openat` and `newfstatat` (for Landlock path compiler).
-        *   Discards standard JVM bootstrap calls (everything before the library's initial `ContainedExecutors` wrap call is detected in the log via a signature trace marker).
+*   **Targeted Filtering:** The JVM installs a `USER_NOTIF` seccomp filter *only* on the specific worker thread executing the task.
+*   **FD Exfiltration:** Using FFM API and `sendmsg` (`SCM_RIGHTS`), the worker JVM passes the seccomp file descriptor to an external, lightweight Java daemon process.
+*   **Deadlock Immunity:** Because the supervisor runs in a completely separate OS process, its JVM safepoints are physically isolated from the main JVM. It cannot cause a safepoint deadlock.
+*   **Zero-Crash Execution (`FLAG_CONTINUE`):** When a worker thread blocks on a syscall, the external supervisor reads the notification struct. If the syscall takes pointer arguments (like `openat` file paths), the supervisor inspects the worker's memory via `process_vm_readv()`. After logging the operation, the supervisor replies to the kernel with `SECCOMP_USER_NOTIF_FLAG_CONTINUE` (Linux 5.5+). This guarantees the kernel executes the syscall natively without requiring dangerous user-space emulation.
 
 ```
-[ strace log tracepoint ]
-12345 openat(AT_FDCWD, "/workspace/data/in.txt", O_RDONLY) = 4
-       │
-       ▼ (Parser isolates the path + call)
-BoB: Syscall.OPENAT + allowFsRead("/workspace/data/")
+Worker Thread (JVM 1)         Kernel            Supervisor Daemon (JVM 2)
+      │                         │                         │
+      ├─ sys_openat() ─────────►│                         │
+      │                         ├─ USER_NOTIF ───────────►│
+      │   (Paused)              │                         ├─ Read syscall & args
+      │                         │                         ├─ Read memory (process_vm_readv)
+      │                         │◄─ FLAG_CONTINUE ────────┤
+      │◄─ Native Execution ─────┤                         │
+      │                         │                         │
 ```
 
-### Tier B: Native Iterative Deny-and-Retry Loop (Zero-Privilege Fallback)
-For environments where `CAP_SYS_PTRACE` is restricted (such as locked-down Kubernetes pods or container runners without trace privileges):
+### Tier A: Native Iterative Deny-and-Retry Loop (Zero-Privilege Fallback)
+For heavily locked-down environments where Unix Domain Socket sidecars or `USER_NOTIF` are blocked by strict OCI container profiles:
 
 1.  **Accumulation Hook:** We run tests under a baseline `Policy.PURE_COMPUTE`.
 2.  **Continuous Run:** Instead of immediately stopping the suite on the first exception, our wrapper collects all unique `ContainmentViolationException` instances thrown by worker threads.
 3.  **Gradle Orchestration:** The Gradle runner catches these exceptions, appends the blocked syscalls to the temporary policy model, and re-executes the suite.
-4.  **Convergence:** The execution converges in $O(N)$ runs (where $N$ is the number of unwhitelisted syscall categories utilized by the test suite, typically < 15 for typical computing blocks). It runs 100% in user-space with zero external packages or capabilities required.
+4.  **Convergence:** The execution converges in $O(N)$ runs (where $N$ is the number of unwhitelisted syscall categories utilized by the test suite, typically < 15). It runs 100% in user-space with zero external sidecars required.
 
-### Tier C: `SECCOMP_RET_LOG` Audit Logging (High Performance / Production Stage)
-For build systems that run in environments with access to host kernel logs (or have `log` enabled in `/proc/sys/kernel/seccomp/actions_logged`):
+### Tier B: `SECCOMP_RET_LOG` Audit Logging (High Performance / Production Stage)
+For build systems running in environments with access to host kernel logs (or have `log` enabled in `/proc/sys/kernel/seccomp/actions_logged`):
 
 *   **Mechanism:** The profiling BPF filter returns `SECCOMP_RET_LOG` for all evaluated operations.
 *   **Behavior:** The kernel executes every system call normally (zero overhead, zero crashes) and writes an audit record to the kernel ring buffer (`dmesg` / `auditd`).
@@ -118,8 +123,11 @@ To prevent locale-fragile string matching, `jseccomp` uses a **multi-layered exc
 
 ```kotlin
 private fun isDirectContainmentViolation(t: Throwable): Boolean {
+    // MUST restrict to IOException (which includes SocketException) to avoid false positives
+    if (t !is java.io.IOException) return false
+
     // 1. Structural Match
-    if (t is AccessDeniedException) return true
+    if (t is java.nio.file.AccessDeniedException) return true
 
     val msg = t.message ?: return false
 
@@ -130,10 +138,12 @@ private fun isDirectContainmentViolation(t: Throwable): Boolean {
         return true
     }
 
-    // 3. Multilingual Regex Fallback
-    if (VIOLATION_MESSAGE_REGEX.containsMatchIn(msg)) {
+    // 3. Exact OS Error Message Match Fallback
+    // Prohibited to use broad fragments like "denied" without strict class limits
+    if (msg.contains("Permission denied") || msg.contains("Operation not permitted")) {
         return true
     }
+    
     return false
 }
 ```
@@ -151,6 +161,7 @@ internal fun assertSafeCoordination(blocked: Set<Syscall>) {
         Syscall.SCHED_YIELD,    // Thread scheduling coordination
         Syscall.RT_SIGRETURN,   // Signal return context restoration
         Syscall.MADVISE,        // JVM virtual memory management
+        Syscall.MPROTECT,       // JVM GC page allocation & memory protection
         Syscall.GETTID          // Thread ID retrieval (needed for logging/GC)
     )
     val intersection = blocked.intersect(prohibited)

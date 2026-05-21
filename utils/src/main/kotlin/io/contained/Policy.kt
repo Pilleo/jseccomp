@@ -106,6 +106,11 @@ class Policy private constructor(
             return this
         }
 
+        fun unblock(vararg syscalls: Syscall): Builder {
+            blocked.removeAll(syscalls.toSet())
+            return this
+        }
+
         /**
          * Inherits all settings (blocked syscalls, allowed paths, etc.) from the given [policy].
          */

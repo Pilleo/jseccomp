@@ -21,13 +21,14 @@ object BpfFilter {
     private const val SECCOMP_DATA_ARCH_OFFSET = 4
     private const val SECCOMP_DATA_ARGS_OFFSET = 16
 
-    fun build(arch: Arch, policy: Policy): Array<SockFilter> =
+    fun build(arch: Arch, policy: Policy, profilingMode: Boolean = false): Array<SockFilter> =
         buildFromNumbers(
             arch, 
             policy.blockedSyscalls(arch), 
             policy.allowMmapExec, 
             policy.allowNonThreadClone,
-            policy.allowUnsafePrctl
+            policy.allowUnsafePrctl,
+            profilingMode
         )
 
     /**
@@ -50,10 +51,11 @@ object BpfFilter {
         blocked: IntArray, 
         allowMmapExec: Boolean = false, 
         allowNonThreadClone: Boolean = false,
-        allowUnsafePrctl: Boolean = false
+        allowUnsafePrctl: Boolean = false,
+        profilingMode: Boolean = false
     ): Array<SockFilter> {
         val filters = mutableListOf<SockFilter>()
-        val denyAction = LinuxNative.SECCOMP_RET_ERRNO or LinuxNative.EPERM
+        val denyAction = if (profilingMode) LinuxNative.SECCOMP_RET_USER_NOTIF else (LinuxNative.SECCOMP_RET_ERRNO or LinuxNative.EPERM)
         val allowAction = LinuxNative.SECCOMP_RET_ALLOW
         val enosysAction = LinuxNative.SECCOMP_RET_ERRNO or 38
 
