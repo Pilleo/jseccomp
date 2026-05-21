@@ -1,4 +1,6 @@
 Do You Really Know What Your App Is Doing at Runtime?
+
+> **Series overview:** This is Part 1 of a 4-part series on behavioral security for cloud-native applications.
  
 We have become very good at answering one specific supply-chain question:
  
@@ -41,7 +43,7 @@ At a high level, eBPF gives modern Linux systems a safe, highly performant way t
 
 A common mental model for backend developers is this: **eBPF is to the Linux kernel what JavaScript is to the web browser**—a sandboxed, event-driven programmability layer. So it is an in-kernel, statically verified virtual machine that executes secure bytecode at tracepoints, kprobes, and LSM hooks without compiling custom kernel modules. eBPF turned the OS from a rigid substrate into something security tools can dynamically extend.
 
-But it is important to distinguish between **observation** and **enforcement**. While eBPF provides the unprecedented visibility needed to *generate* a Bill of Behavior, physical enforcement relies on a set of core Linux primitives. This distinction is critical because of a fundamental architectural trade-off: **Privilege.** 
+But it is important to distinguish between **observation** and **enforcement**. While eBPF provides the visibility needed to generate and enforce a Bill of Behavior, physical enforcement often relies on a different set of core Linux primitives. This distinction is critical because of a fundamental architectural trade-off: **Privilege.** 
 
 While eBPF-based enforcement (like BPF-LSM) is extremely powerful, it requires high system privileges (`CAP_SYS_ADMIN` or `CAP_BPF`). In contrast, Seccomp and Landlock are designed to be **unprivileged**, allowing a standard application to "self-restrict" its own capabilities (once `PR_SET_NO_NEW_PRIVS` is set) without needing root access or cluster-level agents. This makes them the ideal "fast path" for developer-driven security.
 
@@ -50,7 +52,7 @@ While eBPF-based enforcement (like BPF-LSM) is extremely powerful, it requires h
 If BoB is the declaration of intent, the Linux kernel provides three primary mechanisms to turn that intent into a hard boundary:
 
 ### 1. Seccomp (Secure Computing)
-Seccomp is the industry's "fast path" for blocking system calls. It is fast, unprivileged (via `NoNewPrivileges`), and extremely reliable. However, it is "path-blind"—it sees the system call being made, but it cannot easily inspect the file paths or network addresses involved.
+Seccomp is the industry's "fast path" for blocking system calls. It is fast, unprivileged (via `NoNewPrivileges`), and extremely reliable. While Seccomp-BPF uses strictly constrained **Classic BPF (cBPF)** bytecode rather than the full eBPF instruction set, it remains the most widely deployed syscall filter in the world. However, it is "path-blind"—it sees the system call being made, but it cannot easily inspect the file paths or network addresses involved.
 *   **Where you use it today:** You are likely using it right now. Modern web browsers like **Chrome** and **Firefox** use Seccomp to sandbox their renderer processes, ensuring that a compromised tab cannot escape to the rest of your system. Docker also applies a default Seccomp profile to every container to block high-risk operations.
 
 ### 2. Landlock
@@ -146,4 +148,4 @@ In Part 2 of this series, we move from theory to practice. We will use a tool de
  
 Using the Java Virtual Machine (JVM) as our laboratory, we will see how to surgically neutralize threats like shellcode injection while maintaining application stability. This hands-on exploration will help you understand the core mechanics that modern security modules (like LSM) rely on to enforce behavioral integrity.
  
-**[Read Part 2: Hands-on with Syscall Enforcement](#)** (Coming Soon)
+**[Read Part 2: Thread-Scoped Syscall Containment in the JVM](article2-jseccomp.md)**

@@ -35,6 +35,37 @@ Prohibited syscalls trigger a `SECCOMP_RET_ERRNO` with `EPERM` (or Landlock file
 
 ---
 
+## Use Cases
+
+### 1. Runtime Attack Prevention
+The canonical use case: wrap thread pools that process untrusted input (user uploads, API payloads, deserialized objects) with a policy that blocks process spawning, shellcode injection, and network exfiltration. A compromised library inside the sandbox hits `EPERM` and cannot escape.
+
+### 2. Behavioral Attestation for Regulated Data
+
+This is a less obvious but equally important use case. `jseccomp` can be used to **prove** — at the kernel level, not by software assertion — that sensitive data was handled with strict behavioral constraints.
+
+Consider a thread pool that decrypts and processes PII, payment card data, or legally privileged documents. By wrapping it with `Policy.PURE_COMPUTE` and a Landlock path restriction:
+
+- **No network call was made.** `connect`, `socket`, `sendmsg` are blocked by the kernel. The data could not have been exfiltrated, regardless of what application code claims.
+- **No file was written outside the declared path.** The data was not persisted anywhere outside the explicitly whitelisted Landlock paths — not even by a misbehaving logger.
+- **No subprocess was spawned.** `execve`, `fork`, `memfd_create` are blocked. The data could not have been passed to an external process or a fileless in-memory executor.
+
+Any violation of these guarantees causes an immediate, observable `ContainmentViolationException`. Violations are not silent — they are detectable events.
+
+This is relevant to:
+- **Fintech / PCI DSS:** Proving that card numbers or cryptographic keys were used only for the declared computation.
+- **Healthcare / HIPAA:** Proving that PHI passed through a transformation step without being replicated, transmitted, or logged externally.
+- **Legal / Confidentiality:** Proving that a privileged document was analyzed but never copied, exfiltrated, or written to an unexpected path.
+- **Confidential Computing pipelines:** Providing an in-process behavioral attestation layer complementary to hardware trusted execution environments (TEEs).
+
+> [!IMPORTANT]
+> This attestation is **kernel-enforced, not software-asserted**. The guarantee comes from the Linux Seccomp and Landlock subsystems — not from application-level checks that an attacker could bypass. Subverting it requires compromising the kernel itself.
+
+> [!WARNING]
+> The attestation covers **syscall-level behavior only**. It cannot prevent in-process memory reads by other threads sharing the same JVM heap (see *Shared-Memory ACE Bypass* below). For absolute isolation, combine with process-wide `NO_EXEC` (Tier 1) and, where the strongest guarantees are required, a hardware TEE.
+
+---
+
 ## Features & Roadmap
 
 ### Existing Capabilities

@@ -1,11 +1,27 @@
-# The Global Sandbox Fallacy: Thread-Scoped Seccomp in the JVM
+# Thread-Scoped Syscall Containment in the JVM: Architecture and Trade-offs
 
-> **Series overview:** This is Part 2 of a 4-part series on behavioral security for cloud-native applications.
+> **Series overview:** This is Part 2 of a 4-part series on behavioral security for cloud-native applications. **What this part adds:** the mechanics of thread-scoped seccomp inside a live JVM — safepoint deadlock risks, JIT memory protection, Loom carrier contamination, and exactly where the model breaks.
 
 
-In Part 1, we established that the Linux kernel gives us three unprivileged enforcement primitives — Seccomp, Landlock, and (for platform agents) BPF-LSM — and that a Software Bill of Behavior describes what software is *expected* to do so these primitives have something authoritative to enforce.
+In Part 1, we established that the Linux kernel gives us three unprivileged enforcement primitives — Seccomp, Landlock, and (for platform agents) BPF-LSM — and that a Software Bill of Behavior (SBoB) describes what software is *expected* to do so these primitives have something authoritative to enforce.
 
 Now we get practical. The JVM is one of the most capability-rich processes in the modern data center. Let's examine why the standard approach to securing it leaves significant attack surface, and how thread-scoped enforcement closes the gap.
+
+<details>
+<summary><b>🔍 Architecture Note: The Native Bridge, FFM, and the Errno Race</b></summary>
+
+Before we dive into the kernel, we must address how the JVM talks to it. Historically, this required **JNI (Java Native Interface)**—a complex, slow, and often unsafe bridge involving C header generation and manual memory management.
+
+`jseccomp` is built on the modern **Java FFM (Foreign Function & Memory) API**, finalized as a standard feature in Java 22. FFM allows us to invoke native system calls (`prctl`, `seccomp`, `landlock_create_ruleset`) directly from Kotlin/Java with near-native performance and type safety, without writing a single line of C code.
+
+However, interfacing with the kernel from a managed runtime introduces a subtle but critical engineering challenge: **the `errno` race condition.**
+
+In Linux, `errno` is a thread-local variable that stores the error code of the most recent system call. In a standard C program, reading `errno` immediately after a failed call is straightforward. In a JVM, however, the runtime is constantly performing its own native operations (GC write barriers, safepoint polls, JIT bookkeeping) on the same OS thread. 
+
+If we make a system call and then attempt to read `errno` via a second FFM call, there is a high probability that the JVM's internal activity will clobber the `errno` value before we can retrieve it.
+
+`jseccomp` handles this using the FFM `Linker.Option.captureCallState("errno")` feature. This tells the JVM to generate a specialized native "stub" that atomically captures the `errno` value into a protected memory segment the instant the system call returns, ensuring we see the kernel's true response rather than JVM-internal noise.
+</details>
 
 ---
 
@@ -13,7 +29,7 @@ Now we get practical. The JVM is one of the most capability-rich processes in th
 
 Before anything else: if you've been following kernel security, your first question is probably *"why Seccomp and not BPF-LSM?"*
 
-BPF-LSM is unambiguously more powerful. While Seccomp sees raw memory addresses and is TOCTOU-vulnerable for path-based decisions (Part 1), BPF-LSM hooks *after* kernel objects are fully resolved — it inspects the canonical path `/etc/passwd`, the resolved destination IP, the resolved inode. It enables complex, context-aware enforcement that Seccomp cannot match.
+BPF-LSM is unambiguously more powerful. While Seccomp sees raw pointer arguments as passed in registers, it cannot safely dereference them — a separate thread can modify the string a pointer refers to between the moment Seccomp inspects the register and the moment the kernel actually uses the value. This is the classic TOCTOU (time-of-check/time-of-use) pattern, and it means Seccomp cannot safely enforce path-based decisions. BPF-LSM hooks *after* kernel objects are fully resolved — it inspects the canonical path `/etc/passwd`, the resolved destination IP, the resolved inode. It enables complex, context-aware enforcement that Seccomp cannot match.
 
 **The architectural blocker is privilege.** Loading a BPF-LSM program requires `CAP_BPF` or `CAP_MAC_ADMIN`. A production JVM running as a non-root user in a container should never hold these capabilities. Using BPF-LSM for application-level self-restriction means deploying a highly privileged node agent (a Kubernetes DaemonSet) to manage policies on the JVM's behalf — a significant operational dependency.
 
@@ -48,12 +64,13 @@ The Linux kernel provides a capability that is underutilized: **Seccomp filters 
 
 This mimics the approach Elasticsearch has used in production for years — a minimal, process-wide filter that renders Log4Shell-style RCE toothless. The attacker can reach your vulnerable code; they simply cannot spawn a shell. The filter is permanent and cannot be undone.
 
-> [!WARNING]
-> **Experimental and Untested Code.** The entire `jseccomp` library — including both the process-wide (`installOnProcess()`) and thread-scoped (`wrap()`) mechanisms — is an **experimental proof-of-concept**. None of this code has been tested or validated for production environments. Do not use any part of this library in production.
-
-
-
 **Tier 2 — Surgical Thread Containment:** For specific worker pools handling untrusted data — JSON parsers, image processors, XML deserializers, report generators — apply stricter policies. `ContainedExecutors.wrap()` creates an `ExecutorService` decorator that installs the chosen policy on each worker thread before it runs its first task. These restrictions are permanent for the lifetime of that thread.
+
+### The Shared-Memory ACE Escape Caveat
+
+It is critical to understand the threat model of thread-scoped enforcement. Because all JVM threads share the same physical address space (the heap and class metadata), a thread-scoped sandbox is **not an impenetrable boundary against an attacker who achieves Arbitrary Code Execution (ACE)**.
+
+If an attacker gains full native code execution within a sandboxed worker thread, they can theoretically bypass the thread-level filter by writing a malicious task directly into the memory of an uncontained, global thread pool (like the `ForkJoinPool.commonPool()`). This is exactly why `jseccomp` mandates **Tier 1 (Process-wide lockdown)** as the foundational backstop. Tier 2 provides surgical, low-overhead protection against data-driven attacks (SSRF, XXE, Path Traversal), but Tier 1 ensures the attacker cannot escalate to process execution regardless of which thread they compromise.
 
 ```kotlin
 // Global lockdown at startup — all threads, forever
@@ -72,34 +89,24 @@ val imageProcessor = ContainedExecutors.wrap(
 
 The JVM's JIT compiler is the most obvious obstacle to strict memory protection. The JIT must call `mmap` with `PROT_EXEC` to allocate executable memory for optimized native code. A naive Seccomp filter blocking all `PROT_EXEC` will crash the JVM immediately.
 
-`jseccomp` solves this with **BPF argument inspection**. The BPF filter doesn't just check the syscall number — it checks the `prot` argument to `mmap` (and `mprotect`). Specifically, it loads the lower 32 bits of `prot` (located at `args[2]` in `struct seccomp_data`) and tests whether the `PROT_EXEC` bit (0x4) is set. 
+`jseccomp` solves this with **BPF argument inspection**. The library generates a cBPF filter that inspects the arguments of `mmap` and `mprotect` so the JIT can work but shellcode cannot.
 
-Here is the exact logical flow of the BPF bytecode instruction sequence generated by the library:
+<details>
+<summary><b>🔍 Deep Dive: How the BPF Filter Distinguishes JIT from Shellcode</b></summary>
 
-```assembly
-; 1. Load the system call number into the accumulator
-ld [0]                 ; ACC = seccomp_data.nr
+Classic BPF (cBPF), the filter dialect used by Seccomp, operates on a fixed structure called `struct seccomp_data`. This structure exposes the syscall number (`nr`) and up to six 64-bit arguments (`args[0]`–`args[5]`). BPF programs use relative-offset jump instructions to build decision trees; there are no named labels — all branching uses byte offsets, computed at filter-assembly time.
 
-; 2. Check if this is mmap (e.g. syscall 9 on x86_64)
-jeq #9, jt_mmap, jf_next ; If ACC == 9, proceed to mmap check; else next check
+The filter generated by `jseccomp` does the following:
+1. **Check if the syscall is `mmap` (9) or `mprotect` (10)** on x86_64. If it is neither, allow unconditionally.
+2. **Load `args[2]`** — the `prot` argument — as a 32-bit word from the structure.
+3. **Test the `PROT_EXEC` bit (0x4)**. If the bit is set, return `SECCOMP_RET_ERRNO | EPERM`. If not set, allow the mapping.
 
-jt_mmap:
-; 3. Load the 3rd argument (prot) which is at args[2] (offset 32 in seccomp_data)
-ld [32]                ; ACC = seccomp_data.args[2] (lower 32-bits of prot)
+The key insight: the JIT allocates executable memory only on JIT compiler threads — which are separate OS threads *not* covered by the worker thread's Seccomp filter. Worker threads processing untrusted data have no legitimate reason to set `PROT_EXEC`. The filter checks precisely the bit that separates "JIT allocating native code" from "shellcode marking memory executable."
 
-; 4. Check if the PROT_EXEC (0x04) bit is set
-jset #0x04, deny, allow ; If (ACC & 0x04) is true, jump to deny; else allow mapping
+> **32-bit truncation note:** BPF operates on 32-bit words. The filter loads the lower 32 bits of `prot`. Since the Linux kernel only honors the standard lower bits defined in POSIX for protection flags, this truncation is architecturally correct.
+</details>
 
-deny:
-ret #0x00050001        ; SECCOMP_RET_ERRNO with EPERM (1)
-
-allow:
-ld [0]                 ; Restore ACC = seccomp_data.nr for subsequent filters
-```
-
-Because this filter is applied only to the contained worker threads, the JIT threads running on the same JVM continue operating without restriction. We've surgically neutralized shellcode execution — thread-scoped, zero JVM stability impact.
-
-> **32-bit truncation note:** BPF operates on 32-bit words. The filter loads the lower 32 bits of `prot`. Since the Linux kernel casts the `prot` argument to `unsigned long` but only honors the standard lower bits defined in POSIX, this truncation is architecturally correct and matches kernel behavior.
+Because this filter is applied only to contained worker threads, JIT threads running on the same JVM continue operating without restriction. Shellcode execution is surgically neutralized — thread-scoped, zero JVM stability impact.
 
 ---
 
@@ -167,7 +174,13 @@ val executor = ContainedExecutors.wrap(
 
 **Critical JVM gotcha:** Landlock is applied at the OS thread level, permanently. If a restricted worker thread is the first to trigger the JVM's lazy classloading for a new class, the JVM will attempt to open the `.jar` or `.class` file from the classpath. If Landlock blocks that read, the JVM throws `NoClassDefFoundError`. `allowJvmClasspath()` pre-authorizes `java.home` and all classpath entries to prevent this. Calling it is not optional when using Landlock.
 
-Unlike Seccomp's `TSYNC` flag, Landlock's `landlock_restrict_self` only affects the calling thread — not existing JVM threads. True process-wide Landlock requires applying the ruleset *before* `execve`-ing the JVM (from a launcher), so all threads inherit it from birth.
+Unlike Seccomp's `TSYNC` flag (`SECCOMP_FILTER_FLAG_TSYNC`), Landlock's `landlock_restrict_self` only affects the calling thread. `TSYNC` is an *opt-in* mechanism that synchronises a newly installed filter to all existing threads in the thread group — but it fails with `EINVAL` if any other thread already has an incompatible filter stack. It is not a "Seccomp applies everywhere automatically" switch.
+
+True process-wide Landlock has two practical paths:
+1. Apply the ruleset from a single-threaded launcher *before* spawning any JVM threads — all threads inherit the restriction from birth without requiring a pre-`execve` wrapper.
+2. Apply the ruleset *before* `execve`-ing the JVM from a shell launcher, so the restriction is inherited across the exec boundary.
+
+Path 1 is often simpler for library-level use.
 
 ---
 
@@ -187,7 +200,7 @@ Cluster-wide tools see your container as a black box. They observe the process b
 
 The principles here are universal, but thread-level enforcement is only meaningful if there is a stable 1:1 mapping between your application's concurrency primitive and an OS thread.
 
-**Go goroutines:** Go's M:N scheduler multiplexes thousands of goroutines onto a small pool of OS threads. If you apply a Seccomp filter to an OS thread to sandbox one goroutine, the Go runtime may schedule a different, completely unrelated goroutine onto that "poisoned" thread — which then crashes the moment it attempts a syscall the previous goroutine was forbidden from using. `runtime.LockOSThread()` prevents scheduling but cripples Go's concurrency model. `GOMAXPROCS=1` doesn't help — the scheduler is still non-deterministic with respect to thread assignment. Thread-level containment is currently impractical for Go.
+**Go goroutines:** Go's M:N scheduler multiplexes thousands of goroutines onto a small pool of OS threads. If you apply a Seccomp filter to an OS thread to sandbox one goroutine, the Go runtime may schedule a different, completely unrelated goroutine onto that "poisoned" thread — which then crashes the moment it attempts a syscall the previous goroutine was forbidden from using. `runtime.LockOSThread()` prevents scheduling but cripples Go's concurrency model. `GOMAXPROCS=1` technically avoids cross-thread contamination (there is only one OS thread), but eliminates all parallelism — it is unusable for any concurrent workload. Thread-level containment is currently impractical for Go.
 
 **Java virtual threads (Project Loom, Java 21+):** Loom's virtual threads have exactly the same M:N scheduler problem as Go goroutines. Virtual threads are scheduled onto a carrier thread pool (by default, a `ForkJoinPool`). 
 If a task running on a virtual thread installs a seccomp filter on its current thread, it sandboxes the underlying **OS carrier thread**. When that task completes or yields, the carrier thread remains permanently restricted. Any subsequent virtual thread scheduled onto that carrier—even one running a completely unrelated, high-privilege administrative task—will inherit those restrictions and crash or fail.
@@ -222,7 +235,9 @@ Instead of running unconfined, you should run your container with a **custom Doc
 
 This maintains Docker's robust container-level security floor (blocking access to dangerous host-level calls like `keyctl` or kernel namespace mutations) while empowering the JVM inside the container to dynamically apply its own unprivileged thread-level sandboxes.
 
-### Security Analysis of Nested Seccomp in OCI Runtimes
+### Author's Analysis: Nested Seccomp in OCI Runtimes
+
+> *The following is the author's architectural argument, not an established industry position.*
 
 OCI runtimes (such as `runc`, `containerd`, and Docker) restrict the `seccomp(2)` system call and specific `prctl(2)` options within their default profiles. This design decision is part of a defense-in-depth strategy aimed at reducing the host kernel's attack surface, preventing untrusted processes within containers from interacting with the kernel's BPF verifier or constructing arbitrary syscall filters.
 
@@ -231,16 +246,9 @@ However, the necessity of this OCI-level block can be evaluated against kernel-l
 2.  **Filter Monotonicity:** Seccomp filters can only restrict the current syscall capabilities; they cannot be removed, bypassed, or relaxed by subsequent nested filters.
 3.  **Kernel Limits:** Modern kernels cap seccomp filter depth and BPF program complexity, preventing simple kernel memory exhaustion vectors.
 
-Given these kernel-level invariants, blocking unprivileged seccomp filter installation inside containers does not prevent privilege escalation, since the kernel already enforces an immutable boundary. The primary risk re-introduced by whitelisting `seccomp` and `prctl(PR_SET_SECCOMP)` is a minor increase in BPF verifier exposure. 
+Given these kernel-level invariants, blocking unprivileged seccomp filter installation inside containers does not prevent privilege escalation, since the kernel already enforces an immutable boundary. The primary risk re-introduced by whitelisting `seccomp` and `prctl(PR_SET_SECCOMP)` is a minor increase in BPF verifier exposure.
 
 A potential architectural alternative for OCI specifications would be to permit nested filter installation by default whenever the container is configured with `allowPrivilegeEscalation: false` (which pre-emptively enforces `PR_SET_NO_NEW_PRIVS`). This would allow secure, application-level sandboxing (such as thread-scoped containment) to be deployed natively within standardized container environments without requiring custom profiles.
 
----
-
-While process-wide lockdown (Tier 1) is a proven conceptual model (demonstrated by Elasticsearch's native lockdown mechanisms), its implementation in `jseccomp` is entirely experimental. 
-
-Similarly, thread-scoped surgical containment (Tier 2) provides a targeted proof-of-concept isolation boundary. However, the entire library — including both process-wide and thread-scoped modes — remains an **untested research experiment** that should not be used in any production environments.
-
 *Next up: Part 3: The Attacks jseccomp Stops*
-
 
