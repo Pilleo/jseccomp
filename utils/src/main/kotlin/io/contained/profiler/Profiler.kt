@@ -409,28 +409,26 @@ object Profiler {
         pathCache: MutableMap<String, Long>,
         workerThreadProvider: () -> Thread?
     ) {
+        val arena = Arena.ofShared()
+
         val inputStream = object : InputStream() {
             override fun read(): Int {
-                Arena.ofConfined().use { arena ->
-                    val b = arena.allocate(1)
-                    val res = LinuxNative.read(socketFd, b, 1)
-                    if (res.returnValue <= 0) return -1
-                    return b.get(ValueLayout.JAVA_BYTE, 0L).toInt() and 0xFF
-                }
+                val b = arena.allocate(1)
+                val res = LinuxNative.read(socketFd, b, 1)
+                if (res.returnValue <= 0) return -1
+                return b.get(ValueLayout.JAVA_BYTE, 0L).toInt() and 0xFF
             }
 
             override fun read(b: ByteArray, off: Int, len: Int): Int {
                 if (len == 0) return 0
-                Arena.ofConfined().use { arena ->
-                    val buf = arena.allocate(len.toLong())
-                    val res = LinuxNative.read(socketFd, buf, len.toLong())
-                    if (res.returnValue <= 0) return -1
-                    val readLen = res.returnValue.toInt()
-                    for (i in 0 until readLen) {
-                        b[off + i] = buf.get(ValueLayout.JAVA_BYTE, i.toLong())
-                    }
-                    return readLen
+                val buf = arena.allocate(len.toLong())
+                val res = LinuxNative.read(socketFd, buf, len.toLong())
+                if (res.returnValue <= 0) return -1
+                val readLen = res.returnValue.toInt()
+                for (i in 0 until readLen) {
+                    b[off + i] = buf.get(ValueLayout.JAVA_BYTE, i.toLong())
                 }
+                return readLen
             }
 
             override fun close() {
@@ -476,11 +474,9 @@ object Profiler {
                             // Write ACK to daemon so the daemon doesn't hang!
                             // ONLY if it's a Seccomp event (pid != 0).
                             if (pid != 0) {
-                                Arena.ofConfined().use { arena ->
-                                    val ack = arena.allocate(1)
-                                    ack.set(ValueLayout.JAVA_BYTE, 0L, 0x41.toByte()) // ACK byte
-                                    LinuxNative.write(socketFd, ack, 1)
-                                }
+                                val ack = arena.allocate(1)
+                                ack.set(ValueLayout.JAVA_BYTE, 0L, 0x41.toByte()) // ACK byte
+                                LinuxNative.write(socketFd, ack, 1)
                             }
                             continue // Skip duplicate within 500ms window
                         }
@@ -503,17 +499,16 @@ object Profiler {
                     // Send ACK back to the daemon so it can release the worker thread!
                     // ONLY if it's a Seccomp event (pid != 0). Audit events (pid=0) don't expect ACKs.
                     if (pid != 0) {
-                        Arena.ofConfined().use { arena ->
-                            val ack = arena.allocate(1)
-                            ack.set(ValueLayout.JAVA_BYTE, 0L, 0x41.toByte()) // ACK byte
-                            LinuxNative.write(socketFd, ack, 1)
-                        }
+                        val ack = arena.allocate(1)
+                        ack.set(ValueLayout.JAVA_BYTE, 0L, 0x41.toByte()) // ACK byte
+                        LinuxNative.write(socketFd, ack, 1)
                     }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
                 // socket closed or error
             } finally {
+                arena.close()
                 inputStream.close()
             }
         }.apply { isDaemon = true; name = "trace-listener-$socketFd" }.start()

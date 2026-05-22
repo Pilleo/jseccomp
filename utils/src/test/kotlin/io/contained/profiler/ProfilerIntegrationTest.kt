@@ -121,6 +121,53 @@ class ProfilerIntegrationTest {
     }
 
     @Test
+    fun `test profiler correctly resolves relative paths via AT_FDCWD`() {
+        val fileName = "relative-test-${System.currentTimeMillis()}.txt"
+        val file = File(fileName)
+        file.writeText("relative content")
+        try {
+            val result = Profiler.profile {
+                // This triggers openat(AT_FDCWD, "filename", ...)
+                file.readText()
+            }
+            val absolutePath = file.absolutePath
+            assertTrue(
+                result.behavior.opens.contains(absolutePath),
+                "Should resolve relative path $fileName to absolute path $absolutePath. Observed: ${result.behavior.opens}"
+            )
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun `test profiler daemon handles high-frequency concurrent events without stream corruption`() {
+        val pool = Executors.newFixedThreadPool(8)
+        val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE)
+        try {
+            val taskCount = 200
+            val target = File("/etc/hostname")
+            val futures = (1..taskCount).map {
+                wrapped.submit(Callable {
+                    target.readText()
+                })
+            }
+            futures.forEach { it.get(10, TimeUnit.SECONDS) }
+
+            // If the stream was corrupted, BobCompiler would throw or return garbage.
+            val bob = BobCompiler.compile(wrapped.recentLogs)
+            assertTrue(bob.opens.contains("/etc/hostname"), "Should contain /etc/hostname")
+            // We should have many events, but they should all be structurally valid.
+            assertTrue(wrapped.recentLogs.isNotEmpty())
+
+            // Validate that we don't have partial/corrupted events (e.g. empty syscall names)
+            assertTrue(wrapped.recentLogs.all { it.syscallName.isNotEmpty() })
+        } finally {
+            wrapped.shutdownNow()
+        }
+    }
+
+    @Test
     fun `test wrap() executor correctly resolves paths via daemon ptrace`() {
         val targetFile = File("/etc/hostname")
         val pool = Executors.newSingleThreadExecutor()

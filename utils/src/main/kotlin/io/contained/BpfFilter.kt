@@ -123,6 +123,9 @@ object BpfFilter {
         }
 
         // prctl argument-inspection
+        // Note: Even if allowUnsafePrctl is false, we always whitelist safe options
+        // like PR_SET_NAME and PR_GET_SECCOMP. The latter is required by PureJavaBpfEngine
+        // to verify that the filter was successfully installed.
         if (!allowUnsafePrctl && arch.prctl >= 0) {
             handledNrs.add(arch.prctl)
             filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 9, arch.prctl))

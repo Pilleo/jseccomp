@@ -514,12 +514,10 @@ object Landlock {
 
         // Fix #3: If path doesn't exist (ENOENT=2), try the parent directory.
         if (fdResult.returnValue < 0 && fdResult.errno == 2) {
-            val parentPath = File(path).parent
-            if (parentPath != null) {
-                logger.info("Path $path does not exist, falling back to parent directory: $parentPath")
-                pathSegment = arena.allocateFrom(parentPath)
-                fdResult = LinuxNative.open(pathSegment, openFlags)
-            }
+            val parentPath = File(path).parent ?: "/"
+            logger.info("Path $path does not exist, falling back to parent directory: $parentPath")
+            pathSegment = arena.allocateFrom(parentPath)
+            fdResult = LinuxNative.open(pathSegment, openFlags)
         }
 
         // Fix #4: If symlink (ELOOP=40), log a clear warning.

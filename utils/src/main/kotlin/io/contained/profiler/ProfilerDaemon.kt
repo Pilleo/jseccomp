@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 object ProfilerDaemon {
     private val syscallMap = mutableMapOf<Int, String>()
     private val clientSockets = CopyOnWriteArrayList<Int>()
+    private val socketLocks = java.util.concurrent.ConcurrentHashMap<Int, Any>()
     private val activeListeners = CopyOnWriteArrayList<Int>()
     private val isGlobalShutdown = AtomicBoolean(false)
 
@@ -330,10 +331,14 @@ object ProfilerDaemon {
 
         val bytes = baos.toByteArray()
         if (bytes.isEmpty()) return
-        Arena.ofConfined().use { arena ->
-            val buf = arena.allocate(bytes.size.toLong())
-            MemorySegment.copy(bytes, 0, buf, ValueLayout.JAVA_BYTE, 0L, bytes.size)
-            LinuxNative.write(socketFd, buf, bytes.size.toLong())
+
+        val lock = socketLocks.computeIfAbsent(socketFd) { Any() }
+        synchronized(lock) { // Synchronize on lock object to prevent interleaved writes
+            Arena.ofConfined().use { arena ->
+                val buf = arena.allocate(bytes.size.toLong())
+                MemorySegment.copy(bytes, 0, buf, ValueLayout.JAVA_BYTE, 0L, bytes.size)
+                LinuxNative.write(socketFd, buf, bytes.size.toLong())
+            }
         }
     }
 
@@ -381,30 +386,47 @@ object ProfilerDaemon {
         fun tryRead(addr: Long, dirfd: Long = -100L): String? {
             if (addr == 0L) return null
             val path = readStringFromProcess(pid, addr) ?: return null
-            if (path.startsWith("/") || dirfd == -100L) return path
-            if (dirfd >= 0) {
-                val dirPath = resolveFdPath(pid, dirfd.toInt())
-                if (dirPath != null) return if (dirPath.endsWith("/")) "$dirPath$path" else "$dirPath/$path"
+            if (path.startsWith("/") || dirfd == -101L /* AT_FDCWD is -100 in kernel, but we use -100 in tryRead default */) return path
+
+            // Resolve relative paths
+            val dirPath = if (dirfd == -100L) {
+                // AT_FDCWD
+                resolveCwd(pid)
+            } else if (dirfd >= 0) {
+                resolveFdPath(pid, dirfd.toInt())
+            } else null
+
+            if (dirPath != null) {
+                return if (dirPath.endsWith("/")) "$dirPath$path" else "$dirPath/$path"
             }
             return path
         }
         when (syscallName) {
-            "OPEN", "EXECVE", "MKDIR", "RMDIR", "CHMOD", "CHOWN", "LCHOWN", "UNLINK", "READLINK" -> tryRead(args[0])?.let {
-                paths.add(
-                    it
-                )
+            "OPEN", "EXECVE", "MKDIR", "RMDIR", "CHMOD", "CHOWN", "LCHOWN", "UNLINK", "READLINK" -> tryRead(
+                args[0],
+                -101L
+            )?.let {
+                paths.add(it)
             }
 
             "OPENAT", "EXECVEAT", "OPENAT2" -> tryRead(args[1], args[0])?.let { paths.add(it) }
             "RENAME", "LINK", "SYMLINK" -> {
-                tryRead(args[0])?.let { paths.add(it) }; tryRead(args[1])?.let { paths.add(it) }
+                tryRead(args[0], -101L)?.let { paths.add(it) }; tryRead(args[1], -101L)?.let { paths.add(it) }
             }
         }
         return paths
     }
 
+    private fun resolveCwd(pid: Int): String? {
+        return resolveLink(pid, "cwd")
+    }
+
     private fun resolveFdPath(pid: Int, fd: Int): String? {
-        val procPath = "/proc/$pid/fd/$fd"
+        return resolveLink(pid, "fd/$fd")
+    }
+
+    private fun resolveLink(pid: Int, link: String): String? {
+        val procPath = "/proc/$pid/$link"
         Arena.ofConfined().use { arena ->
             val pathSeg = arena.allocateFrom(procPath)
             val buf = arena.allocate(4096)

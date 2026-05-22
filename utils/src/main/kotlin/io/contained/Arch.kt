@@ -3,7 +3,6 @@ package io.contained
 data class Arch(
     val name: String,
     val audit: Int,
-    val limit: Int,
     val fork: Int,
     val vfork: Int,
     val clone: Int,
@@ -78,7 +77,6 @@ data class Arch(
         val AMD64 = Arch(
             name = "amd64",
             audit = AUDIT_ARCH_X86_64,
-            limit = 547,
             fork = 57,
             vfork = 58,
             clone = 56,
@@ -150,7 +148,6 @@ data class Arch(
         val AARCH64 = Arch(
             name = "aarch64",
             audit = AUDIT_ARCH_AARCH64,
-            limit = 436,
             fork = -1,
             vfork = -1,
             clone = 220,
