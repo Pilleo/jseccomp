@@ -154,24 +154,27 @@ object ProfilerDaemon {
 
                     val syscallName = syscallMap[nr] ?: "SYSCALL_$nr"
                     val paths = getPathArgs(syscallName, args, pid)
-                    sendTraceEvent(socketFd, TraceEvent(pid, syscallName, args, paths))
 
-                    // Wait for ACK from parent JVM
-                    val ackBuf = arena.allocate(1)
-                    val readRes = LinuxNative.read(socketFd, ackBuf, 1)
-                    if (readRes.returnValue <= 0) break
+                    try {
+                        sendTraceEvent(socketFd, TraceEvent(pid, syscallName, args, paths))
 
-                    val command = ackBuf.get(ValueLayout.JAVA_BYTE, 0L)
-                    if (command == 0x53.toByte()) { // 'S' for Shutdown
-                        triggerGlobalShutdown()
+                        // Wait for ACK from parent JVM
+                        val ackBuf = arena.allocate(1)
+                        val readRes = LinuxNative.read(socketFd, ackBuf, 1)
+                        if (readRes.returnValue <= 0) break
+
+                        val command = ackBuf.get(ValueLayout.JAVA_BYTE, 0L)
+                        if (command == 0x53.toByte()) { // 'S' for Shutdown
+                            triggerGlobalShutdown()
+                        }
+                    } finally {
+                        resp.fill(0)
+                        resp.set(ValueLayout.JAVA_LONG, 0L, id)
+                        resp.set(ValueLayout.JAVA_LONG, 8L, 0L)
+                        resp.set(ValueLayout.JAVA_INT, 16L, 0)
+                        resp.set(ValueLayout.JAVA_INT, 20L, LinuxNative.SECCOMP_USER_NOTIF_FLAG_CONTINUE.toInt())
+                        LinuxNative.ioctl(listenerFd, LinuxNative.SECCOMP_IOCTL_NOTIF_SEND, resp)
                     }
-
-                    resp.fill(0)
-                    resp.set(ValueLayout.JAVA_LONG, 0L, id)
-                    resp.set(ValueLayout.JAVA_LONG, 8L, 0L)
-                    resp.set(ValueLayout.JAVA_INT, 16L, 0)
-                    resp.set(ValueLayout.JAVA_INT, 20L, LinuxNative.SECCOMP_USER_NOTIF_FLAG_CONTINUE.toInt())
-                    LinuxNative.ioctl(listenerFd, LinuxNative.SECCOMP_IOCTL_NOTIF_SEND, resp)
                 }
 
                 if (isGlobalShutdown.get()) {
@@ -307,35 +310,31 @@ object ProfilerDaemon {
     }
 
     private fun sendTraceEvent(socketFd: Int, event: TraceEvent) {
-        val outputStream = object : OutputStream() {
-            override fun write(b: Int) {
-                Arena.ofConfined().use { arena ->
-                    val buf = arena.allocate(1); buf.set(ValueLayout.JAVA_BYTE, 0L, b.toByte())
-                    LinuxNative.write(socketFd, buf, 1)
-                }
-            }
-
-            override fun write(b: ByteArray, off: Int, len: Int) {
-                if (len == 0) return
-                Arena.ofConfined().use { arena ->
-                    val buf = arena.allocate(len.toLong())
-                    for (i in 0 until len) buf.set(ValueLayout.JAVA_BYTE, i.toLong(), b[off + i])
-                    LinuxNative.write(socketFd, buf, len.toLong())
-                }
-            }
-        }
-        val dos = DataOutputStream(outputStream)
+        val baos = java.io.ByteArrayOutputStream()
+        val dos = DataOutputStream(baos)
         dos.writeInt(event.pid)
         val syscallBytes = event.syscallName.toByteArray(StandardCharsets.UTF_8)
-        dos.writeInt(syscallBytes.size); dos.write(syscallBytes)
+        dos.writeInt(syscallBytes.size)
+        dos.write(syscallBytes)
         dos.writeInt(event.args.size)
-        for (arg in event.args) dos.writeLong(arg)
+        for (arg in event.args) {
+            dos.writeLong(arg)
+        }
         dos.writeInt(event.paths.size)
         for (path in event.paths) {
             val pBytes = path.toByteArray(StandardCharsets.UTF_8)
-            dos.writeInt(pBytes.size); dos.write(pBytes)
+            dos.writeInt(pBytes.size)
+            dos.write(pBytes)
         }
         dos.flush()
+
+        val bytes = baos.toByteArray()
+        if (bytes.isEmpty()) return
+        Arena.ofConfined().use { arena ->
+            val buf = arena.allocate(bytes.size.toLong())
+            MemorySegment.copy(bytes, 0, buf, ValueLayout.JAVA_BYTE, 0L, bytes.size)
+            LinuxNative.write(socketFd, buf, bytes.size.toLong())
+        }
     }
 
     private fun recvDescriptor(socketFd: Int): Int? {

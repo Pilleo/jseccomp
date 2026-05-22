@@ -45,7 +45,7 @@ class LandlockTsyncIntegrationTest {
             javaBin,
             "--enable-native-access=ALL-UNNAMED",
             "-cp", classpath,
-            "io.contained.LandlockTsyncIntegrationTest\$TsyncChild"
+            "io.contained.landlock.LandlockTsyncIntegrationTest\$TsyncChild"
         )
 
         val process = pb.start()

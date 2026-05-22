@@ -85,13 +85,25 @@ object ContainedExecutors {
         val needsLandlock = policy.allowedFsReadPaths.isNotEmpty() || policy.allowedFsWritePaths.isNotEmpty()
         if (needsLandlock) {
             if (processWide) {
-                logger.warning(
-                    "Process-wide containment (installOnProcess) does not currently support Landlock filesystem rules. " +
-                            "Filesystem rules will be ignored for process-wide installation."
+                throw UnsupportedOperationException(
+                    "Process-wide containment (installOnProcess) does not support Landlock filesystem rules. " +
+                            "Use thread-scoped containment (installOnCurrentThread) for filesystem restrictions."
                 )
             } else {
                 val appliedReads = THREAD_LANDLOCK_APPLIED_READS.get()
                 val appliedWrites = THREAD_LANDLOCK_APPLIED_WRITES.get()
+                if (appliedReads != null || appliedWrites != null) {
+                    val prevReads = appliedReads ?: emptySet()
+                    val prevWrites = appliedWrites ?: emptySet()
+                    val hasNewReads = !prevReads.containsAll(policy.allowedFsReadPaths)
+                    val hasNewWrites = !prevWrites.containsAll(policy.allowedFsWritePaths)
+                    if (hasNewReads || hasNewWrites) {
+                        throw IllegalStateException(
+                            "Cannot expand Landlock filesystem permissions on an already restricted thread."
+                        )
+                    }
+                }
+
                 val alreadyAppliedExactly =
                     appliedReads == policy.allowedFsReadPaths && appliedWrites == policy.allowedFsWritePaths
                 if (!alreadyAppliedExactly) {
@@ -365,11 +377,7 @@ object ContainedExecutors {
         }
 
         private fun applyContainment() {
-            try {
-                installOnCurrentThread(policy)
-            } catch (e: UnsupportedOperationException) {
-                throw e
-            }
+            installOnCurrentThread(policy)
         }
 
         override fun execute(command: Runnable) {

@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 class BpfOverflowFixTest {
 
     @Test
-    fun `BST filter generation handles 100 syscalls without jump offset overflow`() {
+    fun `linear scan filter generation handles 100 syscalls without jump offset overflow`() {
         val arch = Arch.AMD64
         val blocked = IntArray(100) { it + 1000 } // Use numbers that won't clash with preamble
 
@@ -19,10 +19,10 @@ class BpfOverflowFixTest {
         assertTrue(filters.isNotEmpty())
         println("Filter with 100 syscalls: ${filters.size} instructions")
 
-        // Verify BST properties: depth should be around log2(300) ~= 8-9
-        // Instruction 4 (check_bst) is the root.
-        // It's harder to check depth without a full BPF emulator, but the fact
-        // that it didn't throw IllegalStateException (offset > 255) is the key.
+        // Verify linear scan properties:
+        // A linear scan is robust against jump offset limit overflows because 
+        // each check is localized with a small relative jump offset.
+        // The fact that it didn't throw IllegalStateException (offset > 255) is the key.
     }
 
     @Test

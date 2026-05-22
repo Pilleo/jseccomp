@@ -43,7 +43,7 @@ object Platform {
             Arch.current()
             true
         } catch (e: UnsupportedOperationException) {
-            e.printStackTrace()
+            logger.warning("Architecture not supported: ${e.message}")
             false
         }
     }
@@ -59,8 +59,7 @@ object Platform {
             try {
                 return FallbackBehavior.valueOf(prop.uppercase())
             } catch (e: IllegalArgumentException) {
-                e.printStackTrace()
-                logger.warning("Invalid fallback behavior '$prop', defaulting to FAIL")
+                logger.warning("Invalid fallback behavior '$prop' (${e.message}), defaulting to FAIL")
             }
         }
         return FallbackBehavior.FAIL

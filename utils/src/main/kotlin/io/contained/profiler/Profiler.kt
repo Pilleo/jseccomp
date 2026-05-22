@@ -62,9 +62,7 @@ object Profiler {
         }
 
         // Setup socket path
-        val tempDir = File("build/tmp")
-        tempDir.mkdirs()
-        val socketFile = File.createTempFile("jseccomp-profiler-", ".sock", tempDir)
+        val socketFile = File.createTempFile("jseccomp-profiler-", ".sock")
         socketFile.delete() // delete so bind can create it
         val socketPath = socketFile.absolutePath
 
@@ -209,9 +207,7 @@ object Profiler {
         val policy = Policy.combine(*policies)
 
         // Setup socket path
-        val tempDir = File("build/tmp")
-        tempDir.mkdirs()
-        val socketFile = File.createTempFile("jseccomp-profiler-", ".sock", tempDir)
+        val socketFile = File.createTempFile("jseccomp-profiler-", ".sock")
         socketFile.delete() // delete so bind can create it
         val socketPath = socketFile.absolutePath
 

@@ -12,7 +12,7 @@ class BpfFilterLabelTest {
     private val arch = Arch.AMD64
 
     @Test
-    fun `BST filter generation handles multiple syscalls`() {
+    fun `linear scan filter generation handles multiple syscalls`() {
         val policy = Policy.builder()
             .block(Syscall.EXECVE, Syscall.OPEN, Syscall.SOCKET)
             .build()

@@ -143,7 +143,7 @@ object Landlock {
             rulesetAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_RULESET_ATTR_FS_OFFSET, accessMaskFs)
             rulesetAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_RULESET_ATTR_NET_OFFSET, 0L)
 
-            val size = if (abi >= 4) LinuxNative.LANDLOCK_RULESET_ATTR_LAYOUT.byteSize() else 16L
+            val size = if (abi >= 4) LinuxNative.LANDLOCK_RULESET_ATTR_LAYOUT.byteSize() else 8L
 
             val rulesetFdResult =
                 LinuxNative.syscall(
@@ -209,7 +209,7 @@ object Landlock {
             rulesetAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_RULESET_ATTR_FS_OFFSET, accessMaskFs)
             rulesetAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_RULESET_ATTR_NET_OFFSET, 0L)
 
-            val size = if (abi >= 4) LinuxNative.LANDLOCK_RULESET_ATTR_LAYOUT.byteSize() else 16L
+            val size = if (abi >= 4) LinuxNative.LANDLOCK_RULESET_ATTR_LAYOUT.byteSize() else 8L
 
             val rulesetFdResult =
                 LinuxNative.syscall(
@@ -269,9 +269,9 @@ object Landlock {
     fun getAbiVersion(): Int {
         val abiResult = LinuxNative.syscall(
             LinuxNative.LANDLOCK_CREATE_RULESET_NR,
-            0,
-            0,
-            MemorySegment.ofAddress(LinuxNative.LANDLOCK_CREATE_RULESET_VERSION)
+            0L,
+            0L,
+            LinuxNative.LANDLOCK_CREATE_RULESET_VERSION
         )
         if (abiResult.returnValue < 0) {
             return 0

@@ -15,11 +15,15 @@ object BpfFilter {
     private const val BPF_W = 0x00
     private const val BPF_ABS = 0x20
     private const val BPF_JEQ = 0x10
+    private const val BPF_JSET = 0x40
     private const val BPF_K = 0x00
+    private const val BPF_ALU = 0x04
+    private const val BPF_AND = 0x50
 
     private const val SECCOMP_DATA_NR_OFFSET = 0
     private const val SECCOMP_DATA_ARCH_OFFSET = 4
     private const val SECCOMP_DATA_ARGS_OFFSET = 16
+    private const val SECCOMP_ARGS2_OFFSET = SECCOMP_DATA_ARGS_OFFSET + 16 // args[2] byte offset
 
     fun build(arch: Arch, policy: Policy, profilingMode: Boolean = false): Array<SockFilter> =
         buildFromNumbers(
@@ -72,17 +76,19 @@ object BpfFilter {
         // mmap
         if (!allowMmapExec) {
             filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 4, arch.mmap))
-            filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_DATA_ARGS_OFFSET + 16))
-            // if PROT_EXEC (0x04) is NOT set, skip 1 instruction (the ret deny)
-            filters.add(SockFilter((BPF_JMP or 0x40 or BPF_K).toShort(), 0, 1, 0x04)) 
+            filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_ARGS2_OFFSET))
+            // BPF_JSET: jt=0 -> if (ACC & 0x04) != 0 (PROT_EXEC set): execute next instr (RET_DENY)
+            //           jf=1 -> if (ACC & 0x04) == 0 (PROT_EXEC not set): skip 1 instr (the RET_DENY)
+            filters.add(SockFilter((BPF_JMP or BPF_JSET or BPF_K).toShort(), 0, 1, 0x04)) 
             filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyAction))
             filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_DATA_NR_OFFSET)) // Restore NR
 
             // mprotect
             filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 4, arch.mprotect))
-            filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_DATA_ARGS_OFFSET + 16))
-            // if PROT_EXEC (0x04) is NOT set, skip 1 instruction (the ret deny)
-            filters.add(SockFilter((BPF_JMP or 0x40 or BPF_K).toShort(), 0, 1, 0x04)) 
+            filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_ARGS2_OFFSET))
+            // BPF_JSET: jt=0 -> if (ACC & 0x04) != 0 (PROT_EXEC set): execute next instr (RET_DENY)
+            //           jf=1 -> if (ACC & 0x04) == 0 (PROT_EXEC not set): skip 1 instr (the RET_DENY)
+            filters.add(SockFilter((BPF_JMP or BPF_JSET or BPF_K).toShort(), 0, 1, 0x04)) 
             filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyAction))
             filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_DATA_NR_OFFSET))
         }
@@ -90,9 +96,11 @@ object BpfFilter {
         // clone
         if (!allowNonThreadClone) {
             filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 5, arch.clone))
+            // Note: BPF_LD | BPF_W | BPF_ABS only loads a 32-bit word. On 64-bit kernels, seccomp_data.args[]
+            // are 64-bit values. For clone flags, they are in the lower 32 bits, so 32-bit truncation here is safe.
             filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_DATA_ARGS_OFFSET))
             // AND the flags with our mask (CLONE_VM | CLONE_THREAD)
-            filters.add(SockFilter((0x54 or BPF_K).toShort(), 0, 0, 0x00010100)) 
+            filters.add(SockFilter((BPF_ALU or BPF_AND or BPF_K).toShort(), 0, 0, 0x00010100)) 
             // JEQ: if result equals the mask (both bits are set), skip 1 (the ret deny)
             filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 1, 0, 0x00010100)) 
             filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyAction))
@@ -120,7 +128,9 @@ object BpfFilter {
         // 4. Block-based checks (Linear Scan)
         // Since BPF jump offsets are only 8-bit (max 255), and we have ~100 syscalls, 
         // a linear scan with individual RETs is safe and simple.
+        val argInspectedNrs = setOf(arch.mmap, arch.mprotect, arch.clone, arch.clone3, arch.prctl).filter { it >= 0 }.toSet()
         for (nr in blocked.sortedArray()) {
+            if (nr in argInspectedNrs) continue // already handled by argument inspection or special rules
             // If nr matches, skip 1 (don't ret allow), hit ret deny
             filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 1, nr))
             filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyAction))
