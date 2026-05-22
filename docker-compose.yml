@@ -6,7 +6,7 @@ services:
     # Audit subsystem requires sharing the host network namespace and initial user namespace.
     # This is necessary for the Profiler to ingest asynchronous io_uring operations.
     network_mode: host
-    userns: host
+    userns_mode: host
     cap_add:
       - AUDIT_READ
       - AUDIT_CONTROL
