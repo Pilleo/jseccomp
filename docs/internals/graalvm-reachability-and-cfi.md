@@ -35,10 +35,11 @@ While these flags slightly increase binary size and can incur minor performance 
 
 ### Control Flow Integrity
 
-GraalVM AOT compilation positions native Image binaries to benefit from hardware CFI features — **Intel CET (Shadow Stacks, IBT)** and **ARM BTI (Branch Target Identification)** — that are extremely difficult to support in JIT environments where executable code is constantly being modified.
+GraalVM AOT compilation positions native Image binaries to be better candidates for hardware CFI features — **Intel CET (Shadow Stacks, IBT)** and **ARM BTI (Branch Target Identification)** — compared to JIT-compiled JVMs. The JIT compiler's requirement to frequently modify executable memory conflicts fundamentally with the kernel's ability to enforce control flow integrity at that memory; a static binary has no such constraint.
 
-These features enforce that the CPU only branches to valid, declared targets — making ROP/JOP gadget chains dramatically harder to execute even if an attacker achieves arbitrary write. The JIT compiler's requirement to frequently modify executable memory conflicts fundamentally with the kernel's ability to enforce control flow integrity at that memory.
+> [!WARNING]
+> **CET/BTI support is not yet production-complete in GraalVM.** As of mid-2025, GraalVM Native Image does not have documented, first-class Intel CET or ARM BTI support. Whether a native image binary receives CET/BTI protections depends entirely on the system linker's behaviour — `gcc` or `ld` may emit the required ELF notes (`PT_GNU_PROPERTY`) if the host toolchain supports it, but this is not a GraalVM-controlled, verified feature. Standard OS-level protections (ASLR, NX/DEP, stack canaries) are available and should be explicitly enabled via the linking toolchain. Treat this as "closer than standard JVM, not yet production-complete."
 
-GraalVM's static compilation *positions* the application to benefit from these protections. Whether full CET/BTI is enabled depends on the GraalVM version, the target OS, and the toolchain. As of 2025, GraalVM's CET support is in active development — treat this as "closer than standard JVM, not yet production-complete."
+These features enforce that the CPU only branches to valid, declared targets — making ROP/JOP gadget chains dramatically harder to execute even if an attacker achieves arbitrary write. Standard OS-level protections (ASLR, NX/DEP, stack canaries via compiler flags) are available and should be explicitly enabled via the linking toolchain.
 
 ---

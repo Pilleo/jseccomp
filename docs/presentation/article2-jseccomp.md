@@ -174,7 +174,7 @@ val executor = ContainedExecutors.wrap(
 
 **Critical JVM gotcha:** Landlock is applied at the OS thread level, permanently. If a restricted worker thread is the first to trigger the JVM's lazy classloading for a new class, the JVM will attempt to open the `.jar` or `.class` file from the classpath. If Landlock blocks that read, the JVM throws `NoClassDefFoundError`. `allowJvmClasspath()` pre-authorizes `java.home` and all classpath entries to prevent this. Calling it is not optional when using Landlock.
 
-Unlike Seccomp's `TSYNC` flag (`SECCOMP_FILTER_FLAG_TSYNC`), Landlock's `landlock_restrict_self` only affects the calling thread. `TSYNC` is an *opt-in* mechanism that synchronises a newly installed filter to all existing threads in the thread group — but it fails with `EINVAL` if any other thread already has an incompatible filter stack. It is not a "Seccomp applies everywhere automatically" switch.
+Unlike Seccomp's `TSYNC` flag (`SECCOMP_FILTER_FLAG_TSYNC`), Landlock's `landlock_restrict_self` only affects the calling thread. `TSYNC` is an *opt-in* mechanism that synchronises a newly installed filter to **all threads in the thread group, including those created after the call** — but it fails hard (throwing `IllegalStateException`) if any other thread already has an incompatible filter stack. It is not a "Seccomp applies everywhere automatically" switch, and failures are never silently ignored.
 
 True process-wide Landlock has two practical paths:
 1. Apply the ruleset from a single-threaded launcher *before* spawning any JVM threads — all threads inherit the restriction from birth without requiring a pre-`execve` wrapper.

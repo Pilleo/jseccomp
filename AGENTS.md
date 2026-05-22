@@ -2,7 +2,7 @@
 
 Welcome, AI Agent. This repository contains **jseccomp**, a kernel-enforced, thread-scoped and process-wide sandboxing library for JVM applications using Linux **Seccomp-BPF** and **Landlock LSM** via the JDK **Foreign Function & Memory (FFM) API**.
 
-As an AI agent pair-programming on this project, you are assisting in transitioning this project from a Proof of Concept (PoC) to a production-grade library targeting **Java 25**. Because this is a security-critical project that directly interfaces with the Linux kernel and manipulates JVM threads, you must adhere strictly to the following rules, constraints, and engineering philosophies.
+As an AI agent pair-programming on this project, you are assisting in transitioning this project from a Proof of Concept (PoC) to a production-grade library. The minimum supported JDK is **22** (FFM API finalization); the codebase targets **Java 25 idioms** where applicable. Because this is a security-critical project that directly interfaces with the Linux kernel and manipulates JVM threads, you must adhere strictly to the following rules, constraints, and engineering philosophies.
 
 ---
 
@@ -116,7 +116,11 @@ Seccomp filters bind permanently to the underlying Linux OS thread (LWP). If a f
 
 ### Rule C: Shared-Memory ACE Escape Caveat
 
-Thread-scoped seccomp is not an absolute security boundary against an attacker with Arbitrary Code Execution (ACE) on the sandboxed thread. All JVM threads share the same address space. Frame thread-scoped seccomp as a blast-radius mitigator against data attacks (SSRF, XXE, SQL injection); mandate process-wide `NO_EXEC` at startup for absolute protection against process execution escalation.
+Thread-scoped seccomp is **not** an absolute security boundary against an attacker with Arbitrary Code Execution (ACE) on the sandboxed thread. All JVM threads share the same address space.
+
+**Tier 1 (process-wide `NO_EXEC`) is a hard architectural dependency for Tier 2 (thread-scoped), not an optional recommendation.** Without process-wide lockdown, a thread-level ACE pivot can elevate to the entire process through the shared heap. Never write documentation, examples, or tests that present Tier 2 thread-scoped containment *alone* as a complete security solution.
+
+Frame thread-scoped seccomp (Tier 2) as a blast-radius mitigator against *data-driven* attacks (SSRF, XXE, SQL injection). Frame process-wide `NO_EXEC` (Tier 1) as the mandatory backstop that prevents ACE from escalating to process execution. For the full threat model with attack scenarios, see `SECURITY_CONSIDERATIONS.md §1` and `§2`.
 
 ### Rule D: Profiler ACK Deadlock Prevention
 
@@ -133,7 +137,7 @@ Landlock's own syscalls (`landlock_create_ruleset`, `landlock_add_rule`, `landlo
 
 ### A. FFM API Patterns
 
-*   Target strictly **Java 25**.
+*   **Minimum JDK: 22.** The FFM API was finalized in Java 22. The codebase targets **Java 25 idioms** (sealed classes, pattern matching, structured concurrency patterns) where applicable, but the library must remain runnable on JDK 22+. Do not use Java 25-only API surface without a version guard.
 *   Use `Arena.ofConfined()` with `.use { }` for safe off-heap allocations (`MemorySegment`).
 *   **Always capture `errno`** using `Linker.Option.captureCallState("errno")`. Read it from the captured state `MemorySegment` **immediately** after the call, before any other FFM call can overwrite it. See `containment_design.md §8` for the exact pattern.
 *   Use `ValueLayout.JAVA_INT` (4 bytes) for 32-bit kernel fields like `sock_filter.k`. Using `JAVA_LONG` produces silently-corrupt BPF programs.

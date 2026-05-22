@@ -201,7 +201,9 @@ fun `PURE_COMPUTE blocks mmap with PROT_EXEC`() {
 - The submitting thread calls `io_uring_setup()` and `io_uring_enter()` — these are the only visible syscalls on that thread
 - The actual I/O operations (`open`, `connect`, `sendmsg`, and even `execve` via `IORING_OP_EXECVE`) execute on kernel `io-wq` workers that are outside the scope of the submitting thread's Seccomp filter
 
-**However, Landlock filesystem rules are still enforced.** Landlock is an LSM; its hooks fire at the VFS layer using the *submitting process's* credentials and active Landlock domain — not the `io-wq` thread's context. An `openat("/etc/passwd")` submitted through an `io_uring` ring still hits Landlock's inode-level check. eBPF-based cluster monitors (Falco, Inspektor Gadget) observe these operations at the kernel level and are *not* blind to `io_uring`. The one enforcement mechanism bypassed is per-thread Seccomp.
+**However, Landlock filesystem rules are still enforced.** Landlock is an LSM; its hooks fire at the VFS layer using the *submitting process's* credentials and active Landlock domain — not the `io-wq` thread's context. An `openat("/etc/passwd")` submitted through an `io_uring` ring still hits Landlock's inode-level check.
+
+> **Kernel version note:** This VFS-level Landlock enforcement behaviour applies as of kernel 5.13+ (Landlock ABI 1+). Verify this on your specific target kernel; it is not guaranteed on older LTS kernels.
 
 A sophisticated attacker who has already compromised a worker thread can set up an `io_uring` ring and submit process spawns that would be blocked by Seccomp if called directly. For filesystem reads, Landlock still provides a defense layer.
 

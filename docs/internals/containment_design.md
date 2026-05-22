@@ -46,9 +46,12 @@ rewriting or label patching.
 
 The linear scan emits two instructions per blocked syscall number:
 ```
-BPF_JEQ(nr)  → jt=0, jf=1     # if match, fall through to RET_DENY
-BPF_RET(DENY)                  # kill/EPERM/USER_NOTIF depending on mode
+BPF_JEQ(nr)  → jt=0, jf=1     # if nr matches: jt=0 (no skip) → fall into RET_DENY
+BPF_RET(DENY)                  # if nr does not match: jf=1 (skip this RET_DENY)
 ```
+In Classic BPF, `jt` and `jf` are **instruction skip counts** (not jump labels).
+`jt=0` means "if condition is true, skip 0 instructions" (execute the next instruction immediately).
+`jf=1` means "if condition is false, skip 1 instruction" (skip over the `RET_DENY`).
 
 For 40 syscalls this produces ~80 BPF instructions — far below both the 255-offset
 and the 4096-instruction kernel BPF limits. Performance: BPF is evaluated in the kernel
@@ -65,14 +68,19 @@ protections.
 
 ### 3a. `mmap` and `mprotect` — block `PROT_EXEC`
 
+`struct seccomp_data` byte offsets: `nr`=0, `arch`=4, `instruction_pointer`=8 (8 bytes), `args[0]`=16, `args[1]`=24, `args[2]`=32, ...
+For `mmap`/`mprotect`, `prot` is the 3rd argument → `args[2]` → **byte offset 32**.
+
 ```
-BPF_JEQ(syscall_nr == mmap, match, skip_5)
-BPF_LD(args[2])                    # load prot argument (bits 0..31)
-BPF_JSET(0x04, match, skip_1)      # test PROT_EXEC bit
+BPF_JEQ(syscall_nr == mmap, match, skip_5)  # if not mmap, skip 4 instructions
+BPF_LD offset=32                             # load args[2] (prot) lower 32 bits
+BPF_JSET 0x04, match, skip_1               # (BPF_JMP|0x40|BPF_K): if PROT_EXEC bit set, jt=0 (deny); else jf=1 (skip deny)
 BPF_RET(DENY)
-BPF_LD(syscall_nr)                 # restore NR for subsequent checks
-# same 5-instruction sequence for mprotect
+BPF_LD offset=0                              # restore NR for subsequent checks
+# identical 5-instruction sequence for mprotect (syscall_nr == mprotect)
 ```
+
+> **`JSET` semantics:** `jt=0, jf=1` — if `(ACC & 0x04) != 0` (PROT_EXEC IS set): jt=0, execute `RET_DENY` immediately; else: jf=1, skip over `RET_DENY`.
 
 This blocks only `mmap` / `mprotect` calls where the caller requests executable memory.
 The JVM's own JIT and GC `mmap`/`mprotect` calls do not use `PROT_EXEC` in the way
@@ -80,14 +88,19 @@ that shellcode injection does — they are whitelisted by this check automatical
 
 ### 3b. `clone` — allow only `CLONE_THREAD`
 
+`clone` flags are the 1st argument → `args[0]` → **byte offset 16**.
+`CLONE_THREAD = 0x00010000`, `CLONE_VM = 0x00000100`, mask = `0x00010100`.
+
 ```
 BPF_JEQ(syscall_nr == clone, match, skip_5)
-BPF_LD(args[0])                    # load clone flags
-BPF_AND(CLONE_VM | CLONE_THREAD)   # mask to relevant bits (0x00010100)
-BPF_JEQ(0x00010100, skip_1, match) # both bits set → JVM thread creation → allow
+BPF_LD offset=16                          # load args[0] (clone flags)
+BPF_ALU|BPF_AND|BPF_K (0x54) 0x00010100  # mask to CLONE_VM | CLONE_THREAD
+BPF_JEQ(0x00010100, skip_1, match)        # both bits set → JVM thread creation → skip deny
 BPF_RET(DENY)
-BPF_LD(syscall_nr)
+BPF_LD offset=0                           # restore NR
 ```
+
+> **`BPF_AND` note:** There is no standalone `BPF_AND` opcode. This is `BPF_ALU | BPF_AND | BPF_K` = opcode `0x54`. The operand `K` is the mask value.
 
 The JVM creates threads via `clone(CLONE_THREAD | CLONE_VM | CLONE_SIGHAND | ...)`.
 Process forking (`fork`, `vfork`, or `clone` without `CLONE_THREAD`) hits `DENY`.
@@ -115,9 +128,33 @@ BPF_LD(syscall_nr)
 ```
 
 The JVM calls `prctl(PR_SET_NAME)` constantly for thread naming. Blocking `prctl`
-outright (via `Syscall.PRCTL` in the block list) is safe — the JVM handles `EPERM`
-from `PR_SET_NAME` silently. But the argument-inspection path above is preferred
-when filter stacking is still ongoing (e.g. when `allowUnsafePrctl = false`).
+outright (via `Syscall.PRCTL` in the block list) is **not safe and must never be done**:
+it would block the whitelisted options and prevent `PR_SET_SECCOMP` from being called
+during filter-stacking. The argument-inspection path above restricts `prctl` to the
+safe subset while leaving installation and naming intact.
+
+> **`allowUnsafePrctl = true`:** Setting this flag on the policy skips the argument
+> inspection entirely, leaving `prctl` unrestricted. Only use this when filter stacking
+> is explicitly required beyond the whitelisted options.
+
+### 3e. Intentionally Unrestricted JVM Syscalls
+
+The following syscalls are **deliberately not present in any argument-inspection sequence
+or block-list**. They are left completely unrestricted because blocking them causes
+catastrophic JVM instability:
+
+| Syscall | Reason left unrestricted |
+|---|---|
+| `futex` | JVM thread parking/unparking and monitor synchronization. Blocking causes deadlock at the next `synchronized` block or `Object.wait()`. |
+| `sched_yield` | Thread scheduler cooperation during spinlock contention. |
+| `rt_sigreturn` | Return from JVM signal handlers (HotSpot uses `SIGSEGV` for safepoint polling). Blocking causes instant JVM abort. |
+| `rt_sigaction` | HotSpot installs its own signal handlers at JVM init. Blocking prevents the JVM from starting. |
+| `madvise` | GC page lifecycle management (ZGC, G1). |
+| `gettid` | Thread identification used by GC and diagnostic paths. |
+| `close` | JVM and FFM close file descriptors constantly. Blocking causes fd leaks and runtime instability. |
+
+Do not add any of these to a policy's block-list. See `SECURITY_CONSIDERATIONS.md §9`
+for the full safepoint/GC deadlock analysis.
 
 ---
 
@@ -174,7 +211,13 @@ regardless of any library-level tracking.
 ```
 installOnProcess()  →  PureJavaBpfEngine.installOnProcess()
     - uses SECCOMP_FILTER_FLAG_TSYNC
-    - if seccomp(2) + TSYNC fails, fails hard (never falls back to thread-local)
+    - TSYNC synchronises the new filter to **all threads in the same thread group,
+      including those created after the call**
+    - if seccomp(2) + TSYNC fails → throws `IllegalStateException` immediately;
+      **never falls back to thread-local installation**
+    - Kernel 5.7+ changed TSYNC semantics: pre-5.7, any mismatch returns `EINVAL`;
+      5.7+ returns `EINVAL` only for true incompatibilities. In all cases,
+      `jseccomp` treats any TSYNC failure as a hard error.
     - updates PROCESS_BLOCKED, PROCESS_FILTER_DEPTH, PROCESS_ALLOWS_* atomics
 
 installOnCurrentThread()  →  PureJavaBpfEngine.install()

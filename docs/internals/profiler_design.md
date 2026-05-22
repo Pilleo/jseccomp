@@ -21,8 +21,11 @@ To build a reliable BoB (system call allowlist + Landlock path rules), we analyz
     pointers & buffer garbage.    blocks in kernel -> DEADLOCK.      or host log namespace access.
 ```
 
-### The Safepoint Deadlock (Why `USER_NOTIF` Failed)
-Under `SECCOMP_RET_USER_NOTIF`, the supervisor thread must synchronously decide to allow or block a syscall. 
+### The Safepoint Deadlock (Why In-Process `USER_NOTIF` Supervision Failed)
+
+The mechanism `SECCOMP_RET_USER_NOTIF` itself is sound and *is* used by the Tier S architecture (see §2). What failed is placing the supervisor thread **inside the same JVM process** as the traced thread. The Tier S solution retains `USER_NOTIF` as the kernel mechanism while moving the supervisor to a separate OS process.
+
+Under in-process `SECCOMP_RET_USER_NOTIF`, the supervisor thread must synchronously decide to allow or block a syscall. 
 *   **The Trap:** If a Garbage Collection (GC) safepoint or a Thread Dump is triggered by the JVM while a worker thread is blocked in the kernel waiting for a seccomp decision, the JVM attempts to halt all threads. 
 *   **The Deadlock:** If the supervisor thread itself is paused by the JVM safepoint handler, it can never read the seccomp file descriptor. Meanwhile, the worker thread remains blocked in the kernel, unable to poll for the JVM safepoint. The entire JVM process is deadlocked permanently.
 
@@ -78,7 +81,7 @@ Because Seccomp-BPF is blind to operations submitted via `io_uring` rings, the P
 *   **Zero-Crash Execution (`FLAG_CONTINUE`):** When a worker thread blocks on a syscall, the external supervisor reads the notification struct. If the syscall takes pointer arguments (like `openat` file paths), the supervisor inspects the worker's memory via `process_vm_readv()` and resolves absolute paths by inspecting `/proc/[pid]/fd/`. After logging the operation to a binary stream back to the JVM, the supervisor replies to the kernel with `SECCOMP_USER_NOTIF_FLAG_CONTINUE` (Linux 5.5+). This guarantees the kernel executes the syscall natively without requiring dangerous user-space emulation.
 
 ### Multi-Thread Synchronization (`TSYNC`) Hazard
-While `LANDLOCK_RESTRICT_SELF_TSYNC` (ABI 8) provides process-wide atomic sandboxing, it is **unsuitable for standard JVM test runners**. Because it sandboxes sibling threads, it breaks Gradle worker transparency and causes `Permission Denied` crashes on unrelated tasks. The profiler maintains TSYNC implementation for production baselines but disables it by default during profiling and testing to maintain suite stability.
+While `LANDLOCK_RESTRICT_SELF_TSYNC` (ABI 8, Linux 7.0) provides process-wide atomic sandboxing, it is **unsuitable for standard JVM test runners** and is **only available on cutting-edge kernels**. Most production servers and developer machines run LTS kernels (5.15, 6.1, 6.6) that do not support ABI 8; any use must include an explicit kernel version check. Because it sandboxes sibling threads, it breaks Gradle worker transparency and causes `Permission Denied` crashes on unrelated tasks. The profiler maintains TSYNC implementation for production baselines but disables it by default during profiling and testing to maintain suite stability.
 
 ```
 Worker Thread (JVM 1)         Kernel            Supervisor Daemon (JVM 2)
@@ -93,12 +96,14 @@ Worker Thread (JVM 1)         Kernel            Supervisor Daemon (JVM 2)
 ```
 
 ### Tier A: Native Iterative Deny-and-Retry Loop (Zero-Privilege Fallback)
-For heavily locked-down environments where Unix Domain Socket sidecars or `USER_NOTIF` are blocked by strict OCI container profiles:
+For heavily locked-down environments where Unix Domain Socket sidecars or `USER_NOTIF` are blocked by strict OCI container profiles, the `IterativeProfiler` provides a fully in-process, zero-privilege alternative:
 
-1.  **Accumulation Hook:** We run tests under a baseline `Policy.PURE_COMPUTE`.
-2.  **Continuous Run:** Instead of immediately stopping the suite on the first exception, our wrapper collects all unique `ContainmentViolationException` instances thrown by worker threads.
-3.  **Gradle Orchestration:** The Gradle runner catches these exceptions, appends the blocked syscalls to the temporary policy model, and re-executes the suite.
-4.  **Convergence:** The execution converges in $O(N)$ runs (where $N$ is the number of unwhitelisted syscall categories utilized by the test suite, typically < 15). It runs 100% in user-space with zero external sidecars required.
+1.  **Baseline Run:** Execute the target code under a restrictive baseline policy (e.g. `Policy.PURE_COMPUTE`).
+2.  **Exception Accumulation:** Instead of stopping on the first `ContainmentViolationException`, the profiler collects all unique violations across the entire run.
+3.  **Policy Expansion and Retry:** The blocked syscalls are appended to the policy model and the run is repeated.
+4.  **Convergence:** Execution converges in O(N) runs, where N is the number of syscall categories the code needs. Typically fewer than 15 iterations.
+
+This mechanism is 100% in-process with zero external sidecars. Build-system integration (e.g., Gradle) is a usage pattern on top of this mechanism, not part of the core design.
 
 ### Tier B: `SECCOMP_RET_LOG` Audit Logging (High Performance / Production Stage)
 For build systems running in environments with access to host kernel logs (or have `log` enabled in `/proc/sys/kernel/seccomp/actions_logged`):

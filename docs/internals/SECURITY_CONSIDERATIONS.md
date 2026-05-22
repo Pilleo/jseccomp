@@ -124,7 +124,12 @@ Given these kernel-level invariants, blocking unprivileged seccomp filter instal
 A potential architectural alternative for OCI specifications would be to permit nested filter installation by default whenever the container is configured with `allowPrivilegeEscalation: false` (which pre-emptively enforces `PR_SET_NO_NEW_PRIVS`). This would allow secure, application-level sandboxing (such as thread-scoped containment) to be deployed natively within standardized container environments without requiring custom profiles.
 
 ### Landlock Multi-Thread Synchronization (`TSYNC`) Hazards
-Linux 7.0+ (ABI 8) introduces `LANDLOCK_RESTRICT_SELF_TSYNC`, which allows applying a Landlock ruleset to all threads in a process atomically. While highly secure for production baselines, it introduces significant technical debt in JVM environments:
+Linux 7.0 (ABI 8) introduces `LANDLOCK_RESTRICT_SELF_TSYNC`, which allows applying a Landlock ruleset to all threads in a process atomically.
+
+> [!WARNING]
+> **Kernel availability:** Linux 7.0 and Landlock ABI 8 are cutting-edge. Most production servers and developer laptops run LTS kernels (5.15, 6.1, 6.6) that do not support this feature. Any code or policy using ABI 8 features must include a kernel version check and a clear fallback. Do not assume this is available in your environment.
+
+While highly secure for production baselines, it introduces significant technical debt in JVM environments:
 
 *   **Sibling Thread Transparency:** The JVM is a massive, multi-threaded engine. Sibling threads (like Gradle workers, background GC threads, or JIT threads) may need to perform operations (like managing `build/tmp`) that the sandboxed worker thread is restricted from. 
 *   **Test Suite Collisions:** Standard JVM test runners assume they have full control over the process memory space. Applying TSYNC inside a test will sandbox the entire runner process, leading to `AccessDeniedException` and `Permission Denied` crashes on completely unrelated sibling threads.
@@ -154,11 +159,14 @@ Even if `jseccomp` only used the modern `seccomp(2)` system call to load and sta
 To neutralize the attack surface of generic process control without breaking initialization or nesting, `jseccomp` employs two primary mitigation strategies:
 
 #### Strategy 1: Post-Installation System Call Blocking
-In strict, non-stackable policies (such as `Policy.PURE_COMPUTE`), `prctl(2)` is explicitly blocked at the system call level. Because `no_new_privs` and the BPF filters are applied *during* thread executor setup, the thread successfully configures its sandbox first. Once the final BPF filter is loaded, the `prctl(2)` system call becomes blocked permanently for subsequent task execution, completely eliminating this attack surface:
+In strict, non-stackable policies (such as `Policy.PURE_COMPUTE`), dangerous `prctl` options are restricted via BPF argument inspection — **not** by adding `Syscall.PRCTL` to the block-list. Adding `Syscall.PRCTL` to the block-list would inadvertently block the whitelisted safe options (`PR_SET_NAME`, `PR_SET_NO_NEW_PRIVS`, `PR_GET_SECCOMP`) that the JVM needs, and could prevent filter installation itself.
+
+The argument-inspection approach (§5.B below) is always active unless `allowUnsafePrctl()` is set on the policy. After the final BPF filter is installed, only the whitelisted `prctl` options remain accessible — all others return `EPERM`. `ioctl` is blocked via the block-list since the JVM does not need it in compute-only threads:
 ```kotlin
-// Inside Policy.kt
+// Correct: ioctl via block-list, prctl via argument inspection (automatic)
 val PURE_COMPUTE = Policy.builder()
-    .block(Syscall.IOCTL, Syscall.PRCTL) // prctl is permanently blocked after setup
+    .block(Syscall.IOCTL)  // ioctl has no legitimate use in compute threads
+    // prctl is NOT in the block-list — it is restricted by BPF argument inspection
     ...
 ```
 
@@ -315,7 +323,7 @@ Kubelet looks for custom seccomp profiles in its local filesystem at:
 
 You must place a copy of `docker-seccomp.json` into a subdirectory on each host node (for example, as `/var/lib/kubelet/seccomp/profiles/jseccomp.json`).
 
-*   **Automation tip:** Use a lightweight Kubernetes **DaemonSet** with a `hostPath` mount to distribute and keep this profile file synchronized across all nodes automatically:
+*   **Automation tip:** Use a lightweight Kubernetes **DaemonSet** with a `hostPath` mount to distribute and keep this profile file synchronized across all nodes automatically. **The YAML below is illustrative only.** For production, use a GitOps-managed DaemonSet with image signing, or the [Security Profiles Operator](https://github.com/kubernetes-sigs/security-profiles-operator) which handles profile distribution with integrity verification. The `busybox` + raw `hostPath` pattern shown below has no integrity check and is not suitable for a hardened environment:
     ```yaml
     apiVersion: apps/v1
     kind: DaemonSet

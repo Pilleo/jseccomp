@@ -9,9 +9,19 @@
 
 ---
 
+## The Problem
+
+The JVM process security model is binary: every thread in the process shares the same OS-level permissions. A vulnerability in one library exploited on one thread has access to everything the entire process holds — open network sockets, file descriptors, exec permissions. Container-level seccomp profiles (like Docker's default) are applied to the entire process; they cannot distinguish between the trusted framework thread and the worker thread parsing a malicious payload.
+
+When Log4Shell hit, the attacker's code ran on the same thread as the vulnerable logger — a thread that already had `execve` permission because the rest of the JVM needed it.
+
+---
+
 ## The Solution
 
 Modern application security layers are often too broad (process-wide containers) or highly brittle (application-level parsing checks). `jseccomp` provides surgical, unprivileged self-restriction at the OS thread boundary. By wrapping the executor that runs untrusted data-parsing tasks, the kernel enforces the security policy — no JVM bytecode or dynamic vulnerability can circumvent it.
+
+Here is what that looks like in practice:
 
 ```kotlin
 val safe = ContainedExecutors.wrap(
@@ -76,10 +86,10 @@ This is relevant to:
 * **Automatic Classpath Authorization:** Auto-whitelists the JVM classpath and `java.home` to avoid lazy classloading crashes inside Landlock.
 
 ### Roadmap: Native `SIGSYS` Trapping (SECCOMP_RET_TRAP)
-The current implementation relies on `SECCOMP_RET_ERRNO` and parsing localized JVM exception strings. We are actively planning a roadmap to transition to a native `SIGSYS` trapping architecture:
+The current implementation relies on `SECCOMP_RET_ERRNO` and parsing localized JVM exception strings. The primary detection path (`error=1` / `error=13` JVM-encoded errno matching) is locale-independent and already well-optimized; the fundamental limit is that Java's `IOException` does not expose raw errno values. The planned path forward is a native `SIGSYS` trapping architecture:
 1. **`SECCOMP_RET_TRAP` Execution:** Instruct the kernel BPF filter to trigger a `SIGSYS` signal upon a violation.
 2. **Native Signal Handler Integration:** Register a native C signal handler using `sigaction` via FFM.
-3. **Instruction Pointer Advancement:** Intercept the signal, asynchronously record registers and violation metadata, modify `rax` to `-EPERM`, and increment the instruction pointer (`rip` / `pc`) past the 2-byte `syscall` instruction to resume Java execution safely.
+3. **Instruction Pointer Advancement:** Intercept the signal, record registers and violation metadata, modify `rax` to `-EPERM`, and advance `rip`/`pc` past the 2-byte `syscall` instruction to resume Java execution. **Caveat:** this technique is only architecturally safe for syscalls that return a scalar error code. Syscalls where the caller dereferences a pointer argument based on the return value (e.g., `mmap` returning a memory address, `stat` writing into a buffer) will crash or corrupt the JVM if their return is faked. The `SECCOMP_RET_ERRNO` approach remains the stable production default for all such syscalls.
 4. **Deterministic Java Exception Mapping:** Map violations deterministically to Java exceptions without relying on brittle exception message parsing.
 
 ---
@@ -91,9 +101,6 @@ The current implementation relies on `SECCOMP_RET_ERRNO` and parsing localized J
 To run the integration suite in a contained environment with nested seccomp support:
 
 ```bash
-git clone https://github.com/leanid/jseccomp.git
-cd jseccomp
-
 # Start the container under the custom seccomp profile
 docker compose up -d
 docker compose exec jseccomp ./gradlew test
@@ -140,7 +147,7 @@ executor.submit {
 |---|---|---|
 | `Policy.NO_EXEC` | `execve`, `execveat`, `fork`, `vfork`, `memfd_create`, `io_uring_setup` | Process-wide startup lockdown baseline. |
 | `Policy.NO_NETWORK` | All execution blocks + `connect`, `socket`, `bind`, `accept` | Data parsers that require local filesystem access but no internet. |
-| `Policy.PURE_COMPUTE` | All network and execution blocks + `open`, `ioctl`, `prctl` | Algorithmic worker pools (image decoding, cryptographic operations). |
+| `Policy.PURE_COMPUTE` | All network and execution blocks + `open`, `openat`, `ioctl`, `mount`, `io_uring_setup`; `mmap`/`mprotect` with `PROT_EXEC` and non-thread `clone` via BPF argument inspection; `prctl` restricted to safe options via BPF argument inspection | Algorithmic worker pools (image decoding, cryptographic operations). |
 
 ## System Call Reference
 
