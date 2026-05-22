@@ -1,4 +1,4 @@
-package io.contained
+package io.contained.profiler
 
 /**
  * The result of a [Profiler.profile] invocation.

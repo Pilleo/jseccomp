@@ -1,12 +1,11 @@
 package io.contained
 
+import io.contained.enforcer.ContainedExecutors
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
 import java.io.File
-import kotlin.test.assertTrue
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 
 /**
  * Helper object used to run seccomp installation tests in an isolated JVM process.

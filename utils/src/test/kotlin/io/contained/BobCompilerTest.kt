@@ -1,5 +1,7 @@
 package io.contained
 
+import io.contained.profiler.BobCompiler
+import io.contained.profiler.TraceEvent
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue

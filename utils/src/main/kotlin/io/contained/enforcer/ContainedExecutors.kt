@@ -1,14 +1,24 @@
-package io.contained
+package io.contained.enforcer
 
+import io.contained.landlock.Landlock
+import io.contained.Platform
+import io.contained.Policy
+import io.contained.seccomp.PureJavaBpfEngine
+import io.contained.Syscall
 import java.io.IOException
 import java.net.SocketException
 import java.nio.file.AccessDeniedException
-import java.util.concurrent.*
+import java.util.concurrent.Callable
+import java.util.concurrent.CopyOnWriteArraySet
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Future
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.logging.Logger
+import kotlin.collections.plus
 
 /**
- * Public API for wrapping an existing [ExecutorService] to enforce seccomp containment.
+ * Public API for wrapping an existing [java.util.concurrent.ExecutorService] to enforce seccomp containment.
  *
  * ### Security & Scope
  * Seccomp is a "blast radius" mitigator for I/O and execution. It is **not** a replacement
@@ -19,7 +29,7 @@ import java.util.logging.Logger
  * ### The "Lazy Initialization" Trap
  * The JVM performs many operations lazily (class loading, JIT, JNI loading). If a restricted
  * thread is the first to trigger a specific lazy initialization path (e.g. loading a provider
- * that needs to read a config file blocked by [Policy.PURE_COMPUTE]), the operation will fail.
+ * that needs to read a config file blocked by [io.contained.Policy.Companion.PURE_COMPUTE]), the operation will fail.
  * **Mitigation:** Ensure critical classes and native libraries are loaded during application
  * startup before containment is applied.
  */
@@ -71,6 +81,26 @@ object ContainedExecutors {
         }
 
         val policy = Policy.combine(*policies)
+
+        val needsLandlock = policy.allowedFsReadPaths.isNotEmpty() || policy.allowedFsWritePaths.isNotEmpty()
+        if (needsLandlock) {
+            if (processWide) {
+                logger.warning(
+                    "Process-wide containment (installOnProcess) does not currently support Landlock filesystem rules. " +
+                            "Filesystem rules will be ignored for process-wide installation."
+                )
+            } else {
+                val appliedReads = THREAD_LANDLOCK_APPLIED_READS.get()
+                val appliedWrites = THREAD_LANDLOCK_APPLIED_WRITES.get()
+                val alreadyAppliedExactly =
+                    appliedReads == policy.allowedFsReadPaths && appliedWrites == policy.allowedFsWritePaths
+                if (!alreadyAppliedExactly) {
+                    Landlock.applyRuleset(policy)
+                    THREAD_LANDLOCK_APPLIED_READS.set(policy.allowedFsReadPaths)
+                    THREAD_LANDLOCK_APPLIED_WRITES.set(policy.allowedFsWritePaths)
+                }
+            }
+        }
 
         if (!Platform.isSupported()) {
             val fallback = Platform.configuredFallback()
@@ -141,16 +171,16 @@ object ContainedExecutors {
     }
 
     /**
-     * Wraps an [ExecutorService] so that any task submitted to it will have the given
+     * Wraps an [java.util.concurrent.ExecutorService] so that any task submitted to it will have the given
      * [policies] applied before execution.
      *
      * ### Thread Pool Poisoning
      * Seccomp filters are **immutable and permanent** for the lifetime of an OS thread.
-     * If you wrap a shared [ExecutorService], the worker threads will be permanently
+     * If you wrap a shared [java.util.concurrent.ExecutorService], the worker threads will be permanently
      * restricted after their first contained task. **Do not share the same pool between
      * contained and uncontained tasks.**
      *
-     * For best results, always use a dedicated [ExecutorService] for restricted tasks.
+     * For best results, always use a dedicated [java.util.concurrent.ExecutorService] for restricted tasks.
      */
     fun wrap(delegate: ExecutorService, vararg policies: Policy): ExecutorService {
         val combinedPolicy = Policy.combine(*policies)
@@ -249,7 +279,7 @@ object ContainedExecutors {
 
     private fun isDirectContainmentViolation(t: Throwable): Boolean {
         // AccessDeniedException is a direct native translation of EACCES/EPERM for path operations
-        if (t is java.nio.file.AccessDeniedException) return true
+        if (t is AccessDeniedException) return true
 
         val msg = t.message ?: return false
 
@@ -259,7 +289,7 @@ object ContainedExecutors {
         }
 
         // Restrict OS message parsing to I/O and networking contexts to avoid false positives in business logic.
-        if (t is java.io.IOException || t is java.net.SocketException) {
+        if (t is IOException || t is SocketException) {
             if (containsDeniedPhrase(msg)) {
                 return true
             }
@@ -292,7 +322,8 @@ object ContainedExecutors {
     private val THREAD_ALLOWS_NON_THREAD_CLONE = ThreadLocal.withInitial { true }
     private val THREAD_ALLOWS_UNSAFE_PRCTL = ThreadLocal.withInitial { true }
     private val FILTER_DEPTH = ThreadLocal.withInitial { 0 }
-    private val THREAD_LANDLOCK_APPLIED = ThreadLocal.withInitial { false }
+    private val THREAD_LANDLOCK_APPLIED_READS = ThreadLocal.withInitial<Set<String>?> { null }
+    private val THREAD_LANDLOCK_APPLIED_WRITES = ThreadLocal.withInitial<Set<String>?> { null }
 
     internal class ContainedExecutorWrapper(
         private val delegate: ExecutorService,
@@ -335,12 +366,6 @@ object ContainedExecutors {
 
         private fun applyContainment() {
             try {
-                // Apply Landlock only once per OS thread to prevent intersective stacking
-                // (the kernel limit is ~16 layers before E2BIG).
-                if (!THREAD_LANDLOCK_APPLIED.get()) {
-                    Landlock.applyRuleset(policy)
-                    THREAD_LANDLOCK_APPLIED.set(true)
-                }
                 installOnCurrentThread(policy)
             } catch (e: UnsupportedOperationException) {
                 throw e

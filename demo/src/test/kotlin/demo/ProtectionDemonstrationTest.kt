@@ -1,6 +1,6 @@
 package demo
 
-import io.contained.ContainmentViolationException
+import io.contained.enforcer.ContainmentViolationException
 import org.junit.jupiter.api.Test
 import java.io.File
 import kotlin.test.assertFailsWith

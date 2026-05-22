@@ -217,7 +217,7 @@ val NO_EXEC: Policy = builder()
     .build()
 ```
 
-> *The mental model from `SECURITY_CONSIDERATIONS.md`:* **eBPF and Landlock see the action; Seccomp only sees the ring.** Because Seccomp cannot peer into the shared memory ring buffer, the only safe response is to prevent the ring from being created. Landlock's VFS enforcement survives the `io_uring` boundary.
+> *The mental model from `../../../SECURITY_CONSIDERATIONS.md`:* **eBPF and Landlock see the action; Seccomp only sees the ring.** Because Seccomp cannot peer into the shared memory ring buffer, the only safe response is to prevent the ring from being created. Landlock's VFS enforcement survives the `io_uring` boundary.
 
 ---
 

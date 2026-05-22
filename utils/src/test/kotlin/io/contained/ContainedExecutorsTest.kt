@@ -1,5 +1,7 @@
 package io.contained
 
+import io.contained.enforcer.ContainedExecutors
+import io.contained.enforcer.ContainmentViolationException
 import org.junit.jupiter.api.Test
 import java.util.concurrent.Executors
 import java.util.concurrent.ExecutionException

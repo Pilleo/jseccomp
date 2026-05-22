@@ -1,20 +1,13 @@
-package io.contained
+package io.contained.landlock
 
+import io.contained.LinuxNative
+import io.contained.Platform
+import io.contained.Policy
+import java.io.File
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout
 import java.util.logging.Logger
-import io.contained.LinuxNative.LANDLOCK_RULESET_ATTR_LAYOUT
-import io.contained.LinuxNative.LANDLOCK_RULESET_ATTR_FS_OFFSET
-import io.contained.LinuxNative.LANDLOCK_RULESET_ATTR_NET_OFFSET
-import io.contained.LinuxNative.LANDLOCK_PATH_BENEATH_ATTR_LAYOUT
-import io.contained.LinuxNative.LANDLOCK_PATH_BENEATH_ATTR_ACCESS_OFFSET
-import io.contained.LinuxNative.LANDLOCK_PATH_BENEATH_ATTR_FD_OFFSET
-import io.contained.LinuxNative.LANDLOCK_CREATE_RULESET_NR
-import io.contained.LinuxNative.LANDLOCK_ADD_RULE_NR
-import io.contained.LinuxNative.LANDLOCK_RESTRICT_SELF_NR
-import io.contained.LinuxNative.LANDLOCK_RULE_PATH_BENEATH
-import io.contained.LinuxNative.LANDLOCK_CREATE_RULESET_VERSION
 
 /**
  * Unprivileged, path-aware filesystem sandbox using the Linux Landlock LSM.
@@ -37,7 +30,7 @@ import io.contained.LinuxNative.LANDLOCK_CREATE_RULESET_VERSION
  * ### Stacking & thread-pool interaction
  * Landlock rulesets are permanent and additive-intersective for the lifetime of the OS thread.
  * In a recycled thread pool, every task execution that calls [applyRuleset] pushes a new
- * layer. After ~16 layers the kernel returns `E2BIG`. Callers (i.e. [ContainedExecutors])
+ * layer. After ~16 layers the kernel returns `E2BIG`. Callers (i.e. [io.contained.enforcer.ContainedExecutors])
  * must track whether a thread has already been restricted and skip re-application.
  *
  * ### ABI versioning
@@ -58,10 +51,10 @@ import io.contained.LinuxNative.LANDLOCK_CREATE_RULESET_VERSION
  * For true process-wide Landlock, a native C/Rust launcher must apply the ruleset
  * *before* `execve`-ing the JVM, so that all JVM threads inherit it.
  *
- * @see Policy.Builder.allowFsRead
- * @see Policy.Builder.allowFsWrite
- * @see Policy.Builder.allowJvmClasspath
- * @see ContainedExecutors.wrap
+ * @see io.contained.Policy.Builder.allowFsRead
+ * @see io.contained.Policy.Builder.allowFsWrite
+ * @see io.contained.Policy.Builder.allowJvmClasspath
+ * @see io.contained.enforcer.ContainedExecutors.wrap
  */
 object Landlock {
     private val logger = Logger.getLogger(Landlock::class.java.name)
@@ -146,21 +139,21 @@ object Landlock {
         val classpathFlags = allFsRead or LANDLOCK_ACCESS_FS_EXECUTE
 
         Arena.ofConfined().use { arena ->
-            val rulesetAttr = arena.allocate(LANDLOCK_RULESET_ATTR_LAYOUT)
-            rulesetAttr.set(ValueLayout.JAVA_LONG, LANDLOCK_RULESET_ATTR_FS_OFFSET, accessMaskFs)
-            rulesetAttr.set(ValueLayout.JAVA_LONG, LANDLOCK_RULESET_ATTR_NET_OFFSET, 0L)
+            val rulesetAttr = arena.allocate(LinuxNative.LANDLOCK_RULESET_ATTR_LAYOUT)
+            rulesetAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_RULESET_ATTR_FS_OFFSET, accessMaskFs)
+            rulesetAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_RULESET_ATTR_NET_OFFSET, 0L)
 
-            val size = if (abi >= 4) LANDLOCK_RULESET_ATTR_LAYOUT.byteSize() else 16L
+            val size = if (abi >= 4) LinuxNative.LANDLOCK_RULESET_ATTR_LAYOUT.byteSize() else 16L
 
             val rulesetFdResult =
-                LinuxNative.syscall(LANDLOCK_CREATE_RULESET_NR, rulesetAttr.address(), size, MemorySegment.NULL)
+                LinuxNative.syscall(LinuxNative.LANDLOCK_CREATE_RULESET_NR, rulesetAttr.address(), size, MemorySegment.NULL)
             if (rulesetFdResult.returnValue < 0) return
 
             val rulesetFd = rulesetFdResult.returnValue.toInt()
             try {
                 addJvmClasspathRules(rulesetFd, classpathFlags, arena)
                 LinuxNative.prctl(LinuxNative.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
-                LinuxNative.syscall(LANDLOCK_RESTRICT_SELF_NR, rulesetFd.toLong(), 0, MemorySegment.NULL, 0)
+                LinuxNative.syscall(LinuxNative.LANDLOCK_RESTRICT_SELF_NR, rulesetFd.toLong(), 0, MemorySegment.NULL, 0)
             } finally {
                 LinuxNative.close(rulesetFd)
             }
@@ -207,14 +200,14 @@ object Landlock {
         val classpathFlags = allFsRead or LANDLOCK_ACCESS_FS_EXECUTE
 
         Arena.ofConfined().use { arena ->
-            val rulesetAttr = arena.allocate(LANDLOCK_RULESET_ATTR_LAYOUT)
-            rulesetAttr.set(ValueLayout.JAVA_LONG, LANDLOCK_RULESET_ATTR_FS_OFFSET, accessMaskFs)
-            rulesetAttr.set(ValueLayout.JAVA_LONG, LANDLOCK_RULESET_ATTR_NET_OFFSET, 0L)
+            val rulesetAttr = arena.allocate(LinuxNative.LANDLOCK_RULESET_ATTR_LAYOUT)
+            rulesetAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_RULESET_ATTR_FS_OFFSET, accessMaskFs)
+            rulesetAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_RULESET_ATTR_NET_OFFSET, 0L)
 
-            val size = if (abi >= 4) LANDLOCK_RULESET_ATTR_LAYOUT.byteSize() else 16L
+            val size = if (abi >= 4) LinuxNative.LANDLOCK_RULESET_ATTR_LAYOUT.byteSize() else 16L
 
             val rulesetFdResult =
-                LinuxNative.syscall(LANDLOCK_CREATE_RULESET_NR, rulesetAttr.address(), size, MemorySegment.NULL)
+                LinuxNative.syscall(LinuxNative.LANDLOCK_CREATE_RULESET_NR, rulesetAttr.address(), size, MemorySegment.NULL)
             if (rulesetFdResult.returnValue < 0) return
 
             val rulesetFd = rulesetFdResult.returnValue.toInt()
@@ -227,7 +220,7 @@ object Landlock {
                 // DISABLED: TSYNC breaks sibling thread transparency in the test suite.
                 val flags = 0L // if (abi >= 8) LANDLOCK_RESTRICT_SELF_TSYNC else 0L
                 val restrictResult =
-                    LinuxNative.syscall(LANDLOCK_RESTRICT_SELF_NR, rulesetFd.toLong(), flags, MemorySegment.NULL, 0)
+                    LinuxNative.syscall(LinuxNative.LANDLOCK_RESTRICT_SELF_NR, rulesetFd.toLong(), flags, MemorySegment.NULL, 0)
 
                 if (restrictResult.returnValue < 0) {
                     logger.warning("Failed to apply Landlock profiling ruleset (flags=$flags): errno ${restrictResult.errno}")
@@ -259,10 +252,10 @@ object Landlock {
      */
     fun getAbiVersion(): Int {
         val abiResult = LinuxNative.syscall(
-            LANDLOCK_CREATE_RULESET_NR,
+            LinuxNative.LANDLOCK_CREATE_RULESET_NR,
             0,
             0,
-            MemorySegment.ofAddress(LANDLOCK_CREATE_RULESET_VERSION)
+            MemorySegment.ofAddress(LinuxNative.LANDLOCK_CREATE_RULESET_VERSION)
         )
         if (abiResult.returnValue < 0) {
             return 0
@@ -283,7 +276,7 @@ object Landlock {
      * prevent via preloading alone.
      *
      * Therefore, this method **automatically adds read rules** for `java.home` and all entries
-     * in `java.class.path`, regardless of whether the user called [Policy.Builder.allowJvmClasspath].
+     * in `java.class.path`, regardless of whether the user called [io.contained.Policy.Builder.allowJvmClasspath].
      * This is documented as an intentional design decision: classloading is too essential to
      * the JVM to ever block.
      *
@@ -299,7 +292,7 @@ object Landlock {
      * ### Important caveats
      * - **Stacking is intersective.** Calling this method multiple times on the same thread
      *   narrows the allowed access with each call. After ~16 layers the kernel returns `E2BIG`.
-     *   Use [ContainedExecutors] which tracks this via a `ThreadLocal` flag.
+     *   Use [io.contained.enforcer.ContainedExecutors] which tracks this via a `ThreadLocal` flag.
      * - **Non-existent paths fallback.** If a path does not exist, `addRule` will attempt to
      *   open the parent directory instead. This allows writing to files that haven't been
      *   created yet. If the parent also doesn't exist, the rule is skipped with a warning.
@@ -307,10 +300,10 @@ object Landlock {
      *   This prevents an attacker who controls a symlink target from redirecting a rule to
      *   an unintended inode. Use the resolved (real) path instead.
      *
-     * @param policy The [Policy] whose `allowedFsReadPaths` and `allowedFsWritePaths` will
+     * @param policy The [io.contained.Policy] whose `allowedFsReadPaths` and `allowedFsWritePaths` will
      *               be translated into Landlock rules.
      * @throws UnsupportedOperationException if Landlock is unsupported and the configured
-     *         fallback is [Platform.FallbackBehavior.FAIL].
+     *         fallback is [io.contained.Platform.FallbackBehavior.FAIL].
      * @throws RuntimeException if any Landlock syscall fails unexpectedly.
      */
     fun applyRuleset(policy: Policy) {
@@ -349,14 +342,14 @@ object Landlock {
         val classpathFlags = allFsRead or LANDLOCK_ACCESS_FS_EXECUTE
 
         Arena.ofConfined().use { arena ->
-            val rulesetAttr = arena.allocate(LANDLOCK_RULESET_ATTR_LAYOUT)
-            rulesetAttr.set(ValueLayout.JAVA_LONG, LANDLOCK_RULESET_ATTR_FS_OFFSET, accessMaskFs)
-            rulesetAttr.set(ValueLayout.JAVA_LONG, LANDLOCK_RULESET_ATTR_NET_OFFSET, 0L)
+            val rulesetAttr = arena.allocate(LinuxNative.LANDLOCK_RULESET_ATTR_LAYOUT)
+            rulesetAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_RULESET_ATTR_FS_OFFSET, accessMaskFs)
+            rulesetAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_RULESET_ATTR_NET_OFFSET, 0L)
 
-            val size = if (abi >= 4) LANDLOCK_RULESET_ATTR_LAYOUT.byteSize() else 8L
+            val size = if (abi >= 4) LinuxNative.LANDLOCK_RULESET_ATTR_LAYOUT.byteSize() else 8L
 
             val rulesetFdResult =
-                LinuxNative.syscall(LANDLOCK_CREATE_RULESET_NR, rulesetAttr.address(), size, MemorySegment.NULL)
+                LinuxNative.syscall(LinuxNative.LANDLOCK_CREATE_RULESET_NR, rulesetAttr.address(), size, MemorySegment.NULL)
             if (rulesetFdResult.returnValue < 0) {
                 throw RuntimeException("landlock_create_ruleset failed with errno ${rulesetFdResult.errno}")
             }
@@ -390,7 +383,7 @@ object Landlock {
                 // DISABLED: TSYNC breaks sibling thread transparency in the test suite.
                 val flags = 0L // if (abi >= 8) LANDLOCK_RESTRICT_SELF_TSYNC else 0L
                 val restrictResult =
-                    LinuxNative.syscall(LANDLOCK_RESTRICT_SELF_NR, rulesetFd.toLong(), flags, MemorySegment.NULL, 0)
+                    LinuxNative.syscall(LinuxNative.LANDLOCK_RESTRICT_SELF_NR, rulesetFd.toLong(), flags, MemorySegment.NULL, 0)
                 if (restrictResult.returnValue < 0) {
                     throw RuntimeException("landlock_restrict_self failed (flags=$flags) with errno ${restrictResult.errno}")
                 }
@@ -419,8 +412,8 @@ object Landlock {
         val classPath = System.getProperty("java.class.path")
         if (classPath != null) {
             val seen = mutableSetOf<String>()
-            classPath.split(java.io.File.pathSeparator).forEach {
-                val file = java.io.File(it)
+            classPath.split(File.pathSeparator).forEach {
+                val file = File(it)
                 if (file.exists()) {
                     val dir = if (file.isDirectory) file.absolutePath else file.parent
                     if (seen.add(dir)) {
@@ -444,14 +437,14 @@ object Landlock {
         }
         val pathFd = fdResult.returnValue.toInt()
         try {
-            val pathAttr = arena.allocate(LANDLOCK_PATH_BENEATH_ATTR_LAYOUT)
-            pathAttr.set(ValueLayout.JAVA_LONG, LANDLOCK_PATH_BENEATH_ATTR_ACCESS_OFFSET, allowedAccess)
-            pathAttr.set(ValueLayout.JAVA_INT, LANDLOCK_PATH_BENEATH_ATTR_FD_OFFSET, pathFd)
+            val pathAttr = arena.allocate(LinuxNative.LANDLOCK_PATH_BENEATH_ATTR_LAYOUT)
+            pathAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_PATH_BENEATH_ATTR_ACCESS_OFFSET, allowedAccess)
+            pathAttr.set(ValueLayout.JAVA_INT, LinuxNative.LANDLOCK_PATH_BENEATH_ATTR_FD_OFFSET, pathFd)
 
             val addResult = LinuxNative.syscall(
-                LANDLOCK_ADD_RULE_NR,
+                LinuxNative.LANDLOCK_ADD_RULE_NR,
                 rulesetFd.toLong(),
-                LANDLOCK_RULE_PATH_BENEATH.toLong(),
+                LinuxNative.LANDLOCK_RULE_PATH_BENEATH.toLong(),
                 pathAttr,
                 0
             )
@@ -494,7 +487,7 @@ object Landlock {
 
         // Fix #3: If path doesn't exist (ENOENT=2), try the parent directory.
         if (fdResult.returnValue < 0 && fdResult.errno == 2) {
-            val parentPath = java.io.File(path).parent
+            val parentPath = File(path).parent
             if (parentPath != null) {
                 logger.info("Path $path does not exist, falling back to parent directory: $parentPath")
                 pathSegment = arena.allocateFrom(parentPath)
@@ -515,14 +508,14 @@ object Landlock {
 
         val pathFd = fdResult.returnValue.toInt()
         try {
-            val pathAttr = arena.allocate(LANDLOCK_PATH_BENEATH_ATTR_LAYOUT)
-            pathAttr.set(ValueLayout.JAVA_LONG, LANDLOCK_PATH_BENEATH_ATTR_ACCESS_OFFSET, allowedAccess)
-            pathAttr.set(ValueLayout.JAVA_INT, LANDLOCK_PATH_BENEATH_ATTR_FD_OFFSET, pathFd)
+            val pathAttr = arena.allocate(LinuxNative.LANDLOCK_PATH_BENEATH_ATTR_LAYOUT)
+            pathAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_PATH_BENEATH_ATTR_ACCESS_OFFSET, allowedAccess)
+            pathAttr.set(ValueLayout.JAVA_INT, LinuxNative.LANDLOCK_PATH_BENEATH_ATTR_FD_OFFSET, pathFd)
 
             val addResult = LinuxNative.syscall(
-                LANDLOCK_ADD_RULE_NR,
+                LinuxNative.LANDLOCK_ADD_RULE_NR,
                 rulesetFd.toLong(),
-                LANDLOCK_RULE_PATH_BENEATH.toLong(),
+                LinuxNative.LANDLOCK_RULE_PATH_BENEATH.toLong(),
                 pathAttr,
                 0
             )

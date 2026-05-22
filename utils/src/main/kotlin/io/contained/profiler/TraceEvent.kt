@@ -1,4 +1,4 @@
-package io.contained
+package io.contained.profiler
 
 data class TraceEvent(
     val pid: Int,

@@ -1,5 +1,6 @@
 package io.contained
 
+import io.contained.seccomp.PureJavaBpfEngine
 import org.junit.jupiter.api.Test
 import java.util.concurrent.Executors
 import kotlin.test.assertTrue

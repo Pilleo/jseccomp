@@ -1,5 +1,6 @@
 package io.contained
 
+import io.contained.profiler.IterativeProfiler
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS

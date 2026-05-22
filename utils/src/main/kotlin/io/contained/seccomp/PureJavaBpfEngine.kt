@@ -1,5 +1,11 @@
-package io.contained
+package io.contained.seccomp
 
+import io.contained.Arch
+import io.contained.BpfFilter
+import io.contained.LinuxNative
+import io.contained.Platform
+import io.contained.Policy
+import io.contained.Syscall
 import java.lang.foreign.Arena
 
 /**

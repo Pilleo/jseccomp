@@ -1,15 +1,25 @@
-package io.contained
+package io.contained.profiler
 
+import io.contained.Arch
+import io.contained.BpfFilter
+import io.contained.landlock.Landlock
+import io.contained.LinuxNative
+import io.contained.Policy
+import java.io.BufferedInputStream
 import java.io.DataInputStream
 import java.io.File
 import java.io.InputStream
 import java.lang.foreign.Arena
-import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout
 import java.util.concurrent.Callable
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import java.util.logging.Logger
 
 /**
@@ -65,7 +75,7 @@ object Profiler {
             javaBin,
             "--enable-native-access=ALL-UNNAMED",
             "-cp", classpath,
-            "io.contained.ProfilerDaemon",
+            "io.contained.profiler.ProfilerDaemon",
             socketPath
         )
         val daemonProcess = pb.start()
@@ -92,10 +102,10 @@ object Profiler {
         }
         Runtime.getRuntime().addShutdownHook(shutdownHook)
 
-        val localLogs = java.util.concurrent.CopyOnWriteArrayList<TraceEvent>()
+        val localLogs = CopyOnWriteArrayList<TraceEvent>()
         val localStackProfile =
-            java.util.concurrent.ConcurrentHashMap<TraceEvent, MutableList<Array<StackTraceElement>>>()
-        val localPathCache = java.util.concurrent.ConcurrentHashMap<String, Long>()
+            ConcurrentHashMap<TraceEvent, MutableList<Array<StackTraceElement>>>()
+        val localPathCache = ConcurrentHashMap<String, Long>()
 
         var workerThread: Thread? = null
 
@@ -209,7 +219,7 @@ object Profiler {
             javaBin,
             "--enable-native-access=ALL-UNNAMED",
             "-cp", classpath,
-            "io.contained.ProfilerDaemon",
+            "io.contained.profiler.ProfilerDaemon",
             socketPath
         )
         val daemonProcess = pb.start()
@@ -306,10 +316,10 @@ object Profiler {
         pathCache: MutableMap<String, Long>,
         workerThreadProvider: () -> Thread?
     ) {
-        val installLatch = java.util.concurrent.CountDownLatch(1)
-        val proceedLatch = java.util.concurrent.CountDownLatch(1)
-        val listenerFd = java.util.concurrent.atomic.AtomicInteger(-1)
-        val installError = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
+        val installLatch = CountDownLatch(1)
+        val proceedLatch = CountDownLatch(1)
+        val listenerFd = AtomicInteger(-1)
+        val installError = AtomicReference<Throwable?>(null)
 
         val coordinatorThread = Thread {
             try {
@@ -432,7 +442,7 @@ object Profiler {
         Thread {
             try {
                 // Wrap in BufferedInputStream to avoid per-byte Arena/FMM allocations in DataInputStream
-                val dis = DataInputStream(java.io.BufferedInputStream(inputStream))
+                val dis = DataInputStream(BufferedInputStream(inputStream))
                 while (true) {
                     val pid = dis.readInt()
                     val syscallNameLen = dis.readInt()
@@ -484,7 +494,7 @@ object Profiler {
                         if (workerThread != null) {
                             val frames = workerThread.stackTrace
                             stackTracesMap.computeIfAbsent(event) {
-                                java.util.concurrent.CopyOnWriteArrayList<Array<StackTraceElement>>()
+                                CopyOnWriteArrayList<Array<StackTraceElement>>()
                             }.add(frames)
                         }
                     }
@@ -527,10 +537,10 @@ object Profiler {
     ) : ExecutorService by delegate {
 
         private val threadApplied = ThreadLocal.withInitial { false }
-        val recentLogs = java.util.concurrent.CopyOnWriteArrayList<TraceEvent>()
+        val recentLogs = CopyOnWriteArrayList<TraceEvent>()
         val recentStackProfiles =
-            java.util.concurrent.ConcurrentHashMap<TraceEvent, MutableList<Array<StackTraceElement>>>()
-        private val sharedPathCache = java.util.concurrent.ConcurrentHashMap<String, Long>()
+            ConcurrentHashMap<TraceEvent, MutableList<Array<StackTraceElement>>>()
+        private val sharedPathCache = ConcurrentHashMap<String, Long>()
 
         override fun execute(command: Runnable) {
             delegate.execute {

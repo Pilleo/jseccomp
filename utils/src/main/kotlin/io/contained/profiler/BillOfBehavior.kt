@@ -1,9 +1,13 @@
-package io.contained
+package io.contained.profiler
+
+import io.contained.Policy
+import io.contained.Syscall
+import kotlin.collections.iterator
 
 /**
  * An immutable record of what kernel-level operations were observed during a
  * profiling run. This is the raw output of the [Profiler] — completely decoupled
- * from any [Policy].
+ * from any [io.contained.Policy].
  *
  * Field naming follows the [Software Bill of Behavior (SBoB) spec draft v0.0.1](https://billofbehavior.com/bob/docs/drafts/spec-v0.0.1/):
  * - [opens]   → SBoB §4.6 `opens`
@@ -51,7 +55,7 @@ data class BillOfBehavior(
 
     /**
      * All syscall names intercepted during the run. A superset of what any
-     * specific base [Policy] would block — the caller decides which subset matters
+     * specific base [io.contained.Policy] would block — the caller decides which subset matters
      * via [toPolicy].
      */
     val syscalls: Set<Syscall> = emptySet(),
@@ -75,7 +79,7 @@ data class BillOfBehavior(
     val stackProfile: Map<TraceEvent, List<Array<StackTraceElement>>> = emptyMap()
 ) {
     /**
-     * Compiles this bill of behavior into a [Policy] starting from [base].
+     * Compiles this bill of behavior into a [io.contained.Policy] starting from [base].
      *
      * Only syscalls that are **actually blocked** by [base] are unblocked —
      * syscalls observed but absent from the base block-list are ignored.

@@ -1,5 +1,7 @@
 package io.contained
 
+import io.contained.enforcer.ContainedExecutors
+import io.contained.enforcer.ContainmentViolationException
 import java.lang.foreign.Arena
 import java.util.concurrent.Executors
 import java.util.concurrent.ExecutionException

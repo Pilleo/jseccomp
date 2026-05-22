@@ -1,11 +1,17 @@
-package io.contained
+package io.contained.profiler
 
+import io.contained.Arch
+import io.contained.LinuxNative
+import io.contained.Syscall
+import java.io.DataOutputStream
 import java.io.File
+import java.io.OutputStream
 import java.lang.foreign.Arena
-import java.lang.foreign.MemoryLayout
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Standalone Profiler Daemon Process.
@@ -15,9 +21,9 @@ import java.nio.charset.StandardCharsets
  */
 object ProfilerDaemon {
     private val syscallMap = mutableMapOf<Int, String>()
-    private val clientSockets = java.util.concurrent.CopyOnWriteArrayList<Int>()
-    private val activeListeners = java.util.concurrent.CopyOnWriteArrayList<Int>()
-    private val isGlobalShutdown = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val clientSockets = CopyOnWriteArrayList<Int>()
+    private val activeListeners = CopyOnWriteArrayList<Int>()
+    private val isGlobalShutdown = AtomicBoolean(false)
 
     @JvmStatic
     fun main(args: Array<String>) {
@@ -301,7 +307,7 @@ object ProfilerDaemon {
     }
 
     private fun sendTraceEvent(socketFd: Int, event: TraceEvent) {
-        val outputStream = object : java.io.OutputStream() {
+        val outputStream = object : OutputStream() {
             override fun write(b: Int) {
                 Arena.ofConfined().use { arena ->
                     val buf = arena.allocate(1); buf.set(ValueLayout.JAVA_BYTE, 0L, b.toByte())
@@ -318,7 +324,7 @@ object ProfilerDaemon {
                 }
             }
         }
-        val dos = java.io.DataOutputStream(outputStream)
+        val dos = DataOutputStream(outputStream)
         dos.writeInt(event.pid)
         val syscallBytes = event.syscallName.toByteArray(StandardCharsets.UTF_8)
         dos.writeInt(syscallBytes.size); dos.write(syscallBytes)

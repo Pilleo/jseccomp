@@ -1,5 +1,6 @@
 package io.contained
 
+import io.contained.enforcer.ContainedExecutors
 import org.junit.jupiter.api.Test
 import java.io.IOException
 import java.net.ConnectException

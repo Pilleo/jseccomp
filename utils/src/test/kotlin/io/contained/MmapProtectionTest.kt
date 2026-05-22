@@ -1,6 +1,7 @@
 package io.contained
 
-import java.lang.foreign.Arena
+import io.contained.enforcer.ContainedExecutors
+import io.contained.enforcer.ContainmentViolationException
 import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.Linker
 import java.lang.foreign.ValueLayout
@@ -26,7 +27,7 @@ class MmapProtectionTest {
     /**
      * Verifies that attempting to allocate executable memory directly using `mmap` with the 
      * `PROT_EXEC` flag set causes the kernel to block the call with `EPERM`, which propagates
-     * as a [ContainmentViolationException].
+     * as a [io.contained.enforcer.ContainmentViolationException].
      * 
      * The BPF filter performs argument inspection on `mmap` by loading the lower 32 bits of 
      * `args[2]` (offset 32) and checking if `PROT_EXEC` (0x04) is present.

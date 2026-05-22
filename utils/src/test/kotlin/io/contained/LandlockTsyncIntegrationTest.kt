@@ -1,11 +1,11 @@
 package io.contained
 
+import io.contained.landlock.Landlock
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
 import java.io.File
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 @EnabledOnOs(OS.LINUX)
 class LandlockTsyncIntegrationTest {

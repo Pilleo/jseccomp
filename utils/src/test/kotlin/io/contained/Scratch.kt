@@ -1,5 +1,6 @@
 package io.contained
 
+import io.contained.profiler.Profiler
 import java.io.File
 
 object Scratch {

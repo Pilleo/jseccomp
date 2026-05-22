@@ -1,11 +1,9 @@
 package io.contained
 
-import java.nio.file.Files
-import java.nio.file.Path
+import io.contained.enforcer.ContainedExecutors
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
-import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import kotlin.test.assertTrue
 

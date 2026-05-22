@@ -1,7 +1,7 @@
 package demo
 
-import io.contained.ContainedExecutors
-import io.contained.ContainmentViolationException
+import io.contained.enforcer.ContainedExecutors
+import io.contained.enforcer.ContainmentViolationException
 import io.contained.Policy
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors

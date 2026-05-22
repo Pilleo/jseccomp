@@ -1,4 +1,6 @@
-package io.contained
+package io.contained.seccomp
+
+import io.contained.Policy
 
 /**
  * Common interface for seccomp installation mechanisms.
