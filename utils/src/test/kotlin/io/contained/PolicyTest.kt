@@ -103,6 +103,56 @@ class PolicyTest {
     }
 
     @Test
+    fun `builder allowFsWrite rejects invalid paths`() {
+        assertFailsWith<IllegalArgumentException> {
+            Policy.builder().allowFsWrite("")
+        }
+        assertFailsWith<IllegalArgumentException> {
+            Policy.builder().allowFsWrite("relative/path")
+        }
+        assertFailsWith<IllegalArgumentException> {
+            Policy.builder().allowFsWrite("/path/with/\u0000/null")
+        }
+    }
+
+    @Test
+    fun `builder allowFsRead rejects null bytes`() {
+        assertFailsWith<IllegalArgumentException> {
+            Policy.builder().allowFsRead("/path/with/\u0000/null")
+        }
+    }
+
+    @Test
+    fun `builder base() merges all flags`() {
+        val p1 = Policy.builder()
+            .allowMmapExec()
+            .allowNonThreadClone()
+            .allowUnsafePrctl()
+            .allowFsRead("/r")
+            .allowFsWrite("/w")
+            .block(Syscall.OPEN)
+            .build()
+
+        val p2 = Policy.builder().base(p1).build()
+
+        assertTrue(p2.allowMmapExec)
+        assertTrue(p2.allowNonThreadClone)
+        assertTrue(p2.allowUnsafePrctl)
+        assertTrue(p2.allowedFsReadPaths.contains("/r"))
+        assertTrue(p2.allowedFsWritePaths.contains("/w"))
+        assertTrue(p2.blocked.contains(Syscall.OPEN))
+    }
+
+    @Test
+    fun `builder allowJvmClasspath handles missing properties`() {
+        // We can't easily mock System.getProperty in a clean way here without affecting other tests,
+        // but we can verify it doesn't crash even if we can't fully control the environment.
+        val p = Policy.builder().allowJvmClasspath().build()
+        // It should at least include java.home
+        assertTrue(p.allowedFsReadPaths.any { it.contains("java") || it.contains("jdk") })
+    }
+
+    @Test
     fun `combine() intersects Landlock paths`() {
         val p1 = Policy.builder().allowFsRead("/a").allowFsRead("/common").build()
         val p2 = Policy.builder().allowFsRead("/b").allowFsRead("/common").build()
