@@ -1,18 +1,19 @@
-package io.contained
+package io.contained.enforcer
 
-import io.contained.enforcer.ContainedExecutors
+import io.contained.Platform
+import io.contained.Policy
+import io.contained.EnabledIfLinuxAndSupported
 import org.junit.jupiter.api.Test
 import java.util.concurrent.Executors
 import java.util.concurrent.ExecutionException
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
+@EnabledIfLinuxAndSupported
 class VirtualThreadGuardrailTest {
 
     @Test
     fun `installOnCurrentThread throws IllegalStateException on virtual thread`() {
-        if (!Platform.isSupported()) return
-
         val executor = Executors.newVirtualThreadPerTaskExecutor()
         try {
             val future = executor.submit {
@@ -30,8 +31,6 @@ class VirtualThreadGuardrailTest {
 
     @Test
     fun `installOnCurrentThread succeeds on platform thread`() {
-        if (!Platform.isSupported()) return
-
         val executor = Executors.newSingleThreadExecutor()
         try {
             executor.submit {
@@ -50,11 +49,11 @@ class VirtualThreadGuardrailTest {
         val vExecutor = Executors.newVirtualThreadPerTaskExecutor()
         try {
             val safeExecutor = ContainedExecutors.wrap(vExecutor, Policy.NO_EXEC)
-            
+
             val future = safeExecutor.submit {
                 // This task will fail when it tries to apply containment
             }
-            
+
             assertFailsWith<ExecutionException> {
                 future.get()
             }

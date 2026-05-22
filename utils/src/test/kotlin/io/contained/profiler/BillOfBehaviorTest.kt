@@ -1,7 +1,6 @@
-package io.contained
+package io.contained.profiler
 
-import io.contained.profiler.BillOfBehavior
-import io.contained.profiler.TraceEvent
+import io.contained.Syscall
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue

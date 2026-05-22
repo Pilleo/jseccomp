@@ -15,6 +15,9 @@ tasks.test {
 
 dependencies {
     testImplementation(kotlin("test"))
+    testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.2")
+    testImplementation("org.junit.jupiter:junit-jupiter-params:5.10.2")
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.2")
 }
 
 tasks.withType<Test> {
@@ -29,4 +32,3 @@ tasks.register<JavaExec>("runScratch") {
     mainClass.set("io.contained.Scratch")
     jvmArgs("--enable-native-access=ALL-UNNAMED")
 }
-

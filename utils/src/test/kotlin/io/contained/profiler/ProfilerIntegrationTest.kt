@@ -1,10 +1,10 @@
-package io.contained
+package io.contained.profiler
 
-import io.contained.profiler.BobCompiler
-import io.contained.profiler.Profiler
+import io.contained.Arch
+import io.contained.EnabledIfLinuxAndSupported
+import io.contained.Policy
+import io.contained.Syscall
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.condition.EnabledOnOs
-import org.junit.jupiter.api.condition.OS
 import java.io.File
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.test.assertTrue
 import kotlin.test.assertEquals
 
-@EnabledOnOs(OS.LINUX)
+@EnabledIfLinuxAndSupported
 class ProfilerIntegrationTest {
 
     @Test

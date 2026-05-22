@@ -1,7 +1,9 @@
-package io.contained
+package io.contained.seccomp
 
-import io.contained.seccomp.PureJavaBpfEngine
-import io.contained.seccomp.SeccompEngine
+import io.contained.EnabledIfLinuxAndSupported
+import io.contained.Platform
+import io.contained.Policy
+import io.contained.Syscall
 import org.junit.jupiter.api.Test
 import java.util.concurrent.Executors
 import kotlin.test.assertTrue
@@ -10,11 +12,8 @@ import kotlin.test.assertFailsWith
 class PureJavaBpfEngineTest {
 
     @Test
+    @EnabledIfLinuxAndSupported
     fun `test PureJavaBpfEngine blocks execve`() {
-        val osName = System.getProperty("os.name")
-        if (!osName.equals("Linux", ignoreCase = true)) return
-        if (!Platform.isSupported()) return
-
         val executor = Executors.newSingleThreadExecutor()
         try {
             val result = executor.submit<Boolean> {
@@ -33,15 +32,14 @@ class PureJavaBpfEngineTest {
     }
 
     @Test
+    @EnabledIfLinuxAndSupported
     fun `test PureJavaBpfEngine isSupported`() {
-        val osName = System.getProperty("os.name")
-        if (!osName.equals("Linux", ignoreCase = true)) return
         assertTrue(PureJavaBpfEngine.isSupported, "PureJavaBpfEngine should be supported on Linux")
     }
 
     @Test
+    @EnabledIfLinuxAndSupported
     fun `test PureJavaBpfEngine with large policy`() {
-        if (!Platform.isSupported()) return
         val builder = Policy.builder()
         // Block a lot of syscalls to exercise BPF generation
         Syscall.entries.take(50).forEach { builder.block(it) }

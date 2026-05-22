@@ -1,6 +1,5 @@
-package io.contained
+package io.contained.profiler
 
-import io.contained.profiler.TraceEvent
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals

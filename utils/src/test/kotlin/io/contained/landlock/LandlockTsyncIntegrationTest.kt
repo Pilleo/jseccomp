@@ -1,13 +1,13 @@
-package io.contained
+package io.contained.landlock
 
-import io.contained.landlock.Landlock
+import io.contained.Policy
+import io.contained.Syscall
+import io.contained.EnabledIfLinuxAndSupported
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.condition.EnabledOnOs
-import org.junit.jupiter.api.condition.OS
 import java.io.File
 import kotlin.test.assertEquals
 
-@EnabledOnOs(OS.LINUX)
+@EnabledIfLinuxAndSupported
 class LandlockTsyncIntegrationTest {
 
     /**

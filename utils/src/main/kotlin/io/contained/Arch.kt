@@ -219,8 +219,8 @@ data class Arch(
             seccompSyscallNumber = 277
         )
 
-        fun current(): Arch {
-            return when (val osArch = System.getProperty("os.arch")) {
+        fun current(osArch: String = System.getProperty("os.arch")): Arch {
+            return when (osArch) {
                 "amd64", "x86_64" -> AMD64
                 "aarch64", "arm64" -> AARCH64
                 else -> throw UnsupportedOperationException("Architecture not supported: $osArch")

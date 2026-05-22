@@ -1,13 +1,14 @@
-package io.contained
+package io.contained.landlock
 
+import io.contained.Policy
+import io.contained.Syscall
+import io.contained.EnabledIfLinuxAndSupported
 import io.contained.profiler.IterativeProfiler
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.condition.EnabledOnOs
-import org.junit.jupiter.api.condition.OS
 import java.io.File
 import kotlin.test.assertTrue
 
-@EnabledOnOs(OS.LINUX)
+@EnabledIfLinuxAndSupported
 class IterativeProfilerTest {
 
     @Test

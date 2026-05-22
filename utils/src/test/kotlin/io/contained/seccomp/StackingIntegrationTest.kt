@@ -1,14 +1,19 @@
-package io.contained
+package io.contained.seccomp
 
+import io.contained.EnabledIfLinuxAndSupported
+import io.contained.Platform
+import io.contained.Policy
+import io.contained.Syscall
 import io.contained.enforcer.ContainedExecutors
+import io.contained.enforcer.ContainmentViolationException
 import org.junit.jupiter.api.Test
 
 import kotlin.test.assertTrue
 
 class StackingIntegrationTest {
     @Test
+    @EnabledIfLinuxAndSupported
     fun `test filter stacking depth limit`() {
-        if (!Platform.isSupported()) return
 
         // Explicit list of syscalls that are safe to block for depth-testing:
         // - No PRCTL (required for NO_NEW_PRIVS before each seccomp install)
@@ -17,17 +22,17 @@ class StackingIntegrationTest {
         // - No CLONE3 (must remain blockable via ENOSYS for the clone fallback to work)
         // Ordering is stable and independent of Syscall enum declaration order.
         val safeSyscalls = listOf(
-            Syscall.EXECVE,   Syscall.EXECVEAT,  Syscall.FORK,           Syscall.VFORK,
-            Syscall.CONNECT,  Syscall.SOCKET,    Syscall.BIND,           Syscall.LISTEN,
-            Syscall.ACCEPT,   Syscall.ACCEPT4,   Syscall.SENDTO,         Syscall.SENDMSG,
-            Syscall.MEMFD_CREATE, Syscall.IO_URING_SETUP, Syscall.BPF,  Syscall.PTRACE,
+            Syscall.EXECVE, Syscall.EXECVEAT, Syscall.FORK, Syscall.VFORK,
+            Syscall.CONNECT, Syscall.SOCKET, Syscall.BIND, Syscall.LISTEN,
+            Syscall.ACCEPT, Syscall.ACCEPT4, Syscall.SENDTO, Syscall.SENDMSG,
+            Syscall.MEMFD_CREATE, Syscall.IO_URING_SETUP, Syscall.BPF, Syscall.PTRACE,
             Syscall.PROCESS_VM_WRITEV, Syscall.PROCESS_VM_READV,
             Syscall.USERFAULTFD, Syscall.UNSHARE, Syscall.SETNS,
-            Syscall.MOUNT,    Syscall.UMOUNT2,   Syscall.PIVOT_ROOT,     Syscall.CHROOT,
+            Syscall.MOUNT, Syscall.UMOUNT2, Syscall.PIVOT_ROOT, Syscall.CHROOT,
             Syscall.INIT_MODULE, Syscall.FINIT_MODULE,
-            Syscall.GETPID,   Syscall.GETPPID,   Syscall.GETUID,
-            Syscall.GETEUID,  Syscall.GETGID,    Syscall.GETEGID,
-            Syscall.GETTID,   Syscall.GETCWD,    Syscall.UMASK
+            Syscall.GETPID, Syscall.GETPPID, Syscall.GETUID,
+            Syscall.GETEUID, Syscall.GETGID, Syscall.GETEGID,
+            Syscall.GETTID, Syscall.GETCWD, Syscall.UMASK
         )
         // Must have enough distinct entries to exceed the 32-filter limit
         check(safeSyscalls.size > 32) { "Need >32 distinct syscalls to test the depth limit" }
@@ -57,5 +62,3 @@ class StackingIntegrationTest {
         )
     }
 }
-
-

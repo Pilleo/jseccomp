@@ -1,7 +1,8 @@
-package io.contained
+package io.contained.enforcer
 
-import io.contained.enforcer.ContainedExecutors
-import io.contained.enforcer.ContainmentViolationException
+import io.contained.Platform
+import io.contained.Policy
+import io.contained.EnabledIfLinuxAndSupported
 import org.junit.jupiter.api.Test
 import java.util.concurrent.Executors
 import java.util.concurrent.ExecutionException
@@ -13,11 +14,8 @@ import kotlin.test.assertEquals
 class ContainedExecutorsTest {
 
     @Test
+    @EnabledIfLinuxAndSupported
     fun `test containment wrapper blocks execve`() {
-        val osName = System.getProperty("os.name")
-        if (!osName.equals("Linux", ignoreCase = true)) return
-        if (!Platform.isSupported()) return
-
         val executor = Executors.newSingleThreadExecutor()
         val safeExecutor = ContainedExecutors.wrap(executor, Policy.NO_EXEC)
 
@@ -53,11 +51,8 @@ class ContainedExecutorsTest {
     }
 
     @Test
+    @EnabledIfLinuxAndSupported
     fun `test per-thread isolation (TSYNC bug fix)`() {
-        val osName = System.getProperty("os.name")
-        if (!osName.equals("Linux", ignoreCase = true)) return
-        if (!Platform.isSupported()) return
-
         val executor = Executors.newSingleThreadExecutor()
         val safeExecutor = ContainedExecutors.wrap(executor, Policy.NO_EXEC)
 
@@ -77,11 +72,8 @@ class ContainedExecutorsTest {
     }
 
     @Test
+    @EnabledIfLinuxAndSupported
     fun `invokeAll applies containment to all tasks`() {
-        val osName = System.getProperty("os.name")
-        if (!osName.equals("Linux", ignoreCase = true)) return
-        if (!Platform.isSupported()) return
-
         val executor = Executors.newFixedThreadPool(2)
         val safeExecutor = ContainedExecutors.wrap(executor, Policy.NO_EXEC)
 
@@ -104,11 +96,8 @@ class ContainedExecutorsTest {
     }
 
     @Test
+    @EnabledIfLinuxAndSupported
     fun `invokeAny applies containment`() {
-        val osName = System.getProperty("os.name")
-        if (!osName.equals("Linux", ignoreCase = true)) return
-        if (!Platform.isSupported()) return
-
         val executor = Executors.newFixedThreadPool(2)
         val safeExecutor = ContainedExecutors.wrap(executor, Policy.NO_EXEC)
 

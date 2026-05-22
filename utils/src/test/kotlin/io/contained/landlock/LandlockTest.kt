@@ -1,8 +1,10 @@
-package io.contained
+package io.contained.landlock
 
+import io.contained.Platform
+import io.contained.Policy
+import io.contained.EnabledIfLinuxAndSupported
 import io.contained.enforcer.ContainedExecutors
 import io.contained.enforcer.ContainmentViolationException
-import io.contained.landlock.Landlock
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
 import java.nio.file.Path
@@ -15,14 +17,11 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertEquals
 import java.nio.file.AccessDeniedException
 
+@EnabledIfLinuxAndSupported
 class LandlockTest {
 
     @Test
     fun `testLandlockReadAllowedPath`() {
-        val osName = System.getProperty("os.name")
-        if (!osName.equals("Linux", ignoreCase = true)) return
-        if (!Platform.isSupported()) return
-
         val tempDir = createTempDirectory("landlock_test_allowed")
         val testFile = tempDir.resolve("test.txt")
         testFile.writeText("secret")
@@ -48,10 +47,6 @@ class LandlockTest {
 
     @Test
     fun `testLandlockReadBlockedPath`() {
-        val osName = System.getProperty("os.name")
-        if (!osName.equals("Linux", ignoreCase = true)) return
-        if (!Platform.isSupported()) return
-
         val tempDir = createTempDirectory("landlock_test_allowed")
 
         val policy = Policy.builder()
@@ -82,10 +77,6 @@ class LandlockTest {
 
     @Test
     fun `testLandlockWriteAllowedPath`() {
-        val osName = System.getProperty("os.name")
-        if (!osName.equals("Linux", ignoreCase = true)) return
-        if (!Platform.isSupported()) return
-
         val tempDir = createTempDirectory("landlock_test_write_allowed")
         val testFile = tempDir.resolve("test.txt")
 
@@ -111,10 +102,6 @@ class LandlockTest {
 
     @Test
     fun `testLandlockWriteBlockedPath`() {
-        val osName = System.getProperty("os.name")
-        if (!osName.equals("Linux", ignoreCase = true)) return
-        if (!Platform.isSupported()) return
-
         val tempDir = createTempDirectory("landlock_test_read_only")
         val testFile = tempDir.resolve("test.txt")
 
@@ -144,10 +131,6 @@ class LandlockTest {
 
     @Test
     fun `testLandlockUnconstrainedThreadUnaffected`() {
-        val osName = System.getProperty("os.name")
-        if (!osName.equals("Linux", ignoreCase = true)) return
-        if (!Platform.isSupported()) return
-
         val policy = Policy.builder()
             .base(Policy.NO_EXEC)
             .allowJvmClasspath()
@@ -177,9 +160,6 @@ class LandlockTest {
 
     @Test
     fun `testLandlockRulesetNotStackedOnRecycledThread`() {
-        val osName = System.getProperty("os.name")
-        if (!osName.equals("Linux", ignoreCase = true)) return
-        if (!Platform.isSupported()) return
         if (!Landlock.isSupported()) return
 
         val tempDir = createTempDirectory("landlock_stacking_test")
@@ -212,9 +192,6 @@ class LandlockTest {
 
     @Test
     fun `testLandlockBlocksExecuteOutsideAllowedPaths`() {
-        val osName = System.getProperty("os.name")
-        if (!osName.equals("Linux", ignoreCase = true)) return
-        if (!Platform.isSupported()) return
         if (!Landlock.isSupported()) return
 
         val tempDir = createTempDirectory("landlock_exec_test")
@@ -248,9 +225,6 @@ class LandlockTest {
 
     @Test
     fun `testLandlockAllowWriteToNonExistentFileUsesParentDir`() {
-        val osName = System.getProperty("os.name")
-        if (!osName.equals("Linux", ignoreCase = true)) return
-        if (!Platform.isSupported()) return
         if (!Landlock.isSupported()) return
 
         val tempDir = createTempDirectory("landlock_nonexist_test")
@@ -281,9 +255,6 @@ class LandlockTest {
 
     @Test
     fun `testLandlockRejectsSymlinkPathWithONoFollow`() {
-        val osName = System.getProperty("os.name")
-        if (!osName.equals("Linux", ignoreCase = true)) return
-        if (!Platform.isSupported()) return
         if (!Landlock.isSupported()) return
 
         val realDir = createTempDirectory("landlock_real_target")
@@ -326,9 +297,6 @@ class LandlockTest {
 
     @Test
     fun `testContainmentWorksWithoutExplicitAllowJvmClasspath`() {
-        val osName = System.getProperty("os.name")
-        if (!osName.equals("Linux", ignoreCase = true)) return
-        if (!Platform.isSupported()) return
         if (!Landlock.isSupported()) return
 
         val tempDir = createTempDirectory("landlock_auto_cp_test")

@@ -1,6 +1,5 @@
-package io.contained
+package io.contained.enforcer
 
-import io.contained.enforcer.ContainmentViolationException
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertSame

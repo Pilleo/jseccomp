@@ -1,6 +1,7 @@
 package io.contained
 
 import org.junit.jupiter.api.Test
+import io.contained.EnabledIfLinuxAndSupported
 import java.lang.foreign.Arena
 import java.lang.foreign.ValueLayout
 import java.lang.foreign.MemorySegment
@@ -8,12 +9,11 @@ import kotlin.test.assertTrue
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
+@EnabledIfLinuxAndSupported
 class LinuxNativeTest {
 
     @Test
     fun testPrctlGetSeccomp() {
-        if (!Platform.isSupported()) return
-
         val result = LinuxNative.prctl(LinuxNative.PR_GET_SECCOMP, 0, 0, 0, 0)
         // Usually returns 0 or 2, unless error
         assertTrue(result.returnValue >= 0)
@@ -21,7 +21,6 @@ class LinuxNativeTest {
 
     @Test
     fun testToLongError() {
-        if (!Platform.isSupported()) return
         assertFailsWith<IllegalArgumentException> {
             // String is not a supported type for toLong()
             LinuxNative.prctl(LinuxNative.PR_SET_NAME, "string-not-allowed")
@@ -45,8 +44,6 @@ class LinuxNativeTest {
 
     @Test
     fun testBasicSyscalls() {
-        if (!Platform.isSupported()) return
-
         Arena.ofConfined().use { arena ->
             // test open/close/read/write on a temp file
             val tempFile = java.nio.file.Files.createTempFile("native-test", ".txt")
@@ -86,8 +83,6 @@ class LinuxNativeTest {
 
     @Test
     fun testSocketSyscalls() {
-        if (!Platform.isSupported()) return
-
         // test socket()
         val socketResult = LinuxNative.socket(2, 1, 0) // AF_INET, SOCK_STREAM
         if (socketResult.returnValue >= 0) {
@@ -106,8 +101,6 @@ class LinuxNativeTest {
 
     @Test
     fun testSocketpair() {
-        if (!Platform.isSupported()) return
-
         Arena.ofConfined().use { arena ->
             val fds = arena.allocate(ValueLayout.JAVA_INT, 2)
             val result = LinuxNative.socketpair(1, 1, 0, fds) // AF_UNIX, SOCK_STREAM
@@ -120,8 +113,6 @@ class LinuxNativeTest {
 
     @Test
     fun testProcessVmReadv() {
-        if (!Platform.isSupported()) return
-
         Arena.ofConfined().use { arena ->
             // Try reading from our own memory
             val localBuf = arena.allocate(10)
@@ -147,8 +138,6 @@ class LinuxNativeTest {
 
     @Test
     fun testFcntl() {
-        if (!Platform.isSupported()) return
-
         Arena.ofConfined().use { arena ->
             val tempFile = java.nio.file.Files.createTempFile("fcntl-test", ".txt")
             val path = arena.allocateFrom(tempFile.toString())
@@ -165,8 +154,6 @@ class LinuxNativeTest {
 
     @Test
     fun testReadlink() {
-        if (!Platform.isSupported()) return
-
         Arena.ofConfined().use { arena ->
             val path = arena.allocateFrom("/proc/self/exe")
             val buffer = arena.allocate(1024)
