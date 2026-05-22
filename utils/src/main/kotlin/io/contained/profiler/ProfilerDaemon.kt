@@ -51,6 +51,7 @@ object ProfilerDaemon {
                 // Listen for parent JVM exit via stdin closure
                 System.`in`.read()
             } catch (e: Exception) {
+                e.printStackTrace()
             }
             triggerGlobalShutdown()
             System.exit(0)
@@ -62,11 +63,8 @@ object ProfilerDaemon {
     private fun triggerGlobalShutdown() {
         if (isGlobalShutdown.getAndSet(true)) return
         System.err.println("[DAEMON] Initiating graceful shutdown. Releasing tracee threads...")
-        for (fd in activeListeners) {
-            // We can't easily send CONTINUE from here because we don't have the IDs,
-            // but closing the socket from the JVM side will trigger handleConnection to exit.
-            // Actually, the most reliable way is for handleConnection to see the flag.
-        }
+        // Actual cleanup (sending CONTINUE and closing fds) is handled by the handleConnection loops
+        // which break out of their waiting state or drain when isGlobalShutdown becomes true.
     }
 
     private fun run(socketPath: String) {
@@ -106,6 +104,7 @@ object ProfilerDaemon {
                     try {
                         handleConnection(clientFd)
                     } catch (e: Exception) {
+                        e.printStackTrace()
                     } finally {
                         LinuxNative.close(clientFd)
                     }
@@ -275,6 +274,7 @@ object ProfilerDaemon {
                                                     try {
                                                         sendTraceEvent(client, event)
                                                     } catch (e: Exception) {
+                                                        e.printStackTrace()
                                                     }
                                                 }
                                             }

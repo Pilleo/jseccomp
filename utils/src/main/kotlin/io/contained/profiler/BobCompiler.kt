@@ -28,6 +28,7 @@ object BobCompiler {
             val syscall = try {
                 Syscall.valueOf(event.syscallName.uppercase(Locale.US))
             } catch (e: IllegalArgumentException) {
+                e.printStackTrace()
                 null
             }
 

@@ -162,12 +162,14 @@ object Profiler {
             try {
                 Runtime.getRuntime().removeShutdownHook(shutdownHook)
             } catch (e: Exception) {
+                e.printStackTrace()
             }
             triggerDaemonShutdown(socketPath)
             daemonProcess.destroyForcibly()
             try {
                 socketFile.delete()
             } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
     }
@@ -198,6 +200,7 @@ object Profiler {
                 }
             }
         } catch (e: Exception) {
+            e.printStackTrace()
             // best effort
         }
     }
@@ -380,7 +383,7 @@ object Profiler {
                 val r = LinuxNative.syscall(
                     arch.seccompSyscallNumber.toLong(),
                     LinuxNative.SECCOMP_SET_MODE_FILTER.toLong(),
-                    LinuxNative.SECCOMP_FILTER_FLAG_NEW_LISTENER.toLong(),
+                    LinuxNative.SECCOMP_FILTER_FLAG_NEW_LISTENER,
                     prog
                 )
 
@@ -512,6 +515,7 @@ object Profiler {
                     }
                 }
             } catch (e: Exception) {
+                e.printStackTrace()
                 // socket closed or error
             } finally {
                 inputStream.close()
@@ -605,6 +609,7 @@ object Profiler {
             try {
                 Runtime.getRuntime().removeShutdownHook(shutdownHook)
             } catch (e: Exception) {
+                e.printStackTrace()
                 // Ignore if already shutting down
             } finally {
                 delegate.shutdown()
@@ -624,6 +629,7 @@ object Profiler {
             try {
                 Runtime.getRuntime().removeShutdownHook(shutdownHook)
             } catch (e: Exception) {
+                e.printStackTrace()
                 // Ignore if already shutting down
             } finally {
                 val tasks = delegate.shutdownNow()

@@ -289,7 +289,7 @@ object ContainedExecutors {
         }
 
         // Restrict OS message parsing to I/O and networking contexts to avoid false positives in business logic.
-        if (t is IOException || t is SocketException) {
+        if (t is IOException) {
             if (containsDeniedPhrase(msg)) {
                 return true
             }
