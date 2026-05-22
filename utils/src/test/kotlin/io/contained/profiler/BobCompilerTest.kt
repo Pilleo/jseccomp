@@ -66,6 +66,7 @@ val policy = Policy.builder()
     .base(Policy.PURE_COMPUTE)
     .unblock(
         Syscall.CONNECT,
+        Syscall.MKDIR,
         Syscall.OPEN,
         Syscall.OPENAT
     )

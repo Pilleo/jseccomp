@@ -386,7 +386,7 @@ object ProfilerDaemon {
         fun tryRead(addr: Long, dirfd: Long = -100L): String? {
             if (addr == 0L) return null
             val path = readStringFromProcess(pid, addr) ?: return null
-            if (path.startsWith("/") || dirfd == -101L /* AT_FDCWD is -100 in kernel, but we use -100 in tryRead default */) return path
+            if (path.startsWith("/")) return path
 
             // Resolve relative paths
             val dirPath = if (dirfd == -100L) {
@@ -402,16 +402,20 @@ object ProfilerDaemon {
             return path
         }
         when (syscallName) {
-            "OPEN", "EXECVE", "MKDIR", "RMDIR", "CHMOD", "CHOWN", "LCHOWN", "UNLINK", "READLINK" -> tryRead(
-                args[0],
-                -101L
-            )?.let {
-                paths.add(it)
+            "OPEN", "EXECVE", "MKDIR", "RMDIR", "CHMOD", "FCHMOD", "CHOWN", "LCHOWN", "FCHOWN", "UNLINK", "READLINK", "CHROOT", "UTIME", "UTIMES" ->
+                tryRead(args[0], -100L)?.let { paths.add(it) }
+
+            "SYMLINK", "LINK", "RENAME" -> {
+                tryRead(args[0], -100L)?.let { paths.add(it) }
+                tryRead(args[1], -100L)?.let { paths.add(it) }
             }
 
-            "OPENAT", "EXECVEAT", "OPENAT2" -> tryRead(args[1], args[0])?.let { paths.add(it) }
-            "RENAME", "LINK", "SYMLINK" -> {
-                tryRead(args[0], -101L)?.let { paths.add(it) }; tryRead(args[1], -101L)?.let { paths.add(it) }
+            "OPENAT", "EXECVEAT", "OPENAT2", "MKDIRAT", "UNLINKAT", "FCHMODAT", "FCHOWNAT", "UTIMENSAT", "FSTATAT", "READLINKAT" ->
+                tryRead(args[1], args[0])?.let { paths.add(it) }
+
+            "RENAMEAT", "RENAMEAT2", "LINKAT", "SYMLINKAT" -> {
+                tryRead(args[1], args[0])?.let { paths.add(it) }
+                tryRead(args[3], args[2])?.let { paths.add(it) }
             }
         }
         return paths

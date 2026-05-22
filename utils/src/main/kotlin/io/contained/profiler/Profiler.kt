@@ -10,6 +10,7 @@ import java.io.DataInputStream
 import java.io.File
 import java.io.InputStream
 import java.lang.foreign.Arena
+import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout
 import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
@@ -80,8 +81,8 @@ object Profiler {
         val daemonPid = daemonProcess.pid()
 
         // Set the daemon process as our allowed ptrace tracer under Yama ptrace_scope = 1
-        // PR_SET_PTRACER = 0x59616d61
-        LinuxNative.prctl(0x59616d61, daemonPid, 0, 0, 0)
+        // PR_SET_PTRACER
+        LinuxNative.prctl(LinuxNative.PR_SET_PTRACER, daemonPid, 0, 0, 0)
 
         // Stream daemon errorStream to System.err
         val stderrThread = Thread {
@@ -225,8 +226,8 @@ object Profiler {
         val daemonPid = daemonProcess.pid()
 
         // Set the daemon process as our allowed ptrace tracer under Yama ptrace_scope = 1
-        // PR_SET_PTRACER = 0x59616d61
-        LinuxNative.prctl(0x59616d61, daemonPid, 0, 0, 0)
+        // PR_SET_PTRACER
+        LinuxNative.prctl(LinuxNative.PR_SET_PTRACER, daemonPid, 0, 0, 0)
 
         // Stream daemon errorStream to System.err
         Thread {
@@ -410,24 +411,25 @@ object Profiler {
         workerThreadProvider: () -> Thread?
     ) {
         val arena = Arena.ofShared()
+        val readBuf = arena.allocate(1)
+        val ackBuf = arena.allocate(1)
+        ackBuf.set(ValueLayout.JAVA_BYTE, 0L, 0x41.toByte()) // ACK byte
+        val multiBuf = arena.allocate(8192)
 
         val inputStream = object : InputStream() {
             override fun read(): Int {
-                val b = arena.allocate(1)
-                val res = LinuxNative.read(socketFd, b, 1)
+                val res = LinuxNative.read(socketFd, readBuf, 1)
                 if (res.returnValue <= 0) return -1
-                return b.get(ValueLayout.JAVA_BYTE, 0L).toInt() and 0xFF
+                return readBuf.get(ValueLayout.JAVA_BYTE, 0L).toInt() and 0xFF
             }
 
             override fun read(b: ByteArray, off: Int, len: Int): Int {
                 if (len == 0) return 0
-                val buf = arena.allocate(len.toLong())
-                val res = LinuxNative.read(socketFd, buf, len.toLong())
+                val count = Math.min(len.toLong(), 8192L)
+                val res = LinuxNative.read(socketFd, multiBuf, count)
                 if (res.returnValue <= 0) return -1
                 val readLen = res.returnValue.toInt()
-                for (i in 0 until readLen) {
-                    b[off + i] = buf.get(ValueLayout.JAVA_BYTE, i.toLong())
-                }
+                MemorySegment.copy(multiBuf, ValueLayout.JAVA_BYTE, 0L, b, off, readLen)
                 return readLen
             }
 
@@ -474,9 +476,7 @@ object Profiler {
                             // Write ACK to daemon so the daemon doesn't hang!
                             // ONLY if it's a Seccomp event (pid != 0).
                             if (pid != 0) {
-                                val ack = arena.allocate(1)
-                                ack.set(ValueLayout.JAVA_BYTE, 0L, 0x41.toByte()) // ACK byte
-                                LinuxNative.write(socketFd, ack, 1)
+                                LinuxNative.write(socketFd, ackBuf, 1)
                             }
                             continue // Skip duplicate within 500ms window
                         }
@@ -499,9 +499,7 @@ object Profiler {
                     // Send ACK back to the daemon so it can release the worker thread!
                     // ONLY if it's a Seccomp event (pid != 0). Audit events (pid=0) don't expect ACKs.
                     if (pid != 0) {
-                        val ack = arena.allocate(1)
-                        ack.set(ValueLayout.JAVA_BYTE, 0L, 0x41.toByte()) // ACK byte
-                        LinuxNative.write(socketFd, ack, 1)
+                        LinuxNative.write(socketFd, ackBuf, 1)
                     }
                 }
             } catch (e: Exception) {

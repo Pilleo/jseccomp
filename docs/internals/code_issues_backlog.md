@@ -1,38 +1,37 @@
 # Code Issues Backlog
 
+## Fixed Issues
+
+### ✅ FIXED: Profiler Protocol ACK Corruption
+**Context:** In `Profiler.kt`, the deduplication block correctly uses `ValueLayout.JAVA_BYTE` to write a 1-byte ACK (`0x41`). This was confirmed to be correctly implemented.
+
+### ✅ FIXED: Profiler Socket Write Race Condition
+**Context:** `ProfilerDaemon.sendTraceEvent` is synchronized on a per-socket lock to prevent interleaved writes from concurrent threads (Seccomp vs Landlock Audit).
+
+### ✅ FIXED: Landlock Path Fallback Edge Case
+**Context:** `Landlock.kt` correctly handles cases where `File(path).parent` is null (e.g., relative paths or root-level files) by defaulting to `/`.
+
+### ✅ FIXED: Package Structure
+**Context:** The project is already organized into `enforcer`, `landlock`, `profiler`, and `seccomp` packages.
 
 ## Remaining Issues
 
-### 🔴 High: Profiler Protocol ACK Corruption
-**Context:** In `Profiler.kt`, the deduplication block incorrectly uses `ValueLayout.JAVA_SHORT` to write a 1-byte ACK (`0x41`). This causes stream corruption, as the daemon expects exactly 1 byte but receives 2. This leads to hangs or "Deduplicated" corruption logs in the daemon.
-**Fix:** Change to `ValueLayout.JAVA_BYTE`.
+### 🔴 High: `Policy.PURE_COMPUTE` Security Gaps
+**Context:** `PURE_COMPUTE` is missing blocks for filesystem modification syscalls (`RENAME`, `LINK`, `UNLINK`, `CHMOD`, `CHOWN`, etc.). An attacker could manipulate files without "opening" them.
+**Fix:** Add missing syscalls to `PURE_COMPUTE` definition.
 
-### 🔴 High: Profiler Socket Write Race Condition
-**Context:** The `ProfilerDaemon` sends binary `TraceEvent` structures to the parent JVM. If multiple threads (e.g., Seccomp vs. Landlock Audit) emit events simultaneously, the socket writes can interleave, corrupting the stream.
-**Fix:** Synchronize `sendTraceEvent` in the daemon.
+### 🔴 High: Incomplete AARCH64 Syscall Coverage
+**Context:** AARCH64 relies on modern `*at` variants (e.g., `renameat2`, `mkdirat`, `unlinkat`) which are not currently mapped in `Arch.kt` or `Syscall.kt`. This creates a security bypass on ARM64.
+**Fix:** Map and block `*at` variants.
 
 ### 🟡 Medium: FFM Arena Allocation Performance
-**Context:** The `Profiler.kt` trace listener allocates a new `Arena.ofConfined()` for every single byte read from the daemon. This creates massive GC pressure and CPU overhead during active profiling.
-**Fix:** Use a single long-lived Arena for the lifetime of the trace listener.
+**Context:** The `Profiler.kt` trace listener performs a `segment = arena.allocate(1)` for every single byte read in its `InputStream` implementation. While using a shared arena, the high volume of transient segments creates massive allocation pressure.
+**Fix:** Use a single re-usable buffer for socket reads.
 
 ### 🟡 Medium: Profiler Daemon Path Resolution (AT_FDCWD)
-**Context:** `ProfilerDaemon.getPathArgs` fails to resolve relative paths when `dirfd` is `AT_FDCWD (-100)`. It needs to read `/proc/[pid]/cwd` to determine the tracee's context.
-**Fix:** Implement CWD resolution in the daemon.
-
-### 🔵 Low: Landlock Path Fallback Edge Case
-**Context:** In `Landlock.kt`, `File(path).parent` returns `null` for paths like `/foo`. The fallback logic should handle this and default to `/`.
+**Context:** `ProfilerDaemon.getPathArgs` fails to resolve relative paths for several syscalls and doesn't consistently handle `AT_FDCWD`.
+**Fix:** Implement consistent CWD resolution for all file-related syscalls.
 
 ### 🟡 Medium: Expand `installOnProcess` Integration Coverage
-
-**Context:** `ContainedExecutors.installOnProcess()` is functional and verified by `ProcessContainmentTest.kt` for basic containment. However, it requires deeper validation to be production-ready.
-
-**Needed:**
-- Expand `ProcessContainmentTest.kt` or add a new suite covering:
-  - Subsequent threads inherit the filter (verify with a Thread spawned after install)
-  - JVM stability after process-wide `NO_EXEC` (GC, JIT, classloading continue normally)
-  - Process-wide `NO_NETWORK` doesn't break NIO/epoll
-  - Depth counter correctly accumulates process-wide + thread-local filter counts
-- Document clearly in README and article that this is not yet production-validated
-
-
-### Packages structure does not exist. At least profiler and enforcer should be added
+**Context:** `ContainedExecutors.installOnProcess()` needs deeper validation (inheritance, JVM stability, depth accumulation).
+**Needed:** Expanded test suite.
