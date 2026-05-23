@@ -82,7 +82,9 @@ object ContainedExecutors {
 
         val policy = Policy.combine(*policies)
 
-        val needsLandlock = policy.allowedFsReadPaths.isNotEmpty() || policy.allowedFsWritePaths.isNotEmpty()
+        val needsLandlock = policy.allowedFsReadPaths.isNotEmpty() || 
+                            policy.allowedFsWritePaths.isNotEmpty() ||
+                            policy.isSyscallAllowed(Syscall.IO_URING_SETUP)
         if (needsLandlock) {
             if (processWide) {
                 throw UnsupportedOperationException(

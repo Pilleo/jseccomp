@@ -2,6 +2,7 @@ package io.mazewall.landlock
 
 import io.mazewall.Platform
 import io.mazewall.Policy
+import io.mazewall.Syscall
 import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.enforcer.ContainedExecutors
 import io.mazewall.enforcer.ContainmentViolationException
@@ -315,5 +316,46 @@ class LandlockTest {
 
         executor.shutdown()
         tempDir.toFile().deleteRecursively()
+    }
+
+    // ── Issue #6: Older Kernel Silent Bypasses ──────────────────────────
+    
+    @Test
+    fun `testLandlockAbiGapFailClosed_Rename`() {
+        if (!Landlock.isSupported()) return
+        val abi = Landlock.getAbiVersion()
+        if (abi >= 2) return // Kernel supports it, won't throw
+        
+        val policy = Policy.builder().unblock(Syscall.RENAME).build()
+        val ex = assertFailsWith<UnsupportedOperationException> {
+            Landlock.applyRuleset(policy)
+        }
+        assertTrue(ex.message!!.contains("Policy allows rename/link syscalls, but this kernel"))
+    }
+
+    @Test
+    fun `testLandlockAbiGapFailClosed_Truncate`() {
+        if (!Landlock.isSupported()) return
+        val abi = Landlock.getAbiVersion()
+        if (abi >= 3) return // Kernel supports it, won't throw
+        
+        val policy = Policy.builder().unblock(Syscall.TRUNCATE).build()
+        val ex = assertFailsWith<UnsupportedOperationException> {
+            Landlock.applyRuleset(policy)
+        }
+        assertTrue(ex.message!!.contains("Policy allows truncate syscalls, but this kernel"))
+    }
+
+    @Test
+    fun `testLandlockAbiGapFailClosed_Ioctl`() {
+        if (!Landlock.isSupported()) return
+        val abi = Landlock.getAbiVersion()
+        if (abi >= 5) return // Kernel supports it, won't throw
+        
+        val policy = Policy.builder().unblock(Syscall.IOCTL).build()
+        val ex = assertFailsWith<UnsupportedOperationException> {
+            Landlock.applyRuleset(policy)
+        }
+        assertTrue(ex.message!!.contains("Policy allows ioctl, but this kernel"))
     }
 }

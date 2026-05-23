@@ -2,6 +2,7 @@ package io.mazewall.enforcer
 
 import io.mazewall.Platform
 import io.mazewall.Policy
+import io.mazewall.Syscall
 import io.mazewall.EnabledIfLinuxAndSupported
 import org.junit.jupiter.api.Test
 import java.util.concurrent.Executors
@@ -158,5 +159,20 @@ class ContainedExecutorsTest {
         main.addSuppressed(root)
 
         assertTrue(ContainedExecutors.isContainmentViolation(main), "Should find violation in suppressed exceptions")
+    }
+
+    @Test
+    fun `installOnProcess rejects policies with io_uring due to landlock requirement`() {
+        val policy = Policy.builder()
+            .base(Policy.PURE_COMPUTE)
+            .unblock(Syscall.IO_URING_SETUP)
+            .build()
+            
+        // Unblocking IO_URING_SETUP triggers needsLandlock = true.
+        // installOnProcess does not support Landlock, so it should throw.
+        val ex = assertFailsWith<UnsupportedOperationException> {
+            ContainedExecutors.installOnProcess(policy)
+        }
+        assertTrue(ex.message!!.contains("does not support Landlock filesystem rules"))
     }
 }

@@ -43,7 +43,10 @@ class StackingIntegrationTest {
                 // Install one new syscall block per iteration. Each is distinct, so the
                 // incremental filter logic always adds a new BPF program to the kernel chain.
                 for (syscall in safeSyscalls.take(34)) {
-                    val policy = Policy.builder().block(syscall).build()
+                    val policy = Policy.builder()
+                        .block(Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER) // Prevent Landlock from triggering
+                        .block(syscall)
+                        .build()
                     ContainedExecutors.installOnCurrentThread(policy)
                 }
             } catch (e: IllegalStateException) {

@@ -43,6 +43,18 @@ class Policy private constructor(
     }
 
 
+    /** 
+     * Returns true if the given [syscall] is allowed by this policy. 
+     * This considers both the mode (ALLOW_LIST vs DENY_LIST) and the syscalls set.
+     */
+    fun isSyscallAllowed(syscall: Syscall): Boolean {
+        return if (mode == Mode.DENY_LIST) {
+            !syscalls.contains(syscall)
+        } else {
+            syscalls.contains(syscall)
+        }
+    }
+
     /** Returns the concrete syscall numbers to restrict for the given [arch]. */
     fun syscallNumbers(arch: Arch): IntArray =
         syscalls
@@ -68,7 +80,7 @@ class Policy private constructor(
             .block(Syscall.UMASK, Syscall.UTIME, Syscall.UTIMES, Syscall.UTIMENSAT)
             .block(Syscall.TRUNCATE, Syscall.FTRUNCATE)
             .block(Syscall.MEMFD_CREATE, Syscall.PTRACE)
-            .block(Syscall.IO_URING_SETUP, Syscall.BPF)
+            .block(Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER, Syscall.BPF)
             .block(Syscall.PROCESS_VM_WRITEV, Syscall.PROCESS_VM_READV)
             .block(Syscall.USERFAULTFD, Syscall.UNSHARE, Syscall.SETNS)
             .block(Syscall.MOUNT, Syscall.UMOUNT2, Syscall.PIVOT_ROOT, Syscall.CHROOT)
@@ -79,13 +91,14 @@ class Policy private constructor(
         val NO_NETWORK: Policy = builder()
             .block(Syscall.CONNECT, Syscall.SENDTO, Syscall.SENDMSG, Syscall.SOCKET)
             .block(Syscall.BIND, Syscall.LISTEN, Syscall.ACCEPT, Syscall.ACCEPT4)
+            .block(Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER)
             .build()
 
         /** Blocks process execution syscalls and bypasses like fileless execution. */
         val NO_EXEC: Policy = builder()
             .block(Syscall.EXECVE, Syscall.EXECVEAT)
             .block(Syscall.FORK, Syscall.VFORK)
-            .block(Syscall.MEMFD_CREATE, Syscall.IO_URING_SETUP, Syscall.PTRACE)
+            .block(Syscall.MEMFD_CREATE, Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER, Syscall.PTRACE)
             .block(Syscall.INIT_MODULE, Syscall.FINIT_MODULE)
             .build()
 

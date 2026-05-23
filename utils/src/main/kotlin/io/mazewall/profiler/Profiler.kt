@@ -151,6 +151,11 @@ object Profiler {
             val err = blockError
             if (err != null) throw err
 
+            val usesIoUring = localLogs.any { it.syscallName == "IO_URING_SETUP" || it.syscallName == "IO_URING_ENTER" }
+            if (usesIoUring && (!isLandlockAuditSupported() || System.getenv("MAZEWALL_PROFILER_AUDIT") != "true")) {
+                throw IllegalStateException("Fatal Security Profiling Error: Application uses io_uring, but this kernel does not support Landlock Audit (ABI 7 / Linux 6.13+ required). Async file paths cannot be securely captured. You MUST update your kernel or use IterativeProfiler. Silent profiling bypasses are not permitted.")
+            }
+
             val behavior = BobCompiler.compile(localLogs).copy(
                 stackProfile = localStackProfile.toMap()
             )
@@ -539,6 +544,10 @@ object Profiler {
          * Compiles the captured logs and stack traces into a [BillOfBehavior].
          */
         fun compileBillOfBehavior(): BillOfBehavior {
+            val usesIoUring = recentLogs.any { it.syscallName == "IO_URING_SETUP" || it.syscallName == "IO_URING_ENTER" }
+            if (usesIoUring && (!isLandlockAuditSupported() || System.getenv("MAZEWALL_PROFILER_AUDIT") != "true")) {
+                throw IllegalStateException("Fatal Security Profiling Error: Application uses io_uring, but this kernel does not support Landlock Audit (ABI 7 / Linux 6.13+ required). Async file paths cannot be securely captured. You MUST update your kernel or use IterativeProfiler. Silent profiling bypasses are not permitted.")
+            }
             return BobCompiler.compile(recentLogs).copy(
                 stackProfile = recentStackProfiles.toMap()
             )

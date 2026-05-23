@@ -199,4 +199,16 @@ class PolicyTest {
         assertTrue(restricted.contains(arch.execve))
         assertTrue(policy.allowedFsReadPaths.isNotEmpty(), "STRICT_SANDBOX should allow reading from classpath")
     }
+    @Test
+    fun `isSyscallAllowed checks mode correctly`() {
+        // Deny list mode
+        val p1 = Policy.builder().mode(Policy.Mode.DENY_LIST).block(Syscall.OPEN).build()
+        assertFalse(p1.isSyscallAllowed(Syscall.OPEN))
+        assertTrue(p1.isSyscallAllowed(Syscall.CLOSE))
+
+        // Allow list mode
+        val p2 = Policy.builder().mode(Policy.Mode.ALLOW_LIST).allow(Syscall.READ).build()
+        assertTrue(p2.isSyscallAllowed(Syscall.READ))
+        assertFalse(p2.isSyscallAllowed(Syscall.WRITE))
+    }
 }

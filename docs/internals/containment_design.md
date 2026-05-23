@@ -283,6 +283,14 @@ the JVM throws `NoClassDefFoundError`. `Policy.Builder.allowJvmClasspath()` read
 Always call `allowJvmClasspath()` when writing tests that activate Landlock on a
 thread that may still lazy-load test infrastructure classes.
 
+### Landlock TSYNC (ABI 8 / Linux 7.0+)
+
+Historically, Landlock rulesets were strictly thread-scoped and could not be applied retroactively to sibling threads. To lock down a multi-threaded JVM process on older kernels, a wrapper launcher (e.g., C or Rust) must apply the ruleset before invoking `execve` on the JVM.
+
+Linux 7.0 (ABI 8) introduces `LANDLOCK_RESTRICT_SELF_TSYNC` which synchronizes the ruleset to all existing threads in the process atomically. However, `mazewall` keeps this flag **disabled by default** (always passing `flags=0L` during enforcement ruleset application) due to:
+1. **Sibling Thread Transparency:** The JIT compiler and GC worker threads often require system path permissions that sandboxed application threads lack. Retroactive lockdown causes process deadlocks or aborts.
+2. **Test Suite Collisions:** TSYNC sandboxes the parent Gradle worker process during execution, crashing completely unrelated sibling tests with `AccessDeniedException`.
+
 ### `applyProfilingRuleset()` vs. `applyRuleset(policy)`
 
 - `applyRuleset(policy)` — enforcement path; used by `ContainedExecutors`.

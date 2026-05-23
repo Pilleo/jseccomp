@@ -17,7 +17,7 @@ class LandlockTsyncIntegrationTest {
         @JvmStatic
         fun main(args: Array<String>) {
             val policy = Policy.builder()
-                .block(Syscall.OPEN, Syscall.OPENAT)
+                .block(Syscall.OPEN, Syscall.OPENAT, Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER)
                 .build()
 
             Landlock.applyRuleset(policy)

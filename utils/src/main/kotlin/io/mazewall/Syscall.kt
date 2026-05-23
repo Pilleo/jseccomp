@@ -31,6 +31,7 @@ enum class Syscall {
     FINIT_MODULE,
     MEMFD_CREATE,
     IO_URING_SETUP,
+    IO_URING_ENTER,
     BPF,
     PROCESS_VM_WRITEV,
     PROCESS_VM_READV,
@@ -133,6 +134,7 @@ enum class Syscall {
         FINIT_MODULE -> arch.finitModule
         MEMFD_CREATE -> arch.memfdCreate
         IO_URING_SETUP -> arch.ioUringSetup
+        IO_URING_ENTER -> arch.ioUringEnter
         BPF -> arch.bpf
         PROCESS_VM_WRITEV -> arch.processVmWritev
         PROCESS_VM_READV -> arch.processVmReadv

@@ -40,9 +40,17 @@ class PureJavaBpfEngineTest {
     @Test
     @EnabledIfLinuxAndSupported
     fun `test PureJavaBpfEngine with large policy`() {
+        val safeSyscalls = listOf(
+            Syscall.EXECVE, Syscall.EXECVEAT, Syscall.FORK, Syscall.VFORK,
+            Syscall.CONNECT, Syscall.SOCKET, Syscall.BIND, Syscall.LISTEN,
+            Syscall.ACCEPT, Syscall.ACCEPT4, Syscall.SENDTO, Syscall.SENDMSG,
+            Syscall.MEMFD_CREATE, Syscall.IO_URING_SETUP, Syscall.BPF, Syscall.PTRACE,
+            Syscall.PROCESS_VM_WRITEV, Syscall.PROCESS_VM_READV,
+            Syscall.USERFAULTFD, Syscall.UNSHARE, Syscall.SETNS
+        )
         val builder = Policy.builder()
-        // Block a reasonable number of syscalls to exercise BPF generation
-        Syscall.entries.take(20).forEach { builder.block(it) }
+        // Block a reasonable number of safe syscalls to exercise BPF generation
+        safeSyscalls.take(20).forEach { builder.block(it) }
         val policy = builder.build()
 
         val executor = Executors.newSingleThreadExecutor()

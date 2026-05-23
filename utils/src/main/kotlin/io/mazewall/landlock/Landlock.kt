@@ -3,6 +3,7 @@ package io.mazewall.landlock
 import io.mazewall.LinuxNative
 import io.mazewall.Platform
 import io.mazewall.Policy
+import io.mazewall.Syscall
 import java.io.File
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
@@ -45,11 +46,16 @@ import java.util.logging.Logger
  * This implementation includes ABI-conditional flags so that newer capabilities are used
  * automatically when available, while remaining safe on older kernels.
  *
- * ### Process-wide Landlock (future / launcher workaround)
- * `landlock_restrict_self` only affects the calling thread and its future children. It
- * **cannot** retroactively restrict existing threads (unlike seccomp with `TSYNC`).
- * For true process-wide Landlock, a native C/Rust launcher must apply the ruleset
- * *before* `execve`-ing the JVM, so that all JVM threads inherit it.
+ * ### Process-wide Landlock & TSYNC
+ * Historically (ABI v1 to v7), `landlock_restrict_self` only affected the calling thread and its
+ * future children, and could **not** retroactively restrict existing sibling threads. To achieve
+ * true process-wide Landlock on these older kernels, a launcher wrapper (e.g. native C/Rust binary)
+ * must apply the ruleset *before* `execve`-ing the JVM, so that all JVM threads inherit it.
+ *
+ * Starting with **ABI v8 (Linux 7.0)**, the kernel introduces `LANDLOCK_RESTRICT_SELF_TSYNC` which
+ * permits retroactive process-wide synchronization from within an existing thread. However, because
+ * retroactive process-wide restriction breaks sibling thread transparency in multi-threaded JVMs
+ * (GC, JIT, and test runners), `mazewall` disables it by default in standard enforcement.
  *
  * @see io.mazewall.Policy.Builder.allowFsRead
  * @see io.mazewall.Policy.Builder.allowFsWrite
@@ -323,7 +329,12 @@ object Landlock {
      * @throws RuntimeException if any Landlock syscall fails unexpectedly.
      */
     fun applyRuleset(policy: Policy) {
-        if (policy.allowedFsReadPaths.isEmpty() && policy.allowedFsWritePaths.isEmpty()) {
+        val needsLandlock = policy.allowedFsReadPaths.isNotEmpty() ||
+                            policy.allowedFsWritePaths.isNotEmpty() ||
+                            policy.isSyscallAllowed(Syscall.IO_URING_SETUP) ||
+                            policy.isSyscallAllowed(Syscall.IO_URING_ENTER)
+                            
+        if (!needsLandlock) {
             return // No Landlock needed
         }
 
@@ -350,9 +361,23 @@ object Landlock {
                 LANDLOCK_ACCESS_FS_MAKE_REG or LANDLOCK_ACCESS_FS_MAKE_SOCK or
                 LANDLOCK_ACCESS_FS_MAKE_FIFO or LANDLOCK_ACCESS_FS_MAKE_BLOCK or
                 LANDLOCK_ACCESS_FS_MAKE_SYM
-        if (abi >= 2) accessMaskFs = accessMaskFs or LANDLOCK_ACCESS_FS_REFER
-        if (abi >= 3) accessMaskFs = accessMaskFs or LANDLOCK_ACCESS_FS_TRUNCATE
-        if (abi >= 5) accessMaskFs = accessMaskFs or LANDLOCK_ACCESS_FS_IOCTL_DEV
+        if (abi >= 2) {
+            accessMaskFs = accessMaskFs or LANDLOCK_ACCESS_FS_REFER
+        } else if (policy.isSyscallAllowed(Syscall.RENAME) || policy.isSyscallAllowed(Syscall.RENAMEAT) || policy.isSyscallAllowed(Syscall.RENAMEAT2) || policy.isSyscallAllowed(Syscall.LINK) || policy.isSyscallAllowed(Syscall.LINKAT)) {
+            throw UnsupportedOperationException("Fatal Security Error: Policy allows rename/link syscalls, but this kernel (Landlock ABI $abi) is too old to restrict them (ABI 2 / Linux 5.19+ required). Update your kernel or block these syscalls.")
+        }
+        
+        if (abi >= 3) {
+            accessMaskFs = accessMaskFs or LANDLOCK_ACCESS_FS_TRUNCATE
+        } else if (policy.isSyscallAllowed(Syscall.TRUNCATE) || policy.isSyscallAllowed(Syscall.FTRUNCATE)) {
+            throw UnsupportedOperationException("Fatal Security Error: Policy allows truncate syscalls, but this kernel (Landlock ABI $abi) is too old to restrict them (ABI 3 / Linux 6.2+ required). Update your kernel or block these syscalls.")
+        }
+        
+        if (abi >= 5) {
+            accessMaskFs = accessMaskFs or LANDLOCK_ACCESS_FS_IOCTL_DEV
+        } else if (policy.isSyscallAllowed(Syscall.IOCTL)) {
+            throw UnsupportedOperationException("Fatal Security Error: Policy allows ioctl, but this kernel (Landlock ABI $abi) is too old to restrict dev ioctls (ABI 5 / Linux 6.10+ required). Update your kernel or block ioctl.")
+        }
 
         // All access flags for read + execute (needed for JVM classpath)
         val classpathFlags = allFsRead or LANDLOCK_ACCESS_FS_EXECUTE

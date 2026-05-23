@@ -37,7 +37,7 @@ object SeccompIsolatedTestApp {
 
     private fun testProcessWide() {
         val safeGlobalPolicy = Policy.builder()
-            .block(Syscall.EXECVE, Syscall.EXECVEAT)
+            .block(Syscall.EXECVE, Syscall.EXECVEAT, Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER)
             .allowMmapExec()
             .allowNonThreadClone()
             .build()
