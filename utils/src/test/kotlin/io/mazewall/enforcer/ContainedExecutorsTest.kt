@@ -154,7 +154,7 @@ class ContainedExecutorsTest {
         val deeplyNested = RuntimeException("outer", nested)
 
         assertTrue(
-            ContainedExecutors.isContainmentViolation(deeplyNested),
+            ContainmentViolationDetector.isContainmentViolation(deeplyNested),
             "Should find violation in nested exception chain",
         )
     }
@@ -166,7 +166,7 @@ class ContainedExecutorsTest {
         val main = RuntimeException("main")
         main.addSuppressed(root)
 
-        assertTrue(ContainedExecutors.isContainmentViolation(main), "Should find violation in suppressed exceptions")
+        assertTrue(ContainmentViolationDetector.isContainmentViolation(main), "Should find violation in suppressed exceptions")
     }
 
     @Test

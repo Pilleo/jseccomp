@@ -8,10 +8,12 @@ import io.mazewall.enforcer.ContainedExecutors
 import io.mazewall.enforcer.ContainmentViolationException
 import io.mazewall.profiler.Profiler
 import java.io.File
+import java.io.IOException
 import java.lang.foreign.Arena
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
@@ -43,8 +45,8 @@ fun runProfileAndEnforce() {
                     client.getOutputStream().write("Welcome to the secure endpoint!\n".toByteArray())
                     client.close()
                 }
-            } catch (e: Exception) {
-                // Server socket closed
+            } catch (@Suppress("SwallowedException") e: IOException) {
+                // Expected when server socket is closed during shutdown
             }
         }
 
@@ -134,9 +136,9 @@ fun runProfileAndEnforce() {
         val result = future.get()
         println("\u001b[32;1m[SUCCESS] Workload executed successfully under containment!\u001b[0m")
         println(result)
-    } catch (e: Exception) {
+    } catch (e: ExecutionException) {
         println("\u001b[31;1m[FAIL] Workload was blocked by mistake: ${e.message}\u001b[0m")
-        e.printStackTrace()
+        println(e.stackTraceToString())
     }
 
     // ------------------------------------------------------------
@@ -156,7 +158,7 @@ fun runProfileAndEnforce() {
         val future = containedExecutor.submit(attackerPathTask)
         val stolenData = future.get()
         println("\u001b[31;1m[ALERT] VULNERABILITY! Stolen data leaked (Is Landlock supported on this kernel?):\n$stolenData\u001b[0m")
-    } catch (e: Exception) {
+    } catch (e: ExecutionException) {
         val cause = e.cause ?: e
         if (cause is ContainmentViolationException) {
             println("\u001b[32;1m[BOUNCER SUCCESS] Landlock blocked the file read attempt at the kernel level!\u001b[0m")
@@ -164,7 +166,7 @@ fun runProfileAndEnforce() {
             println("  Original Cause: \u001b[33m${cause.cause?.javaClass?.name}: ${cause.cause?.message}\u001b[0m")
         } else {
             println("\u001b[31m[ERROR] Unexpected execution failure: ${e.message}\u001b[0m")
-            e.printStackTrace()
+            println(e.stackTraceToString())
         }
     }
 
@@ -211,7 +213,7 @@ fun runProfileAndEnforce() {
         val future = containedExecutor.submit(attackerIoUringEvasionTask)
         val evasionResult = future.get()
         println("\u001b[31;1m[ALERT] VULNERABILITY! Evasion succeeded: $evasionResult\u001b[0m")
-    } catch (e: Exception) {
+    } catch (e: ExecutionException) {
         val cause = e.cause ?: e
         if (cause is ContainmentViolationException) {
             println("\u001b[32;1m[BOUNCER SUCCESS] The Perfect Union succeeded! Landlock blocked the io_uring async file read!\u001b[0m")
@@ -219,7 +221,7 @@ fun runProfileAndEnforce() {
             println("  Original Cause: \u001b[33m${cause.cause?.javaClass?.name}: ${cause.cause?.message}\u001b[0m")
         } else {
             println("\u001b[31m[ERROR] Unexpected execution failure: ${e.message}\u001b[0m")
-            e.printStackTrace()
+            println(e.stackTraceToString())
         }
     }
 

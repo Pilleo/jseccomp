@@ -109,106 +109,353 @@ enum class Syscall {
     ;
 
     /** Returns the syscall number for the given [arch], or -1 if not available. */
-    fun numberFor(arch: Arch): Int =
-        when (this) {
-            FORK -> arch.fork
-            VFORK -> arch.vfork
-            CLONE -> arch.clone
-            CLONE3 -> arch.clone3
-            EXECVE -> arch.execve
-            EXECVEAT -> arch.execveat
-            CONNECT -> arch.connect
-            BIND -> arch.bind
-            LISTEN -> arch.listen
-            ACCEPT -> arch.accept
-            ACCEPT4 -> arch.accept4
-            SENDTO -> arch.sendto
-            SENDMSG -> arch.sendmsg
-            OPEN -> arch.open
-            OPENAT -> arch.openat
-            OPENAT2 -> arch.openat2
-            MMAP -> arch.mmap
-            MPROTECT -> arch.mprotect
-            MADVISE -> arch.madvise
-            PTRACE -> arch.ptrace
-            SOCKET -> arch.socket
-            INIT_MODULE -> arch.initModule
-            FINIT_MODULE -> arch.finitModule
-            MEMFD_CREATE -> arch.memfdCreate
-            IO_URING_SETUP -> arch.ioUringSetup
-            IO_URING_ENTER -> arch.ioUringEnter
-            BPF -> arch.bpf
-            PROCESS_VM_WRITEV -> arch.processVmWritev
-            PROCESS_VM_READV -> arch.processVmReadv
-            USERFAULTFD -> arch.userfaultfd
-            UNSHARE -> arch.unshare
-            SETNS -> arch.setns
-            MOUNT -> arch.mount
-            UMOUNT2 -> arch.umount2
-            PIVOT_ROOT -> arch.pivotRoot
-            CHROOT -> arch.chroot
-            IOCTL -> arch.ioctl
-            PRCTL -> arch.prctl
-            READ -> arch.read
-            WRITE -> arch.write
-            CLOSE -> arch.close
-            FSTAT -> arch.fstat
-            LSEEK -> arch.lseek
-            MUNMAP -> arch.munmap
-            BRK -> arch.brk
-            RT_SIGACTION -> arch.rt_sigaction
-            RT_SIGPROCMASK -> arch.rt_sigprocmask
-            RT_SIGRETURN -> arch.rt_sigreturn
-            PREAD64 -> arch.pread64
-            PWRITE64 -> arch.pwrite64
-            FCNTL -> arch.fcntl
-            FUTEX -> arch.futex
-            SCHED_YIELD -> arch.sched_yield
-            GETRANDOM -> arch.getrandom
-            CLOCK_GETTIME -> arch.clock_gettime
-            EXIT -> arch.exit
-            EXIT_GROUP -> arch.exit_group
+    fun numberFor(arch: Arch): Int = SyscallMapper.numberFor(this, arch)
+}
 
-            GETPID -> arch.getpid
-            GETPPID -> arch.getppid
-            GETUID -> arch.getuid
-            GETEUID -> arch.geteuid
-            GETGID -> arch.getgid
-            GETEGID -> arch.getegid
-            GETTID -> arch.gettid
-            GETCWD -> arch.getcwd
-            UMASK -> arch.umask
-            CHOWN -> arch.chown
-            LCHOWN -> arch.lchown
-            FCHOWN -> arch.fchown
-            FCHOWNAT -> arch.fchownat
-            UTIME -> arch.utime
-            UTIMES -> arch.utimes
-            UTIMENSAT -> arch.utimensat
-            MKDIR -> arch.mkdir
-            MKDIRAT -> arch.mkdirat
-            RMDIR -> arch.rmdir
-            RENAME -> arch.rename
-            RENAMEAT -> arch.renameat
-            RENAMEAT2 -> arch.renameat2
-            LINK -> arch.link
-            LINKAT -> arch.linkat
-            UNLINK -> arch.unlink
-            UNLINKAT -> arch.unlinkat
-            SYMLINK -> arch.symlink
-            SYMLINKAT -> arch.symlinkat
-            READLINK -> arch.readlink
-            READLINKAT -> arch.readlinkat
-            CHMOD -> arch.chmod
-            FCHMOD -> arch.fchmod
-            FCHMODAT -> arch.fchmodat
-            FSTATAT -> arch.fstatat
-            STATX -> arch.statx
-            FSYNC -> arch.fsync
-            FDATASYNC -> arch.fdatasync
-            TRUNCATE -> arch.truncate
-            FTRUNCATE -> arch.ftruncate
-            PAUSE -> arch.pause
-            NANOSLEEP -> arch.nanosleep
+/**
+ * Internal helper for mapping [Syscall] to architecture-specific numbers.
+ */
+internal object SyscallMapper {
+    fun numberFor(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.FORK, Syscall.VFORK, Syscall.CLONE, Syscall.CLONE3, Syscall.EXECVE, Syscall.EXECVEAT, Syscall.EXIT, Syscall.EXIT_GROUP,
+            Syscall.GETTID, Syscall.GETPID, Syscall.GETPPID, Syscall.GETUID, Syscall.GETEUID, Syscall.GETGID, Syscall.GETEGID, Syscall.PTRACE ->
+                ProcessSyscallMapper.numberFor(syscall, arch)
+
+            Syscall.CONNECT, Syscall.BIND, Syscall.LISTEN, Syscall.ACCEPT, Syscall.ACCEPT4, Syscall.SENDTO, Syscall.SENDMSG, Syscall.SOCKET ->
+                NetworkSyscallMapper.numberFor(syscall, arch)
+
+            Syscall.OPEN, Syscall.OPENAT, Syscall.OPENAT2, Syscall.READ, Syscall.WRITE, Syscall.CLOSE, Syscall.FSTAT, Syscall.LSEEK,
+            Syscall.PREAD64, Syscall.PWRITE64, Syscall.FCNTL, Syscall.FSYNC, Syscall.FDATASYNC ->
+                FsSyscallMapper.numberForBasic(syscall, arch)
+
+            Syscall.TRUNCATE, Syscall.FTRUNCATE, Syscall.GETCWD, Syscall.UMASK, Syscall.CHOWN, Syscall.LCHOWN, Syscall.FCHOWN, Syscall.FCHOWNAT,
+            Syscall.UTIME, Syscall.UTIMES, Syscall.UTIMENSAT, Syscall.MKDIR, Syscall.MKDIRAT, Syscall.RMDIR ->
+                FsSyscallMapper.numberForAttr(syscall, arch)
+
+            Syscall.RENAME, Syscall.RENAMEAT, Syscall.RENAMEAT2, Syscall.LINK, Syscall.LINKAT, Syscall.UNLINK, Syscall.UNLINKAT,
+            Syscall.SYMLINK, Syscall.SYMLINKAT, Syscall.READLINK, Syscall.READLINKAT, Syscall.CHMOD, Syscall.FCHMOD, Syscall.FCHMODAT,
+            Syscall.FSTATAT, Syscall.STATX ->
+                FsSyscallMapper.numberForOps(syscall, arch)
+
+            Syscall.MMAP, Syscall.MPROTECT, Syscall.MADVISE, Syscall.MEMFD_CREATE, Syscall.MUNMAP, Syscall.BRK ->
+                MemorySyscallMapper.numberFor(syscall, arch)
+
+            else -> OtherSyscallMapper.numberFor(syscall, arch)
+        }
+}
+
+internal object ProcessSyscallMapper {
+    fun numberFor(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.FORK, Syscall.VFORK, Syscall.CLONE, Syscall.CLONE3 -> numberForLifecycle(syscall, arch)
+            Syscall.EXECVE, Syscall.EXECVEAT, Syscall.EXIT, Syscall.EXIT_GROUP -> numberForExecution(syscall, arch)
+            else -> numberForIdentity(syscall, arch)
+        }
+
+    private fun numberForLifecycle(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.FORK -> arch.fork
+            Syscall.VFORK -> arch.vfork
+            Syscall.CLONE -> arch.clone
+            Syscall.CLONE3 -> arch.clone3
+            else -> -1
+        }
+
+    private fun numberForExecution(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.EXECVE -> arch.execve
+            Syscall.EXECVEAT -> arch.execveat
+            Syscall.EXIT -> arch.exit
+            Syscall.EXIT_GROUP -> arch.exit_group
+            else -> -1
+        }
+
+    private fun numberForIdentity(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.GETTID -> arch.gettid
+            Syscall.GETPID -> arch.getpid
+            Syscall.GETPPID -> arch.getppid
+            Syscall.GETUID -> arch.getuid
+            Syscall.GETEUID -> arch.geteuid
+            Syscall.GETGID -> arch.getgid
+            Syscall.GETEGID -> arch.getegid
+            Syscall.PTRACE -> arch.ptrace
+            else -> -1
+        }
+}
+
+internal object NetworkSyscallMapper {
+    fun numberFor(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.CONNECT -> arch.connect
+            Syscall.BIND -> arch.bind
+            Syscall.LISTEN -> arch.listen
+            Syscall.ACCEPT -> arch.accept
+            Syscall.ACCEPT4 -> arch.accept4
+            Syscall.SENDTO -> arch.sendto
+            Syscall.SENDMSG -> arch.sendmsg
+            Syscall.SOCKET -> arch.socket
+            else -> -1
+        }
+}
+
+internal object FsSyscallMapper {
+    fun numberForBasic(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.OPEN, Syscall.OPENAT, Syscall.OPENAT2 -> numberForOpen(syscall, arch)
+            Syscall.READ, Syscall.WRITE, Syscall.CLOSE, Syscall.FSTAT, Syscall.LSEEK -> numberForIO(syscall, arch)
+            else -> numberForMisc(syscall, arch)
+        }
+
+    private fun numberForOpen(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.OPEN -> arch.open
+            Syscall.OPENAT -> arch.openat
+            Syscall.OPENAT2 -> arch.openat2
+            else -> -1
+        }
+
+    private fun numberForIO(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.READ -> arch.read
+            Syscall.WRITE -> arch.write
+            Syscall.CLOSE -> arch.close
+            Syscall.FSTAT -> arch.fstat
+            Syscall.LSEEK -> arch.lseek
+            else -> -1
+        }
+
+    private fun numberForMisc(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.PREAD64 -> arch.pread64
+            Syscall.PWRITE64 -> arch.pwrite64
+            Syscall.FCNTL -> arch.fcntl
+            Syscall.FSYNC -> arch.fsync
+            Syscall.FDATASYNC -> arch.fdatasync
+            Syscall.MUNMAP -> arch.munmap
+            Syscall.BRK -> arch.brk
+            else -> -1
+        }
+
+    fun numberForAttr(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.TRUNCATE, Syscall.FTRUNCATE, Syscall.GETCWD, Syscall.UMASK -> numberForAttrBasic(syscall, arch)
+            else -> numberForAttrAdvanced(syscall, arch)
+        }
+
+    private fun numberForAttrBasic(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.TRUNCATE -> arch.truncate
+            Syscall.FTRUNCATE -> arch.ftruncate
+            Syscall.GETCWD -> arch.getcwd
+            Syscall.UMASK -> arch.umask
+            else -> -1
+        }
+
+    private fun numberForAttrAdvanced(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.CHOWN -> arch.chown
+            Syscall.LCHOWN -> arch.lchown
+            Syscall.FCHOWN -> arch.fchown
+            Syscall.FCHOWNAT -> arch.fchownat
+            Syscall.UTIME -> arch.utime
+            Syscall.UTIMES -> arch.utimes
+            Syscall.UTIMENSAT -> arch.utimensat
+            Syscall.MKDIR -> arch.mkdir
+            Syscall.MKDIRAT -> arch.mkdirat
+            Syscall.RMDIR -> arch.rmdir
+            else -> -1
+        }
+
+    fun numberForOps(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.RENAME, Syscall.RENAMEAT, Syscall.RENAMEAT2, Syscall.LINK, Syscall.LINKAT, Syscall.UNLINK, Syscall.UNLINKAT -> numberForPath(
+                syscall,
+                arch
+            )
+
+            else -> numberForMetadata(syscall, arch)
+        }
+
+    private fun numberForPath(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.RENAME -> arch.rename
+            Syscall.RENAMEAT -> arch.renameat
+            Syscall.RENAMEAT2 -> arch.renameat2
+            Syscall.LINK -> arch.link
+            Syscall.LINKAT -> arch.linkat
+            Syscall.UNLINK -> arch.unlink
+            Syscall.UNLINKAT -> arch.unlinkat
+            else -> -1
+        }
+
+    private fun numberForMetadata(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.SYMLINK -> arch.symlink
+            Syscall.SYMLINKAT -> arch.symlinkat
+            Syscall.READLINK -> arch.readlink
+            Syscall.READLINKAT -> arch.readlinkat
+            Syscall.CHMOD -> arch.chmod
+            Syscall.FCHMOD -> arch.fchmod
+            Syscall.FCHMODAT -> arch.fchmodat
+            Syscall.FSTATAT -> arch.fstatat
+            Syscall.STATX -> arch.statx
+            else -> -1
+        }
+}
+
+internal object MemorySyscallMapper {
+    fun numberFor(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.MMAP -> arch.mmap
+            Syscall.MPROTECT -> arch.mprotect
+            Syscall.MADVISE -> arch.madvise
+            Syscall.MUNMAP -> arch.munmap
+            Syscall.BRK -> arch.brk
+            Syscall.MEMFD_CREATE -> arch.memfdCreate
+            else -> -1
+        }
+}
+
+internal object OtherSyscallMapper {
+    fun numberFor(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER, Syscall.BPF -> numberForAdvancedIO(syscall, arch)
+            Syscall.PROCESS_VM_WRITEV, Syscall.PROCESS_VM_READV, Syscall.USERFAULTFD -> numberForInterProcess(
+                syscall,
+                arch
+            )
+
+            else -> numberForSystem(syscall, arch)
+        }
+
+    private fun numberForAdvancedIO(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.IO_URING_SETUP -> arch.ioUringSetup
+            Syscall.IO_URING_ENTER -> arch.ioUringEnter
+            Syscall.BPF -> arch.bpf
+            else -> -1
+        }
+
+    private fun numberForInterProcess(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.PROCESS_VM_WRITEV -> arch.processVmWritev
+            Syscall.PROCESS_VM_READV -> arch.processVmReadv
+            Syscall.USERFAULTFD -> arch.userfaultfd
+            else -> -1
+        }
+
+    private fun numberForSystem(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.UNSHARE, Syscall.SETNS, Syscall.MOUNT, Syscall.UMOUNT2 -> numberForResource(syscall, arch)
+            Syscall.RT_SIGACTION, Syscall.RT_SIGPROCMASK, Syscall.RT_SIGRETURN -> numberForSignal(syscall, arch)
+            else -> numberForSystemMisc(syscall, arch)
+        }
+
+    private fun numberForResource(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.UNSHARE -> arch.unshare
+            Syscall.SETNS -> arch.setns
+            Syscall.MOUNT -> arch.mount
+            Syscall.UMOUNT2 -> arch.umount2
+            else -> -1
+        }
+
+    private fun numberForSignal(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.RT_SIGACTION -> arch.rt_sigaction
+            Syscall.RT_SIGPROCMASK -> arch.rt_sigprocmask
+            Syscall.RT_SIGRETURN -> arch.rt_sigreturn
+            else -> -1
+        }
+
+    private fun numberForSystemMisc(
+        syscall: Syscall,
+        arch: Arch,
+    ): Int =
+        when (syscall) {
+            Syscall.PIVOT_ROOT -> arch.pivotRoot
+            Syscall.CHROOT -> arch.chroot
+            Syscall.IOCTL -> arch.ioctl
+            Syscall.PRCTL -> arch.prctl
+            Syscall.FUTEX -> arch.futex
+            Syscall.SCHED_YIELD -> arch.sched_yield
+            Syscall.GETRANDOM -> arch.getrandom
+            Syscall.CLOCK_GETTIME -> arch.clock_gettime
+            Syscall.PAUSE -> arch.pause
+            Syscall.NANOSLEEP -> arch.nanosleep
+            Syscall.INIT_MODULE -> arch.initModule
+            Syscall.FINIT_MODULE -> arch.finitModule
+            else -> -1
         }
 }

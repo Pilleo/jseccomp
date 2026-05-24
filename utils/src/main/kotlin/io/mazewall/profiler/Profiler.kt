@@ -7,6 +7,7 @@ import io.mazewall.Policy
 import java.io.BufferedInputStream
 import java.io.DataInputStream
 import java.io.File
+import java.io.IOException
 import java.io.InputStream
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
@@ -89,12 +90,12 @@ object Profiler {
                         localPathCache,
                     ) { workerThread }
 
-                    try {
-                        blockResult = block()
-                    } catch (t: Throwable) {
-                        blockError = t
-                    }
+                    blockResult = block()
                 }
+
+            thread.uncaughtExceptionHandler = Thread.UncaughtExceptionHandler { _, e ->
+                blockError = e
+            }
 
             workerThread = thread
             thread.start()
@@ -224,99 +225,20 @@ object Profiler {
         pathCache: MutableMap<String, Long>,
         workerThreadProvider: () -> Thread?,
     ) {
-        val installLatch = CountDownLatch(1)
-        val proceedLatch = CountDownLatch(1)
-        val listenerFd = AtomicInteger(-1)
-        val installError = AtomicReference<Throwable?>(null)
-
-        val coordinatorThread =
-            Thread {
-                try {
-                    installLatch.await()
-                    val fd = listenerFd.get()
-                    if (fd < 0) {
-                        val err = installError.get() ?: IllegalStateException("Failed to install seccomp filter")
-                        throw err
-                    }
-
-                    val socketFd = connectWithRetry(socketPath)
-                    var success = false
-                    try {
-                        val sent = sendDescriptor(socketFd, fd)
-                        if (!sent) {
-                            throw IllegalStateException("Failed to send seccomp listener FD to daemon")
-                        }
-
-                        // Wait for ACK byte from daemon
-                        Arena.ofConfined().use { arena ->
-                            val ackBuf = arena.allocate(1)
-                            val res = LinuxNative.read(socketFd, ackBuf, 1)
-                            if (res.returnValue != 1L || ackBuf.get(ValueLayout.JAVA_BYTE, 0) != 0xAC.toByte()) {
-                                throw IllegalStateException("Daemon failed to ACK listener receipt")
-                            }
-                        }
-
-                        // Start listener thread for this socket to receive TraceEvents
-                        startTraceListener(socketFd, accumulatedLogs, stackTracesMap, pathCache, workerThreadProvider)
-                        success = true
-                    } finally {
-                        if (!success) {
-                            LinuxNative.close(socketFd)
-                        }
-                        LinuxNative.close(fd)
-                    }
-                } catch (t: Throwable) {
-                    installError.set(t)
-                } finally {
-                    proceedLatch.countDown()
-                }
-            }.apply {
-                isDaemon = true
-                name = "profiler-coordinator"
-            }
-
-        coordinatorThread.start()
-
-        try {
-            val r1 = LinuxNative.prctl(LinuxNative.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
-            if (r1.returnValue != 0L) {
-                throw IllegalStateException("prctl(PR_SET_NO_NEW_PRIVS) failed with errno ${r1.errno}")
-            }
-
-            val arch = Arch.current()
-            // We no longer need to unblock bootstrap network system calls because socket connections
-            // and descriptor passing are completely offloaded to the un-sandboxed coordinator thread!
-            val filters = BpfFilter.build(arch, policy, profilingMode = true)
-
-            Arena.ofConfined().use { arena ->
-                val prog = LinuxNative.newSockFProg(arena, filters)
-
-                val r =
-                    LinuxNative.syscall(
-                        arch.seccompSyscallNumber.toLong(),
-                        LinuxNative.SECCOMP_SET_MODE_FILTER.toLong(),
-                        LinuxNative.SECCOMP_FILTER_FLAG_NEW_LISTENER,
-                        prog,
-                    )
-
-                if (r.returnValue < 0) {
-                    throw IllegalStateException("Failed to install seccomp profiling listener: errno=${r.errno}")
-                }
-
-                listenerFd.set(r.returnValue.toInt())
-            }
-        } catch (t: Throwable) {
-            installError.set(t)
-        } finally {
-            installLatch.countDown()
-        }
-
-        proceedLatch.await()
-        val err = installError.get()
-        if (err != null) {
-            throw err
-        }
+        ProfilerInstaller.installProfilingFilterForThread(
+            socketPath,
+            policy,
+            accumulatedLogs,
+            stackTracesMap,
+            pathCache,
+            workerThreadProvider,
+            { path -> connectWithRetry(path) },
+            { fd, logs, traces, cache, provider -> startTraceListener(fd, logs, traces, cache, provider) }
+        )
     }
+
+    internal fun sendDescriptorInternal(socketFd: Int, fdToSend: Int): Boolean =
+        sendDescriptor(socketFd, fdToSend)
 
     private fun startTraceListener(
         socketFd: Int,
@@ -335,8 +257,13 @@ object Profiler {
             object : InputStream() {
                 override fun read(): Int {
                     val res = LinuxNative.read(socketFd, readBuf, 1)
-                    if (res.returnValue <= 0) return -1
-                    return readBuf.get(ValueLayout.JAVA_BYTE, 0L).toInt() and 0xFF
+                    val value =
+                        if (res.returnValue <= 0) {
+                            -1
+                        } else {
+                            readBuf.get(ValueLayout.JAVA_BYTE, 0L).toInt() and 0xFF
+                        }
+                    return value
                 }
 
                 override fun read(
@@ -347,9 +274,14 @@ object Profiler {
                     if (len == 0) return 0
                     val count = Math.min(len.toLong(), 8192L)
                     val res = LinuxNative.read(socketFd, multiBuf, count)
-                    if (res.returnValue <= 0) return -1
-                    val readLen = res.returnValue.toInt()
-                    MemorySegment.copy(multiBuf, ValueLayout.JAVA_BYTE, 0L, b, off, readLen)
+                    val readLen =
+                        if (res.returnValue <= 0) {
+                            -1
+                        } else {
+                            val actualLen = res.returnValue.toInt()
+                            MemorySegment.copy(multiBuf, ValueLayout.JAVA_BYTE, 0L, b, off, actualLen)
+                            actualLen
+                        }
                     return readLen
                 }
 

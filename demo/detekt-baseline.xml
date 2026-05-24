@@ -5,11 +5,6 @@
     <ID>CyclomaticComplexMethod:ProfileAndEnforceDemo.kt:fun runProfileAndEnforce</ID>
     <ID>LongMethod:ProfileAndEnforceDemo.kt:fun runProfileAndEnforce</ID>
     <ID>MagicNumber:VulnerableLogger.kt:VulnerableLogger$5</ID>
-    <ID>PrintStackTrace:ProfileAndEnforceDemo.kt:e</ID>
-    <ID>SwallowedException:ProfileAndEnforceDemo.kt:e: Exception</ID>
-    <ID>SwallowedException:SafeRunner.kt:SafeRunner$e: ExecutionException</ID>
-    <ID>TooGenericExceptionCaught:DemoApp.kt:e: Exception</ID>
-    <ID>TooGenericExceptionCaught:ProfileAndEnforceDemo.kt:e: Exception</ID>
     <ID>VariableNaming:ExploitDemonstrationTest.kt:ExploitDemonstrationTest$val MAP_ANONYMOUS = 0x20</ID>
     <ID>VariableNaming:ExploitDemonstrationTest.kt:ExploitDemonstrationTest$val MAP_PRIVATE = 0x02</ID>
     <ID>VariableNaming:ExploitDemonstrationTest.kt:ExploitDemonstrationTest$val PROT_EXEC = 0x4</ID>

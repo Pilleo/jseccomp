@@ -9,34 +9,6 @@
     <ID>ConstructorParameterNaming:Arch.kt:Arch$val rt_sigreturn: Int</ID>
     <ID>ConstructorParameterNaming:Arch.kt:Arch$val sched_yield: Int</ID>
     <ID>CyclomaticComplexMethod:BpfFilter.kt:BpfFilter$internal fun buildFromNumbers: Array&lt;SockFilter&gt;</ID>
-    <ID>CyclomaticComplexMethod:ContainedExecutors.kt:ContainedExecutors$private fun installInternal</ID>
-    <ID>CyclomaticComplexMethod:IterativeProfiler.kt:IterativeProfiler$private fun extractViolationPath: String?</ID>
-    <ID>CyclomaticComplexMethod:Landlock.kt:Landlock$fun applyRuleset</ID>
-    <ID>CyclomaticComplexMethod:ProfilerDaemon.kt:ProfilerDaemon$private fun getPathArgs: List&lt;String&gt;</ID>
-    <ID>CyclomaticComplexMethod:Syscall.kt:Syscall$fun numberFor: Int</ID>
-    <ID>EmptyFunctionBlock:PureJavaBpfEngineTest.kt:PureJavaBpfEngineTest.&lt;no name provided&gt;${}</ID>
-    <ID>LongMethod:ContainedExecutors.kt:ContainedExecutors$private fun installInternal</ID>
-    <ID>NestedBlockDepth:Policy.kt:Policy.Builder$fun allowJvmClasspath: Builder</ID>
-    <ID>NestedBlockDepth:ProfilerDaemon.kt:ProfilerDaemon$private fun handleConnection</ID>
-    <ID>PrintStackTrace:ProcessContainmentTest.kt:SeccompIsolatedTestApp$e</ID>
-    <ID>ReturnCount:ContainedExecutors.kt:ContainedExecutors$internal fun findViolationCause: Throwable?</ID>
-    <ID>ReturnCount:ContainedExecutors.kt:ContainedExecutors$private fun isDirectContainmentViolation: Boolean</ID>
-    <ID>ReturnCount:IterativeProfiler.kt:IterativeProfiler$private fun extractViolationPath: String?</ID>
-    <ID>ReturnCount:Landlock.kt:Landlock$private fun addRule</ID>
-    <ID>ReturnCount:LinuxSupported.kt:LinuxSupportedCondition$override fun evaluateExecutionCondition: ConditionEvaluationResult</ID>
-    <ID>ReturnCount:Platform.kt:Platform$fun isSupported: Boolean</ID>
-    <ID>ReturnCount:Profiler.kt:Profiler.&lt;no name provided&gt;$override fun read: Int</ID>
-    <ID>ReturnCount:ProfilerDaemon.kt:ProfilerDaemon$fun tryRead: String?</ID>
-    <ID>SwallowedException:ProcessContainmentTest.kt:SeccompIsolatedTestApp$e: Exception</ID>
-    <ID>ThrowsCount:ContainedExecutors.kt:ContainedExecutors$private fun installInternal</ID>
-    <ID>ThrowsCount:Landlock.kt:Landlock$fun applyRuleset</ID>
-    <ID>ThrowsCount:Profiler.kt:Profiler$private fun installProfilingFilterForThread</ID>
-    <ID>ThrowsCount:ProfilerDaemon.kt:ProfilerDaemon$private fun run</ID>
-    <ID>TooGenericExceptionCaught:ContainedExecutors.kt:ContainedExecutors.ContainedExecutorWrapper$e: Error</ID>
-    <ID>TooGenericExceptionCaught:ContainedExecutors.kt:ContainedExecutors.ContainedExecutorWrapper$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:IterativeProfiler.kt:IterativeProfiler$t: Throwable</ID>
-    <ID>TooGenericExceptionCaught:Profiler.kt:Profiler$t: Throwable</ID>
-    <ID>TooGenericExceptionCaught:ProfilerDaemon.kt:ProfilerDaemon$e: Exception</ID>
     <ID>TooManyFunctions:ContainedExecutors.kt:ContainedExecutors$ContainedExecutorWrapper : ExecutorService</ID>
     <ID>TooManyFunctions:LinuxNative.kt:LinuxNative</ID>
     <ID>TooManyFunctions:Policy.kt:Policy$Builder</ID>

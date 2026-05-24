@@ -264,17 +264,25 @@ class Policy private constructor(
 
             val classPath = System.getProperty("java.class.path")
             if (classPath != null) {
-                classPath.split(java.io.File.pathSeparator).forEach {
-                    if (it.isNotEmpty()) {
-                        val file = java.io.File(it)
-                        if (file.exists()) {
-                            val path = if (file.isDirectory) file.absolutePath else file.absoluteFile.parent
-                            if (path != null) allowFsRead(path)
-                        }
-                    }
-                }
+                addClasspathEntries(classPath)
             }
             return this
+        }
+
+        private fun addClasspathEntries(classPath: String) {
+            classPath.split(java.io.File.pathSeparator).forEach { entry ->
+                if (entry.isNotEmpty()) {
+                    val file = java.io.File(entry)
+                    addClasspathFile(file)
+                }
+            }
+        }
+
+        private fun addClasspathFile(file: java.io.File) {
+            if (file.exists()) {
+                val path = if (file.isDirectory) file.absolutePath else file.absoluteFile.parent
+                if (path != null) allowFsRead(path)
+            }
         }
 
         /**

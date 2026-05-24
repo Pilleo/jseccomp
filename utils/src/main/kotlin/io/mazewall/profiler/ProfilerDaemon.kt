@@ -5,6 +5,7 @@ import io.mazewall.LinuxNative
 import io.mazewall.Syscall
 import java.io.DataOutputStream
 import java.io.File
+import java.io.IOException
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout
@@ -78,8 +79,8 @@ object ProfilerDaemon {
             try {
                 // Listen for parent JVM exit via stdin closure
                 System.`in`.read()
-            } catch (e: java.io.IOException) {
-                e.printStackTrace()
+            } catch (e: IOException) {
+                System.err.println("[DAEMON] Input listener error: ${e.message}")
             }
             triggerGlobalShutdown()
             exitProcess(0)
@@ -97,53 +98,81 @@ object ProfilerDaemon {
 
     private fun run(socketPath: String) {
         Arena.ofConfined().use { arena ->
-            val bindRes = LinuxNative.socket(1 /* AF_UNIX */, 1 /* SOCK_STREAM */, 0)
-            if (bindRes.returnValue < 0) throw IllegalStateException("Failed to create daemon socket: errno=${bindRes.errno}")
-            val serverFd = bindRes.returnValue.toInt()
-
-            val addr = arena.allocate(LinuxNative.SOCKADDR_UN_LAYOUT)
-            addr.fill(0)
-            addr.set(ValueLayout.JAVA_SHORT, 0L, 1.toShort()) // AF_UNIX = 1
-
-            val pathBytes = socketPath.toByteArray(StandardCharsets.UTF_8)
-            val pathSeg = addr.asSlice(2, 108)
-            MemorySegment.copy(pathBytes, 0, pathSeg, ValueLayout.JAVA_BYTE, 0L, pathBytes.size)
-
-            File(socketPath).delete()
-            if (LinuxNative.bind(serverFd, addr, ADDR_UN_SIZE).returnValue < 0) throw IllegalStateException("Failed to bind")
-            if (LinuxNative.listen(serverFd, BACKLOG_SIZE).returnValue < 0) throw IllegalStateException("Failed to listen")
-
-            val addrLen = arena.allocate(ValueLayout.JAVA_INT)
-            addrLen.set(ValueLayout.JAVA_INT, 0L, ADDR_UN_SIZE)
-
-            var shouldContinue = true
-            while (shouldContinue && !isGlobalShutdown.get()) {
-                val acceptRes = LinuxNative.accept(serverFd, addr, addrLen)
-                if (acceptRes.returnValue < 0) {
-                    shouldContinue = false
-                } else {
-                    val clientFd = acceptRes.returnValue.toInt()
-
-                    // Check for a "Shutdown Command" connection (no FD sent, just 0x53)
-                    if (isShutdownCommand(clientFd)) {
-                        LinuxNative.close(clientFd)
-                        triggerGlobalShutdown()
-                        shouldContinue = false
-                    } else {
-                        Thread {
-                            try {
-                                handleConnection(clientFd)
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                            } finally {
-                                LinuxNative.close(clientFd)
-                            }
-                        }.start()
-                    }
-                }
+            val serverFd = createServerSocket()
+            try {
+                val addr = prepareSocketAddr(arena, socketPath)
+                bindAndListen(serverFd, addr)
+                acceptConnections(serverFd, arena)
+            } finally {
+                LinuxNative.close(serverFd)
             }
-            LinuxNative.close(serverFd)
         }
+    }
+
+    private fun createServerSocket(): Int {
+        val bindRes = LinuxNative.socket(1 /* AF_UNIX */, 1 /* SOCK_STREAM */, 0)
+        if (bindRes.returnValue < 0) {
+            throw IllegalStateException("Failed to create daemon socket: errno=${bindRes.errno}")
+        }
+        return bindRes.returnValue.toInt()
+    }
+
+    private fun prepareSocketAddr(arena: Arena, socketPath: String): MemorySegment {
+        val addr = arena.allocate(LinuxNative.SOCKADDR_UN_LAYOUT)
+        addr.fill(0)
+        addr.set(ValueLayout.JAVA_SHORT, 0L, 1.toShort()) // AF_UNIX = 1
+
+        val pathBytes = socketPath.toByteArray(StandardCharsets.UTF_8)
+        val pathSeg = addr.asSlice(2, 108)
+        MemorySegment.copy(pathBytes, 0, pathSeg, ValueLayout.JAVA_BYTE, 0L, pathBytes.size)
+        return addr
+    }
+
+    private fun bindAndListen(serverFd: Int, addr: MemorySegment) {
+        if (LinuxNative.bind(serverFd, addr, ADDR_UN_SIZE).returnValue < 0) {
+            throw IllegalStateException("Failed to bind")
+        }
+        if (LinuxNative.listen(serverFd, BACKLOG_SIZE).returnValue < 0) {
+            throw IllegalStateException("Failed to listen")
+        }
+    }
+
+    private fun acceptConnections(serverFd: Int, arena: Arena) {
+        val addr = arena.allocate(LinuxNative.SOCKADDR_UN_LAYOUT)
+        val addrLen = arena.allocate(ValueLayout.JAVA_INT)
+        addrLen.set(ValueLayout.JAVA_INT, 0L, ADDR_UN_SIZE)
+
+        var shouldContinue = true
+        while (shouldContinue && !isGlobalShutdown.get()) {
+            val acceptRes = LinuxNative.accept(serverFd, addr, addrLen)
+            if (acceptRes.returnValue < 0) {
+                shouldContinue = false
+            } else {
+                val clientFd = acceptRes.returnValue.toInt()
+                shouldContinue = handleAcceptedClient(clientFd)
+            }
+        }
+    }
+
+    private fun handleAcceptedClient(clientFd: Int): Boolean {
+        if (isShutdownCommand(clientFd)) {
+            LinuxNative.close(clientFd)
+            triggerGlobalShutdown()
+            return false
+        }
+
+        Thread {
+            try {
+                handleConnection(clientFd)
+            } catch (e: IOException) {
+                System.err.println("[DAEMON] Connection I/O error: ${e.message}")
+            } catch (e: IllegalStateException) {
+                System.err.println("[DAEMON] Connection state error: ${e.message}")
+            } finally {
+                LinuxNative.close(clientFd)
+            }
+        }.start()
+        return true
     }
 
     private fun isShutdownCommand(socketFd: Int): Boolean {
@@ -164,40 +193,63 @@ object ProfilerDaemon {
             val fd = recvDescriptor(socketFd) ?: return
             listenerFd = fd
             activeListeners.add(listenerFd)
-            Arena.ofConfined().use { arena ->
-                val ack = arena.allocate(1)
-                ack.set(ValueLayout.JAVA_BYTE, 0L, 0xAC.toByte())
-                LinuxNative.write(socketFd, ack, 1)
-            }
-
-            Arena.ofConfined().use { arena ->
-                val notif = arena.allocate(LinuxNative.SECCOMP_NOTIF_LAYOUT)
-                val resp = arena.allocate(LinuxNative.SECCOMP_NOTIF_RESP_LAYOUT)
-
-                var continueLoop = true
-                while (continueLoop && !isGlobalShutdown.get()) {
-                    continueLoop = processSingleNotification(listenerFd, socketFd, notif, resp, arena)
-                }
-
-                if (isGlobalShutdown.get()) {
-                    // Drain notifications
-                    LinuxNative.fcntl(listenerFd, F_SETFL_VAL, O_NONBLOCK_VAL)
-                    while (true) {
-                        notif.fill(0)
-                        val ioctlRes = LinuxNative.ioctl(listenerFd, LinuxNative.SECCOMP_IOCTL_NOTIF_RECV, notif)
-                        if (ioctlRes.returnValue < 0) break
-                        val id = notif.get(ValueLayout.JAVA_LONG, NOTIF_ID_OFF)
-                        sendContinueResponse(listenerFd, id, resp)
-                    }
-                }
-            }
+            sendAck(socketFd)
+            runNotificationLoop(listenerFd, socketFd)
         } finally {
-            if (listenerFd != -1) {
-                activeListeners.remove(listenerFd)
-                LinuxNative.close(listenerFd)
+            cleanupConnection(socketFd, listenerFd)
+        }
+    }
+
+    private fun sendAck(socketFd: Int) {
+        Arena.ofConfined().use { arena ->
+            val ack = arena.allocate(1)
+            ack.set(ValueLayout.JAVA_BYTE, 0L, 0xAC.toByte())
+            LinuxNative.write(socketFd, ack, 1)
+        }
+    }
+
+    private fun runNotificationLoop(
+        listenerFd: Int,
+        socketFd: Int,
+    ) {
+        Arena.ofConfined().use { arena ->
+            val notif = arena.allocate(LinuxNative.SECCOMP_NOTIF_LAYOUT)
+            val resp = arena.allocate(LinuxNative.SECCOMP_NOTIF_RESP_LAYOUT)
+
+            while (!isGlobalShutdown.get()) {
+                if (!processSingleNotification(listenerFd, socketFd, notif, resp, arena)) break
             }
-            clientSockets.remove(socketFd)
-            socketLocks.remove(socketFd)
+
+            if (isGlobalShutdown.get()) {
+                drainNotifications(listenerFd, resp, notif)
+            }
+        }
+    }
+
+    private fun cleanupConnection(
+        socketFd: Int,
+        listenerFd: Int,
+    ) {
+        if (listenerFd != -1) {
+            activeListeners.remove(listenerFd)
+            LinuxNative.close(listenerFd)
+        }
+        clientSockets.remove(socketFd)
+        socketLocks.remove(socketFd)
+    }
+
+    private fun drainNotifications(
+        listenerFd: Int,
+        resp: MemorySegment,
+        notif: MemorySegment,
+    ) {
+        LinuxNative.fcntl(listenerFd, F_SETFL_VAL, O_NONBLOCK_VAL)
+        while (true) {
+            notif.fill(0)
+            val ioctlRes = LinuxNative.ioctl(listenerFd, LinuxNative.SECCOMP_IOCTL_NOTIF_RECV, notif)
+            if (ioctlRes.returnValue < 0) break
+            val id = notif.get(ValueLayout.JAVA_LONG, NOTIF_ID_OFF)
+            sendContinueResponse(listenerFd, id, resp)
         }
     }
 
@@ -322,57 +374,25 @@ object ProfilerDaemon {
         syscallName: String,
         args: LongArray,
         pid: Int,
-    ): List<String> {
-        val paths = mutableListOf<String>()
-
-        fun isAtFdcwd(fd: Long): Boolean = fd == AT_FDCWD_VAL || fd == AT_FDCWD_UNSIGNED_VAL || fd.toInt() == AT_FDCWD_INT_VAL
-
-        fun tryRead(
-            addr: Long,
-            dirfd: Long = AT_FDCWD_VAL,
-        ): String? {
-            if (addr == 0L) return null
-            val path = readStringFromProcess(pid, addr) ?: return null
-            if (path.startsWith("/")) return path
-
-            // Resolve relative paths
-            val dirPath =
-                if (isAtFdcwd(dirfd)) {
-                    // AT_FDCWD
-                    resolveCwd(pid)
-                } else if (dirfd >= 0) {
-                    resolveFdPath(pid, dirfd.toInt())
-                } else {
-                    null
-                }
-
-            if (dirPath != null) {
-                return if (dirPath.endsWith("/")) "$dirPath$path" else "$dirPath/$path"
-            }
-            return path
-        }
+    ): List<String> =
         when (syscallName) {
             "OPEN", "EXECVE", "MKDIR", "RMDIR", "CHMOD", "CHOWN", "LCHOWN", "UNLINK", "READLINK", "CHROOT", "UTIME", "UTIMES" ->
-                tryRead(args[0], AT_FDCWD_VAL)?.let { paths.add(it) }
+                listOfNotNull(tryRead(pid, args[0]))
 
             "FCHMOD", "FCHOWN", "FSTAT" ->
-                resolveFdPath(pid, args[0].toInt())?.let { paths.add(it) }
+                listOfNotNull(resolveFdPath(pid, args[0].toInt()))
 
-            "SYMLINK", "LINK", "RENAME" -> {
-                tryRead(args[0], AT_FDCWD_VAL)?.let { paths.add(it) }
-                tryRead(args[1], AT_FDCWD_VAL)?.let { paths.add(it) }
-            }
+            "SYMLINK", "LINK", "RENAME" ->
+                listOfNotNull(tryRead(pid, args[0]), tryRead(pid, args[1]))
 
             "OPENAT", "EXECVEAT", "OPENAT2", "MKDIRAT", "UNLINKAT", "FCHMODAT", "FCHOWNAT", "UTIMENSAT", "FSTATAT", "READLINKAT" ->
-                tryRead(args[ARG_PATH], args[ARG_DIR_FD])?.let { paths.add(it) }
+                listOfNotNull(tryRead(pid, args[ARG_PATH], args[ARG_DIR_FD]))
 
-            "RENAMEAT", "RENAMEAT2", "LINKAT", "SYMLINKAT" -> {
-                tryRead(args[ARG_OLD_PATH], args[ARG_OLD_DIR_FD])?.let { paths.add(it) }
-                tryRead(args[ARG_NEW_PATH], args[ARG_NEW_DIR_FD])?.let { paths.add(it) }
-            }
+            "RENAMEAT", "RENAMEAT2", "LINKAT", "SYMLINKAT" ->
+                listOfNotNull(tryRead(pid, args[ARG_OLD_PATH], args[ARG_OLD_DIR_FD]), tryRead(pid, args[ARG_NEW_PATH], args[ARG_NEW_DIR_FD]))
+
+            else -> emptyList()
         }
-        return paths
-    }
 
     private fun resolveCwd(pid: Int): String? = resolveLink(pid, "cwd")
 
@@ -392,6 +412,48 @@ object ProfilerDaemon {
             val res = LinuxNative.readlink(pathSeg, buf, PATH_MAX_VAL)
             if (res.returnValue < 0) return null
             return buf.copyToString(res.returnValue.toInt())
+        }
+    }
+
+    private fun isAtFdcwd(fd: Long): Boolean = fd == AT_FDCWD_VAL || fd == AT_FDCWD_UNSIGNED_VAL || fd.toInt() == AT_FDCWD_INT_VAL
+
+    private fun tryRead(
+        pid: Int,
+        addr: Long,
+        dirfd: Long = AT_FDCWD_VAL,
+    ): String? {
+        var result: String? = null
+        if (addr != 0L) {
+            val path = readStringFromProcess(pid, addr)
+            if (path != null) {
+                result = if (path.startsWith("/")) {
+                    path
+                } else {
+                    resolveRelativePath(pid, path, dirfd)
+                }
+            }
+        }
+        return result
+    }
+
+    private fun resolveRelativePath(
+        pid: Int,
+        path: String,
+        dirfd: Long,
+    ): String? {
+        val dirPath =
+            if (isAtFdcwd(dirfd)) {
+                resolveCwd(pid)
+            } else if (dirfd >= 0) {
+                resolveFdPath(pid, dirfd.toInt())
+            } else {
+                null
+            }
+
+        return if (dirPath != null) {
+            if (dirPath.endsWith("/")) "$dirPath$path" else "$dirPath/$path"
+        } else {
+            path
         }
     }
 

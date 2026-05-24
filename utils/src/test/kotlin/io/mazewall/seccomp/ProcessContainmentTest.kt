@@ -6,7 +6,9 @@ import io.mazewall.Platform
 import io.mazewall.Policy
 import io.mazewall.Syscall
 import io.mazewall.enforcer.ContainedExecutors
+import io.mazewall.enforcer.ContainmentViolationDetector
 import org.junit.jupiter.api.Test
+import java.io.IOException
 import java.nio.channels.Selector
 
 /**
@@ -29,8 +31,13 @@ object SeccompIsolatedTestApp {
                 else -> System.exit(1)
             }
             System.exit(0)
-        } catch (e: Throwable) {
-            e.printStackTrace()
+        } catch (e: Exception) {
+            System.err.println("Isolated test failure: ${e.message}")
+            System.err.println(e.stackTraceToString())
+            System.exit(2)
+        } catch (e: Error) {
+            System.err.println("Isolated test critical error: ${e.message}")
+            System.err.println(e.stackTraceToString())
             System.exit(2)
         }
     }
@@ -49,7 +56,7 @@ object SeccompIsolatedTestApp {
             ProcessBuilder("echo", "should-fail").start()
             throw IllegalStateException("Should have failed")
         } catch (e: Exception) {
-            if (!ContainedExecutors.isContainmentViolation(e)) {
+            if (!ContainmentViolationDetector.isContainmentViolation(e)) {
                 throw e
             }
         }
@@ -64,7 +71,7 @@ object SeccompIsolatedTestApp {
                     ProcessBuilder("echo", "should-fail").start()
                     throw IllegalStateException("Child thread should have been contained")
                 } catch (e: Exception) {
-                    if (!ContainedExecutors.isContainmentViolation(e)) {
+                    if (!ContainmentViolationDetector.isContainmentViolation(e)) {
                         throw e
                     }
                 }
@@ -80,8 +87,10 @@ object SeccompIsolatedTestApp {
         Selector.open().close()
         try {
             java.net.Socket().connect(java.net.InetSocketAddress("127.0.0.1", 1), 1)
-        } catch (e: Exception) {
-            // Expected to fail or timeout, just need to trigger library loading
+        } catch (e: IOException) {
+            // Expected: just triggering library loading for libextnet/libnio.
+            // We ignore the exception because the connection success is irrelevant.
+            System.out.println("Warmup connection failed as expected: ${e.message}")
         }
 
         // Process-wide NO_NETWORK (blocks bind, listen, accept, connect, etc.)
@@ -97,7 +106,7 @@ object SeccompIsolatedTestApp {
             java.net.Socket().connect(java.net.InetSocketAddress("127.0.0.1", 80))
             throw IllegalStateException("Connect should have failed")
         } catch (e: Exception) {
-            if (!ContainedExecutors.isContainmentViolation(e)) {
+            if (!ContainmentViolationDetector.isContainmentViolation(e)) {
                 throw e
             }
         }

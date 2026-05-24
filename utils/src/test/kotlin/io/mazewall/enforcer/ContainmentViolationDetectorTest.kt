@@ -51,9 +51,9 @@ class ContainmentViolationDetectorTest {
     @MethodSource("violationCases")
     fun `test violation detection`(case: ViolationCase) {
         if (case.expected) {
-            assertTrue(ContainedExecutors.isContainmentViolation(case.exception), case.description)
+            assertTrue(ContainmentViolationDetector.isContainmentViolation(case.exception), case.description)
         } else {
-            assertFalse(ContainedExecutors.isContainmentViolation(case.exception), case.description)
+            assertFalse(ContainmentViolationDetector.isContainmentViolation(case.exception), case.description)
         }
     }
 
@@ -62,7 +62,7 @@ class ContainmentViolationDetectorTest {
         val root = IOException("Operation not permitted")
         val mid = RuntimeException("wrapper", root)
         val top = IllegalStateException("top", mid)
-        assertTrue(ContainedExecutors.isContainmentViolation(top))
+        assertTrue(ContainmentViolationDetector.isContainmentViolation(top))
     }
 
     @Test
@@ -70,7 +70,7 @@ class ContainmentViolationDetectorTest {
         val primary = RuntimeException("task failed")
         val suppressed = IOException("Operation not permitted")
         primary.addSuppressed(suppressed)
-        assertTrue(ContainedExecutors.isContainmentViolation(primary))
+        assertTrue(ContainmentViolationDetector.isContainmentViolation(primary))
     }
 
     @Test
@@ -78,7 +78,7 @@ class ContainmentViolationDetectorTest {
         val root = IOException("Operation not permitted")
         val mid = RuntimeException("wrapper", root)
         val top = IllegalStateException("top", mid)
-        val found = ContainedExecutors.findViolationCause(top)
+        val found = ContainmentViolationDetector.findViolationCause(top)
         assertTrue(found === root, "Expected the root IOException, got $found")
     }
 
@@ -87,7 +87,7 @@ class ContainmentViolationDetectorTest {
         val primary = RuntimeException("task failed")
         val suppressed = SocketException("Permission denied")
         primary.addSuppressed(suppressed)
-        val found = ContainedExecutors.findViolationCause(primary)
+        val found = ContainmentViolationDetector.findViolationCause(primary)
         assertTrue(found === suppressed, "Expected the suppressed SocketException, got $found")
     }
 }

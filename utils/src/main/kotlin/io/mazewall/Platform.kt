@@ -22,35 +22,38 @@ object Platform {
     /**
      * Returns true if the current platform supports seccomp filters.
      */
-    fun isSupported(): Boolean {
-        if (!System.getProperty("os.name").equals("Linux", ignoreCase = true)) return false
+    fun isSupported(): Boolean =
+        System.getProperty("os.name").equals("Linux", ignoreCase = true) &&
+            hasKernelSeccompSupport() &&
+            isSeccompSanityCheckPassing() &&
+            isArchitectureSupported()
 
-        // Check if the kernel actually supports seccomp
-        // PR_GET_SECCOMP returns < 0 (and sets errno to EINVAL) if seccomp is not configured in the kernel
-        if (LinuxNative.prctl(LinuxNative.PR_GET_SECCOMP, 0, 0, 0, 0).returnValue < 0) {
-            return false
-        }
+    private fun hasKernelSeccompSupport(): Boolean =
+        LinuxNative.prctl(LinuxNative.PR_GET_SECCOMP, 0, 0, 0, 0).returnValue >= 0
 
+    private fun isSeccompSanityCheckPassing(): Boolean {
         // Bogus Sanity Check: Ensure the kernel actively enforces seccomp.
         // We call prctl(PR_SET_SECCOMP) with an invalid mode (-1).
         // A healthy kernel should return -1 and set errno to EINVAL (22).
         // Some container environments or broken kernels might silently return 0 or a different error.
         val bogusCheck = LinuxNative.prctl(LinuxNative.PR_SET_SECCOMP, -1L, 0L, 0, 0)
-        if (bogusCheck.returnValue == 0L || bogusCheck.errno != ERRNO_EINVAL) { // 22 is EINVAL (Invalid argument)
+        val passed = bogusCheck.returnValue != 0L && bogusCheck.errno == ERRNO_EINVAL
+        if (!passed) {
             logger.warning(
                 "Seccomp sanity check failed. The kernel returned unexpected results (ret=${bogusCheck.returnValue}, errno=${bogusCheck.errno}). Seccomp may be stubbed or broken in this environment.",
             )
-            return false
         }
+        return passed
+    }
 
-        return try {
+    private fun isArchitectureSupported(): Boolean =
+        try {
             Arch.current()
             true
         } catch (e: UnsupportedOperationException) {
             logger.warning("Architecture not supported: ${e.message}")
             false
         }
-    }
 
     /**
      * Resolves the configured fallback behavior based on system properties or environment variables.

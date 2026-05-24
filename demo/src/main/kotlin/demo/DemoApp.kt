@@ -1,5 +1,6 @@
 package demo
 
+import io.mazewall.enforcer.ContainmentViolationException
 import java.io.File
 import kotlin.system.exitProcess
 
@@ -76,7 +77,7 @@ fun runSafe() {
     try {
         println("Action:   Attempting unauthorized execve()...")
         SafeRunner.run(payload)
-    } catch (e: Exception) {
+    } catch (e: ContainmentViolationException) {
         println("\u001b[32;1m[BOUNCER] SYSCALL INTERCEPTED!\u001b[0m")
         println("The kernel verified the clipboard and blocked the operation.")
         println("Java Exception: \u001b[33m${e.javaClass.simpleName}: ${e.message}\u001b[0m")

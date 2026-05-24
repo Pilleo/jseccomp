@@ -2,6 +2,7 @@ package io.mazewall.profiler
 
 import io.mazewall.Policy
 import io.mazewall.enforcer.ContainedExecutors
+import io.mazewall.enforcer.ContainmentViolationDetector
 import io.mazewall.landlock.Landlock
 import java.nio.file.AccessDeniedException
 
@@ -40,17 +41,16 @@ object IterativeProfiler {
         var error: Throwable? = null
         val thread =
             Thread {
-                try {
-                    // Ensure Landlock is active even for empty policies to force discovery
-                    if (currentPolicy.allowedFsReadPaths.isEmpty() && currentPolicy.allowedFsWritePaths.isEmpty()) {
-                        Landlock.applyRestrictiveBarrier()
-                    }
-                    ContainedExecutors.installOnCurrentThread(currentPolicy)
-                    task.run()
-                } catch (t: Throwable) {
-                    error = t
+                // Ensure Landlock is active even for empty policies to force discovery
+                if (currentPolicy.allowedFsReadPaths.isEmpty() && currentPolicy.allowedFsWritePaths.isEmpty()) {
+                    Landlock.applyRestrictiveBarrier()
                 }
+                ContainedExecutors.installOnCurrentThread(currentPolicy)
+                task.run()
             }
+        thread.uncaughtExceptionHandler = Thread.UncaughtExceptionHandler { _, e ->
+            error = e
+        }
         thread.start()
         thread.join()
         return error
@@ -84,35 +84,41 @@ object IterativeProfiler {
     }
 
     private fun extractViolationPath(t: Throwable): String? {
-        if (t is AccessDeniedException) return t.file
-        val msg = t.message ?: return null
-
-        // Search for any of the localized denial phrases
-        var phraseIdx = -1
-        for (phrase in ContainedExecutors.DENIED_PHRASES) {
-            phraseIdx = msg.indexOf(phrase, ignoreCase = true)
-            if (phraseIdx != -1) break
+        val path = when {
+            t is AccessDeniedException -> t.file
+            else -> {
+                val msg = t.message
+                if (msg == null) {
+                    null
+                } else {
+                    val phraseIdx = findDeniedPhraseIndex(msg)
+                    val pathEnd = if (phraseIdx != -1) findPathEnd(msg, phraseIdx) else -1
+                    if (pathEnd >= 0) resolveAbsolutePath(msg, pathEnd) else null
+                }
+            }
         }
+        return path
+    }
 
-        if (phraseIdx == -1) return null
+    private fun findDeniedPhraseIndex(msg: String): Int =
+        ContainmentViolationDetector.DENIED_PHRASES.firstNotNullOfOrNull { phrase ->
+            val idx = msg.indexOf(phrase, ignoreCase = true)
+            if (idx != -1) idx else null
+        } ?: -1
 
-        // Find the end of the path by skipping backwards over whitespace and '('
-        var pathEnd = phraseIdx - 1
-        while (pathEnd >= 0 && (msg[pathEnd].isWhitespace() || msg[pathEnd] == '(')) {
-            pathEnd--
-        }
+    private fun findPathEnd(msg: String, phraseIdx: Int): Int {
+        var end = phraseIdx - 1
+        while (end >= 0 && (msg[end].isWhitespace() || msg[end] == '(')) end--
+        return end
+    }
 
-        if (pathEnd < 0) return null
-
-        // Scan further backwards to find the start of the absolute path
-        var pathStart = pathEnd
-        while (pathStart > 0) {
-            val c = msg[pathStart - 1]
-            if (c.isWhitespace() || c == ':') break
-            pathStart--
-        }
-
-        val path = msg.substring(pathStart, pathEnd + 1)
+    private fun resolveAbsolutePath(
+        msg: String,
+        pathEnd: Int,
+    ): String? {
+        var start = pathEnd
+        while (start > 0 && !msg[start - 1].isWhitespace() && msg[start - 1] != ':') start--
+        val path = msg.substring(start, pathEnd + 1)
         return if (path.startsWith("/")) path else null
     }
 }

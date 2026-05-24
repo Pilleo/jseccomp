@@ -3,6 +3,7 @@ package io.mazewall.seccomp
 import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.Policy
 import io.mazewall.Syscall
+import io.mazewall.enforcer.ContainmentViolationDetector
 import org.junit.jupiter.api.Test
 import java.util.concurrent.Executors
 import kotlin.test.assertFailsWith
@@ -22,7 +23,7 @@ class PureJavaBpfEngineTest {
                             ProcessBuilder("echo", "hello").start()
                             false
                         } catch (e: java.io.IOException) {
-                            io.mazewall.enforcer.ContainedExecutors.isContainmentViolation(e)
+                            ContainmentViolationDetector.isContainmentViolation(e)
                         }
                     }.get()
             assertTrue(result == true, "execve should have been blocked by PureJavaBpfEngine")
@@ -86,7 +87,9 @@ class PureJavaBpfEngineTest {
             object : SeccompEngine {
                 override val isSupported: Boolean = true
 
-                override fun install(policy: Policy) {}
+                override fun install(policy: Policy) {
+                    // No-op for test stub
+                }
             }
         // Should throw UnsupportedOperationException as per default impl
         assertFailsWith<UnsupportedOperationException> {
