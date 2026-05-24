@@ -22,7 +22,7 @@ class PureJavaBpfEngineTest {
                             ProcessBuilder("echo", "hello").start()
                             false
                         } catch (e: java.io.IOException) {
-                            e.message != null
+                            io.mazewall.enforcer.ContainedExecutors.isContainmentViolation(e)
                         }
                     }.get()
             assertTrue(result == true, "execve should have been blocked by PureJavaBpfEngine")

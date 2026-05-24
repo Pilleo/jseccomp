@@ -26,7 +26,7 @@ class ProcessContainmentInheritanceTest {
                     ProcessBuilder("echo", "inherited").start()
                     throw IllegalStateException("Should not have been able to exec")
                 } catch (e: java.io.IOException) {
-                    assertTrue(e.message != null) // Expected if blocked
+                    assertTrue(io.mazewall.enforcer.ContainedExecutors.isContainmentViolation(e), "Expected a containment violation exception, but got: $e")
                 }
             }
         thread.start()
@@ -47,7 +47,7 @@ class ProcessContainmentInheritanceTest {
             // the exception might not be wrapped in ContainmentViolationException
             // unless we use ContainedExecutors.wrap or manually catch it.
             // But installOnProcess applies to the WHOLE process.
-            assertTrue(ex.cause is java.io.IOException)
+            assertTrue(io.mazewall.enforcer.ContainedExecutors.isContainmentViolation(ex.cause!!), "Expected cause to be a containment violation exception, but got: ${ex.cause}")
         } finally {
             executor.shutdown()
         }
