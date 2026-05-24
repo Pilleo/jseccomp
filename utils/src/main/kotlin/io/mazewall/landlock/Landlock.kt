@@ -146,19 +146,7 @@ object Landlock {
         val classpathFlags = allFsRead or LANDLOCK_ACCESS_FS_EXECUTE
 
         Arena.ofConfined().use { arena ->
-            val rulesetAttr = arena.allocate(LinuxNative.LANDLOCK_RULESET_ATTR_LAYOUT)
-            rulesetAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_RULESET_ATTR_FS_OFFSET, accessMaskFs)
-            rulesetAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_RULESET_ATTR_NET_OFFSET, 0L)
-
-            val size = if (abi >= 4) LinuxNative.LANDLOCK_RULESET_ATTR_LAYOUT.byteSize() else 8L
-
-            val rulesetFdResult =
-                LinuxNative.syscall(
-                    LinuxNative.LANDLOCK_CREATE_RULESET_NR,
-                    rulesetAttr.address(),
-                    size,
-                    MemorySegment.NULL
-                )
+            val rulesetFdResult = createRuleset(arena, accessMaskFs, abi)
             if (rulesetFdResult.returnValue < 0) return
 
             val rulesetFd = rulesetFdResult.returnValue.toInt()
@@ -306,19 +294,7 @@ object Landlock {
         val classpathFlags = allFsRead or LANDLOCK_ACCESS_FS_EXECUTE
 
         Arena.ofConfined().use { arena ->
-            val rulesetAttr = arena.allocate(LinuxNative.LANDLOCK_RULESET_ATTR_LAYOUT)
-            rulesetAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_RULESET_ATTR_FS_OFFSET, accessMaskFs)
-            rulesetAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_RULESET_ATTR_NET_OFFSET, 0L)
-
-            val size = if (abi >= 4) LinuxNative.LANDLOCK_RULESET_ATTR_LAYOUT.byteSize() else 8L
-
-            val rulesetFdResult =
-                LinuxNative.syscall(
-                    LinuxNative.LANDLOCK_CREATE_RULESET_NR,
-                    rulesetAttr.address(),
-                    size,
-                    MemorySegment.NULL
-                )
+            val rulesetFdResult = createRuleset(arena, accessMaskFs, abi)
             if (rulesetFdResult.returnValue < 0) {
                 throw RuntimeException("landlock_create_ruleset failed with errno ${rulesetFdResult.errno}")
             }
@@ -412,17 +388,7 @@ object Landlock {
         }
         val pathFd = fdResult.returnValue.toInt()
         try {
-            val pathAttr = arena.allocate(LinuxNative.LANDLOCK_PATH_BENEATH_ATTR_LAYOUT)
-            pathAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_PATH_BENEATH_ATTR_ACCESS_OFFSET, allowedAccess)
-            pathAttr.set(ValueLayout.JAVA_INT, LinuxNative.LANDLOCK_PATH_BENEATH_ATTR_FD_OFFSET, pathFd)
-
-            val addResult = LinuxNative.syscall(
-                LinuxNative.LANDLOCK_ADD_RULE_NR,
-                rulesetFd.toLong(),
-                LinuxNative.LANDLOCK_RULE_PATH_BENEATH.toLong(),
-                pathAttr,
-                0
-            )
+            val addResult = addRuleToRuleset(arena, rulesetFd, pathFd, allowedAccess)
             if (addResult.returnValue < 0) {
                 logger.warning("landlock_add_rule failed for JVM classpath $path with errno ${addResult.errno}")
             }
@@ -497,17 +463,7 @@ object Landlock {
                 finalAccess = finalAccess and dirOnlyFlags.inv()
             }
 
-            val pathAttr = arena.allocate(LinuxNative.LANDLOCK_PATH_BENEATH_ATTR_LAYOUT)
-            pathAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_PATH_BENEATH_ATTR_ACCESS_OFFSET, finalAccess)
-            pathAttr.set(ValueLayout.JAVA_INT, LinuxNative.LANDLOCK_PATH_BENEATH_ATTR_FD_OFFSET, pathFd)
-
-            val addResult = LinuxNative.syscall(
-                LinuxNative.LANDLOCK_ADD_RULE_NR,
-                rulesetFd.toLong(),
-                LinuxNative.LANDLOCK_RULE_PATH_BENEATH.toLong(),
-                pathAttr,
-                0
-            )
+            val addResult = addRuleToRuleset(arena, rulesetFd, pathFd, finalAccess)
             if (addResult.returnValue < 0) {
                 if (addResult.errno == 22) {
                     // EINVAL: The FD likely points to a symlink inode (O_PATH | O_NOFOLLOW
@@ -521,5 +477,36 @@ object Landlock {
         } finally {
             LinuxNative.close(pathFd)
         }
+    }
+
+    private fun createRuleset(arena: Arena, accessMaskFs: Long, abi: Int): LinuxNative.SyscallResult {
+        val rulesetAttr = arena.allocate(LinuxNative.LANDLOCK_RULESET_ATTR_LAYOUT)
+        rulesetAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_RULESET_ATTR_FS_OFFSET, accessMaskFs)
+        rulesetAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_RULESET_ATTR_NET_OFFSET, 0L)
+        val size = if (abi >= 4) LinuxNative.LANDLOCK_RULESET_ATTR_LAYOUT.byteSize() else 8L
+        return LinuxNative.syscall(
+            LinuxNative.LANDLOCK_CREATE_RULESET_NR,
+            rulesetAttr.address(),
+            size,
+            MemorySegment.NULL
+        )
+    }
+
+    private fun addRuleToRuleset(
+        arena: Arena,
+        rulesetFd: Int,
+        pathFd: Int,
+        accessMask: Long
+    ): LinuxNative.SyscallResult {
+        val pathAttr = arena.allocate(LinuxNative.LANDLOCK_PATH_BENEATH_ATTR_LAYOUT)
+        pathAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_PATH_BENEATH_ATTR_ACCESS_OFFSET, accessMask)
+        pathAttr.set(ValueLayout.JAVA_INT, LinuxNative.LANDLOCK_PATH_BENEATH_ATTR_FD_OFFSET, pathFd)
+        return LinuxNative.syscall(
+            LinuxNative.LANDLOCK_ADD_RULE_NR,
+            rulesetFd.toLong(),
+            LinuxNative.LANDLOCK_RULE_PATH_BENEATH.toLong(),
+            pathAttr,
+            0
+        )
     }
 }
