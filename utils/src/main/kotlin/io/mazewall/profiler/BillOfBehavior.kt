@@ -2,7 +2,6 @@ package io.mazewall.profiler
 
 import io.mazewall.Policy
 import io.mazewall.Syscall
-import kotlin.collections.iterator
 
 /**
  * An immutable record of what kernel-level operations were observed during a

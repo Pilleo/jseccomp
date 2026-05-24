@@ -1,13 +1,12 @@
 package io.mazewall.seccomp
 
 import io.mazewall.EnabledIfLinuxAndSupported
-import io.mazewall.Platform
 import io.mazewall.Policy
 import io.mazewall.Syscall
 import org.junit.jupiter.api.Test
 import java.util.concurrent.Executors
-import kotlin.test.assertTrue
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 class PureJavaBpfEngineTest {
 

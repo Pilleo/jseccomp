@@ -1,12 +1,12 @@
 package demo
 
-import io.mazewall.Policy
-import io.mazewall.Syscall
 import io.mazewall.Arch
 import io.mazewall.LinuxNative
-import io.mazewall.profiler.Profiler
+import io.mazewall.Policy
+import io.mazewall.Syscall
 import io.mazewall.enforcer.ContainedExecutors
 import io.mazewall.enforcer.ContainmentViolationException
+import io.mazewall.profiler.Profiler
 import java.io.File
 import java.lang.foreign.Arena
 import java.net.InetAddress

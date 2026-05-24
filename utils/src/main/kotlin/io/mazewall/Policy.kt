@@ -1,5 +1,9 @@
 package io.mazewall
 
+import io.mazewall.Policy.Companion.builder
+import io.mazewall.Policy.Companion.combine
+
+
 /**
  * Defines which syscalls to block. Create via [builder] or use the built-in presets.
  *

@@ -1,10 +1,10 @@
 package io.mazewall.seccomp
 
 import io.mazewall.EnabledIfLinuxAndSupported
+import io.mazewall.LinuxNative
 import io.mazewall.Policy
 import io.mazewall.Syscall
 import io.mazewall.enforcer.ContainedExecutors
-import io.mazewall.LinuxNative
 import org.junit.jupiter.api.Test
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.assertEquals

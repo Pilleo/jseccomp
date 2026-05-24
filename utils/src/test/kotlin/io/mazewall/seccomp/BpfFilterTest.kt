@@ -1,11 +1,6 @@
 package io.mazewall.seccomp
 
-import io.mazewall.Arch
-import io.mazewall.BpfFilter
-import io.mazewall.EnabledIfLinuxAndSupported
-import io.mazewall.LinuxNative
-import io.mazewall.Policy
-import io.mazewall.Syscall
+import io.mazewall.*
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue

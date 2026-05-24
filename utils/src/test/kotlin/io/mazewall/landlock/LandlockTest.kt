@@ -1,22 +1,21 @@
 package io.mazewall.landlock
 
-import io.mazewall.Platform
+import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.Policy
 import io.mazewall.Syscall
-import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.enforcer.ContainedExecutors
 import io.mazewall.enforcer.ContainmentViolationException
 import org.junit.jupiter.api.Test
+import java.nio.file.AccessDeniedException
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.concurrent.Executors
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.writeText
-import kotlin.test.assertTrue
-import kotlin.test.assertFailsWith
 import kotlin.test.assertEquals
-import java.nio.file.AccessDeniedException
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 @EnabledIfLinuxAndSupported
 class LandlockTest {

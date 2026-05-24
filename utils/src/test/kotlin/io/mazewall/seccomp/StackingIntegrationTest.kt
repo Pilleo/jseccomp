@@ -1,13 +1,10 @@
 package io.mazewall.seccomp
 
 import io.mazewall.EnabledIfLinuxAndSupported
-import io.mazewall.Platform
 import io.mazewall.Policy
 import io.mazewall.Syscall
 import io.mazewall.enforcer.ContainedExecutors
-import io.mazewall.enforcer.ContainmentViolationException
 import org.junit.jupiter.api.Test
-
 import kotlin.test.assertTrue
 
 class StackingIntegrationTest {

@@ -3,10 +3,9 @@ package io.mazewall
 import io.mazewall.enforcer.ContainedExecutors
 import io.mazewall.enforcer.ContainmentViolationException
 import org.junit.jupiter.api.Test
-import java.io.File
 import java.nio.file.Files
-import java.util.concurrent.Executors
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
 import kotlin.test.assertTrue
 
 @EnabledIfLinuxAndSupported

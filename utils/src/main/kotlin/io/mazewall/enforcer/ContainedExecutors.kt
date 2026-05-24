@@ -1,21 +1,15 @@
 package io.mazewall.enforcer
 
-import io.mazewall.landlock.Landlock
 import io.mazewall.Platform
 import io.mazewall.Policy
-import io.mazewall.seccomp.PureJavaBpfEngine
 import io.mazewall.Syscall
+import io.mazewall.landlock.Landlock
+import io.mazewall.seccomp.PureJavaBpfEngine
 import java.io.IOException
-import java.net.SocketException
 import java.nio.file.AccessDeniedException
-import java.util.concurrent.Callable
-import java.util.concurrent.CopyOnWriteArraySet
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Future
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.*
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.logging.Logger
-import kotlin.collections.plus
 
 /**
  * Public API for wrapping an existing [java.util.concurrent.ExecutorService] to enforce seccomp containment.

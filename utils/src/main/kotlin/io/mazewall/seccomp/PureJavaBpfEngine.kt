@@ -1,11 +1,6 @@
 package io.mazewall.seccomp
 
-import io.mazewall.Arch
-import io.mazewall.BpfFilter
-import io.mazewall.LinuxNative
-import io.mazewall.Platform
-import io.mazewall.Policy
-import io.mazewall.Syscall
+import io.mazewall.*
 import java.lang.foreign.Arena
 
 /**

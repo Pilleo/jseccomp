@@ -1,13 +1,13 @@
 package demo
 
+import io.mazewall.enforcer.ContainmentViolationException
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
 import java.io.File
-import kotlin.test.assertTrue
-import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
-import io.mazewall.enforcer.ContainmentViolationException
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class DemoAppTest {
 

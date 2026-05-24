@@ -5,7 +5,6 @@ import io.mazewall.LinuxNative
 import io.mazewall.Syscall
 import java.io.DataOutputStream
 import java.io.File
-import java.io.OutputStream
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout

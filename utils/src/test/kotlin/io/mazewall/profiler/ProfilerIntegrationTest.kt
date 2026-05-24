@@ -1,17 +1,13 @@
 package io.mazewall.profiler
 
-import io.mazewall.Arch
-import io.mazewall.EnabledIfLinuxAndSupported
-import io.mazewall.Policy
-import io.mazewall.Syscall
-import io.mazewall.LinuxNative
+import io.mazewall.*
 import org.junit.jupiter.api.Test
 import java.io.File
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import kotlin.test.assertTrue
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 @EnabledIfLinuxAndSupported
 class ProfilerIntegrationTest {

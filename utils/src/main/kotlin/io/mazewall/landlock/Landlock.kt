@@ -4,6 +4,7 @@ import io.mazewall.LinuxNative
 import io.mazewall.Platform
 import io.mazewall.Policy
 import io.mazewall.Syscall
+import io.mazewall.landlock.Landlock.applyRuleset
 import java.io.File
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment

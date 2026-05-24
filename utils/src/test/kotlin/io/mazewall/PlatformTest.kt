@@ -1,8 +1,8 @@
 package io.mazewall
 
 import org.junit.jupiter.api.Test
-import kotlin.test.assertTrue
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class PlatformTest {
 

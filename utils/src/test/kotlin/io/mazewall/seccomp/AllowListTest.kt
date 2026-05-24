@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
 import java.util.concurrent.Executors
-import kotlin.test.assertEquals
 
 @EnabledOnOs(OS.LINUX)
 class AllowListTest {

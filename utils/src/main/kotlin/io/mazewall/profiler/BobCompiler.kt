@@ -1,7 +1,7 @@
 package io.mazewall.profiler
 
 import io.mazewall.Syscall
-import java.util.Locale
+import java.util.*
 
 /**
  * BobCompiler parses system call trace events produced by the Profiler session

@@ -1,5 +1,6 @@
 package io.mazewall.enforcer
 
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
 import java.io.IOException
@@ -8,7 +9,6 @@ import java.net.SocketException
 import java.nio.file.AccessDeniedException
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
-import org.junit.jupiter.api.Test
 
 class ContainmentViolationDetectorTest {
 

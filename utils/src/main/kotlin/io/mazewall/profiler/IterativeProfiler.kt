@@ -1,8 +1,8 @@
 package io.mazewall.profiler
 
+import io.mazewall.Policy
 import io.mazewall.enforcer.ContainedExecutors
 import io.mazewall.landlock.Landlock
-import io.mazewall.Policy
 import java.nio.file.AccessDeniedException
 
 /**

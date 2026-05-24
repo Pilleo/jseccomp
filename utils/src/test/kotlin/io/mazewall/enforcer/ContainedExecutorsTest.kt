@@ -1,16 +1,15 @@
 package io.mazewall.enforcer
 
-import io.mazewall.Platform
+import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.Policy
 import io.mazewall.Syscall
-import io.mazewall.EnabledIfLinuxAndSupported
 import org.junit.jupiter.api.Test
-import java.util.concurrent.Executors
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import kotlin.test.assertTrue
-import kotlin.test.assertFailsWith
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 class ContainedExecutorsTest {
 

@@ -1,13 +1,11 @@
 package io.mazewall
 
 import org.junit.jupiter.api.Test
-import io.mazewall.EnabledIfLinuxAndSupported
 import java.lang.foreign.Arena
 import java.lang.foreign.ValueLayout
-import java.lang.foreign.MemorySegment
-import kotlin.test.assertTrue
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 @EnabledIfLinuxAndSupported
 class LinuxNativeTest {

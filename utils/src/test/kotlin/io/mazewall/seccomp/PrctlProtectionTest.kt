@@ -2,17 +2,16 @@ package io.mazewall.seccomp
 
 import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.LinuxNative
-import io.mazewall.Platform
 import io.mazewall.Policy
 import io.mazewall.enforcer.ContainedExecutors
 import io.mazewall.enforcer.ContainmentViolationException
-import java.lang.foreign.Arena
-import java.util.concurrent.Executors
-import java.util.concurrent.ExecutionException
 import org.junit.jupiter.api.Test
+import java.lang.foreign.Arena
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
-import kotlin.test.assertEquals
 
 /**
  * Integration tests verifying that [BpfFilter] correctly performs argument inspection on the

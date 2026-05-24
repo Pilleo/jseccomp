@@ -1,17 +1,16 @@
 package io.mazewall.seccomp
 
 import io.mazewall.EnabledIfLinuxAndSupported
-import io.mazewall.Platform
 import io.mazewall.Policy
 import io.mazewall.Syscall
 import io.mazewall.enforcer.ContainedExecutors
 import io.mazewall.enforcer.ContainmentViolationException
+import org.junit.jupiter.api.Test
 import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.Linker
 import java.lang.foreign.ValueLayout
-import java.util.concurrent.Executors
 import java.util.concurrent.ExecutionException
-import org.junit.jupiter.api.Test
+import java.util.concurrent.Executors
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
