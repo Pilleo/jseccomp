@@ -116,6 +116,26 @@ class Policy private constructor(
 
         fun builder(): Builder = Builder()
 
+        private fun intersectPaths(set1: Set<String>, set2: Set<String>): Set<String> {
+            val result = mutableSetOf<String>()
+            for (p1 in set1) {
+                for (p2 in set2) {
+                    val p1WithSlash = if (p1.endsWith("/")) p1 else "$p1/"
+                    val p2WithSlash = if (p2.endsWith("/")) p2 else "$p2/"
+
+                    val p1IsPrefixOfP2 = p1 == p2 || p2.startsWith(p1WithSlash)
+                    val p2IsPrefixOfP1 = p1 == p2 || p1.startsWith(p2WithSlash)
+
+                    if (p1IsPrefixOfP2) {
+                        result.add(p2) // p2 is more restrictive or equal
+                    } else if (p2IsPrefixOfP1) {
+                        result.add(p1) // p1 is more restrictive
+                    }
+                }
+            }
+            return result
+        }
+
         /**
          * Returns a new Policy that is the combination of all given [policies].
          *
@@ -151,11 +171,11 @@ class Policy private constructor(
             // Intersect Landlock paths to match kernel stacking behavior
             val allReadSets = policies.map { it.allowedFsReadPaths }.filter { it.isNotEmpty() }
             val fsReads =
-                if (allReadSets.isEmpty()) emptySet() else allReadSets.reduce { acc, set -> acc.intersect(set) }
+                if (allReadSets.isEmpty()) emptySet() else allReadSets.reduce { acc, set -> intersectPaths(acc, set) }
 
             val allWriteSets = policies.map { it.allowedFsWritePaths }.filter { it.isNotEmpty() }
             val fsWrites =
-                if (allWriteSets.isEmpty()) emptySet() else allWriteSets.reduce { acc, set -> acc.intersect(set) }
+                if (allWriteSets.isEmpty()) emptySet() else allWriteSets.reduce { acc, set -> intersectPaths(acc, set) }
 
             val enforceLandlock = policies.any { it.enforceLandlock }
 

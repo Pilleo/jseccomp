@@ -182,6 +182,16 @@ class PolicyTest {
     }
 
     @Test
+    fun `combine() hierarchical Landlock paths yield most restrictive`() {
+        val p1 = Policy.builder().allowFsRead("/var").build()
+        val p2 = Policy.builder().allowFsRead("/var/log").build()
+        val combined = Policy.combine(p1, p2)
+
+        assertEquals(setOf("/var/log"), combined.allowedFsReadPaths, "Should yield the more restrictive path")
+        assertTrue(combined.enforceLandlock)
+    }
+
+    @Test
     fun `combine() disjoint Landlock paths forces Landlock`() {
         val p1 = Policy.builder().allowFsRead("/a").build()
         val p2 = Policy.builder().allowFsRead("/b").build()

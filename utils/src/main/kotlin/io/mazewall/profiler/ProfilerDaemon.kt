@@ -201,6 +201,7 @@ object ProfilerDaemon {
                 LinuxNative.close(listenerFd)
             }
             clientSockets.remove(socketFd)
+            socketLocks.remove(socketFd)
         }
     }
 
