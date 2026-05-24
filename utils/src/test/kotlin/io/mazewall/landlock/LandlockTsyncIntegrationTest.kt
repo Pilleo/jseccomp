@@ -31,6 +31,7 @@ class LandlockTsyncIntegrationTest {
                         File("/etc/hostname").readText()
                         exitProcess(0) // Should have succeeded (if TSYNC is disabled)
                     } catch (e: Exception) {
+                        System.err.println("Sandboxed successfully: ${e.message}")
                         exitProcess(42) // Correctly sandboxed (if TSYNC is enabled)
                     }
                 }

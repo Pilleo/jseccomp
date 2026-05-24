@@ -24,9 +24,9 @@ class ProcessContainmentInheritanceTest {
             Thread {
                 try {
                     ProcessBuilder("echo", "inherited").start()
-                    throw RuntimeException("Should not have been able to exec")
+                    throw IllegalStateException("Should not have been able to exec")
                 } catch (e: java.io.IOException) {
-                    // Expected if blocked
+                    assertTrue(e.message != null) // Expected if blocked
                 }
             }
         thread.start()

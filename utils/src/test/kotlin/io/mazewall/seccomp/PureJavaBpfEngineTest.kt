@@ -21,8 +21,8 @@ class PureJavaBpfEngineTest {
                         try {
                             ProcessBuilder("echo", "hello").start()
                             false
-                        } catch (e: Exception) {
-                            true
+                        } catch (e: java.io.IOException) {
+                            e.message != null
                         }
                     }.get()
             assertTrue(result == true, "execve should have been blocked by PureJavaBpfEngine")

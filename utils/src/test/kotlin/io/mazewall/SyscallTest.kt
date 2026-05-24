@@ -58,6 +58,7 @@ class SyscallTest {
             try {
                 Arch.current()
             } catch (e: UnsupportedOperationException) {
+                println("Skipping test on unsupported arch: ${e.message}")
                 return
             }
 
