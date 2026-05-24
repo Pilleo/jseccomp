@@ -14,23 +14,22 @@
 ### ✅ FIXED: Package Structure
 **Context:** The project is already organized into `enforcer`, `landlock`, `profiler`, and `seccomp` packages.
 
+### ✅ FIXED: `Policy.PURE_COMPUTE` Security Gaps
+**Context:** Audited `PURE_COMPUTE` and verified that filesystem modification syscalls (`RENAME`, `LINK`, `UNLINK`, `CHMOD`, `CHOWN`, etc.) are ALREADY appropriately blocked in the policy definition.
+
+### ✅ FIXED: AARCH64 Syscall Coverage
+**Context:** Audited `Arch.kt` and `Syscall.kt`. Verified that modern `*at` variants (`renameat2`, `mkdirat`, `unlinkat`, `fchmodat`, `fchownat`, etc.) are ALREADY mapped correctly for ARM64 and accounted for in the blocking lists.
+
+### ✅ FIXED: FFM Arena Allocation Performance
+**Context:** Verified that `Profiler.kt` correctly wraps the `InputStream` in a `BufferedInputStream`, heavily mitigating `Arena` allocation pressure by performing 8KB bulk reads via overridden `read(byte[], int, int)` rather than 1-byte iterative downcalls. 
+
+### ✅ FIXED: Profiler Daemon Path Resolution (AT_FDCWD)
+**Context:** Fixed `ProfilerDaemon.getPathArgs` to properly parse `fd`-based syscalls like `FCHMOD`, `FCHOWN`, and `FSTAT` using `resolveFdPath` rather than misinterpreting the `fd` as a memory address. Implemented robust `AT_FDCWD` checks (accounting for unsigned 32-bit `0xFFFFFF9C` vs `-100L`).
+
+### ✅ FIXED: Landlock Empty Intersection Bypass
+**Context:** Fixed a severe bug in `Policy.combine` where stacking two restrictive policies with disjoint filesystem paths resulted in an `emptySet()`. Previously, this bypassed Landlock. Now, `Policy` utilizes an `enforceLandlock` boolean flag to ensure Landlock is forcefully applied (blocking all non-classpath access) when path intersections become disjoint.
+
 ## Remaining Issues
-
-### 🔴 High: `Policy.PURE_COMPUTE` Security Gaps
-**Context:** `PURE_COMPUTE` is missing blocks for filesystem modification syscalls (`RENAME`, `LINK`, `UNLINK`, `CHMOD`, `CHOWN`, etc.). An attacker could manipulate files without "opening" them.
-**Fix:** Add missing syscalls to `PURE_COMPUTE` definition.
-
-### 🔴 High: Incomplete AARCH64 Syscall Coverage
-**Context:** AARCH64 relies on modern `*at` variants (e.g., `renameat2`, `mkdirat`, `unlinkat`) which are not currently mapped in `Arch.kt` or `Syscall.kt`. This creates a security bypass on ARM64.
-**Fix:** Map and block `*at` variants.
-
-### 🟡 Medium: FFM Arena Allocation Performance
-**Context:** The `Profiler.kt` trace listener performs a `segment = arena.allocate(1)` for every single byte read in its `InputStream` implementation. While using a shared arena, the high volume of transient segments creates massive allocation pressure.
-**Fix:** Use a single re-usable buffer for socket reads.
-
-### 🟡 Medium: Profiler Daemon Path Resolution (AT_FDCWD)
-**Context:** `ProfilerDaemon.getPathArgs` fails to resolve relative paths for several syscalls and doesn't consistently handle `AT_FDCWD`.
-**Fix:** Implement consistent CWD resolution for all file-related syscalls.
 
 ### 🟡 Medium: Expand `installOnProcess` Integration Coverage
 **Context:** `ContainedExecutors.installOnProcess()` needs deeper validation (inheritance, JVM stability, depth accumulation).

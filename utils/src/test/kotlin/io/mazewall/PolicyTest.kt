@@ -178,6 +178,17 @@ class PolicyTest {
         val combined = Policy.combine(p1, p2)
 
         assertEquals(setOf("/common"), combined.allowedFsReadPaths, "Landlock paths should be intersected")
+        assertTrue(combined.enforceLandlock, "Should enforce Landlock")
+    }
+
+    @Test
+    fun `combine() disjoint Landlock paths forces Landlock`() {
+        val p1 = Policy.builder().allowFsRead("/a").build()
+        val p2 = Policy.builder().allowFsRead("/b").build()
+        val combined = Policy.combine(p1, p2)
+
+        assertTrue(combined.allowedFsReadPaths.isEmpty(), "Disjoint paths result in empty set")
+        assertTrue(combined.enforceLandlock, "Disjoint paths must still enforce Landlock")
     }
 
     @Test

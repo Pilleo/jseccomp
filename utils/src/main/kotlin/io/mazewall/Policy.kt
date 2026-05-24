@@ -31,7 +31,8 @@ class Policy private constructor(
     internal val allowNonThreadClone: Boolean = false,
     internal val allowUnsafePrctl: Boolean = false,
     internal val allowedFsReadPaths: Set<String> = emptySet(),
-    internal val allowedFsWritePaths: Set<String> = emptySet()
+    internal val allowedFsWritePaths: Set<String> = emptySet(),
+    internal val enforceLandlock: Boolean = false
 ) {
 
     enum class Mode {
@@ -156,6 +157,8 @@ class Policy private constructor(
             val fsWrites =
                 if (allWriteSets.isEmpty()) emptySet() else allWriteSets.reduce { acc, set -> acc.intersect(set) }
 
+            val enforceLandlock = policies.any { it.enforceLandlock }
+
             return Policy(
                 combinedSyscalls,
                 mode = mode,
@@ -163,7 +166,8 @@ class Policy private constructor(
                 allowNonThreadClone = cloneNonThread,
                 allowUnsafePrctl = unsafePrctl,
                 allowedFsReadPaths = fsReads,
-                allowedFsWritePaths = fsWrites
+                allowedFsWritePaths = fsWrites,
+                enforceLandlock = enforceLandlock
             )
         }
     }
@@ -297,7 +301,8 @@ class Policy private constructor(
             allowNonThreadClone,
             allowUnsafePrctl,
             allowedFsReadPaths.toSet(),
-            allowedFsWritePaths.toSet()
+            allowedFsWritePaths.toSet(),
+            enforceLandlock = allowedFsReadPaths.isNotEmpty() || allowedFsWritePaths.isNotEmpty()
         )
     }
 }

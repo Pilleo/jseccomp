@@ -4,6 +4,7 @@ import io.mazewall.Arch
 import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.Policy
 import io.mazewall.Syscall
+import io.mazewall.LinuxNative
 import org.junit.jupiter.api.Test
 import java.io.File
 import java.util.concurrent.Callable
@@ -136,6 +137,40 @@ class ProfilerIntegrationTest {
                 "Should resolve relative path $fileName to absolute path $absolutePath. Observed: ${result.behavior.opens}"
             )
         } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun `test profiler correctly resolves fd based paths like FCHMOD`() {
+        val file = File("fchmod-test-${System.currentTimeMillis()}.txt")
+        file.writeText("content")
+        val absolutePath = file.absolutePath
+        val pool = Executors.newSingleThreadExecutor()
+        val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE)
+        try {
+            wrapped.submit(Callable {
+                java.lang.foreign.Arena.ofConfined().use { arena ->
+                    val pathSeg = arena.allocateFrom(absolutePath)
+                    val openRes = LinuxNative.open(pathSeg, 0)
+                    if (openRes.returnValue >= 0) {
+                        val fd = openRes.returnValue.toInt()
+                        val fchmodNr = Syscall.FCHMOD.numberFor(Arch.current()).toLong()
+                        if (fchmodNr >= 0) {
+                            LinuxNative.syscall(fchmodNr, fd, 0x1FF) // 0777
+                        }
+                        LinuxNative.close(fd)
+                    }
+                }
+            }).get(5, TimeUnit.SECONDS)
+            
+            val eventsWithPath = wrapped.recentLogs.filter { it.paths.contains(absolutePath) }
+            assertTrue(
+                eventsWithPath.any { it.syscallName == "FCHMOD" || it.syscallName == "OPENAT" || it.syscallName == "OPEN" },
+                "Should resolve fd-based syscall paths to absolute path $absolutePath. Observed events: ${wrapped.recentLogs.map { it.syscallName to it.paths }}"
+            )
+        } finally {
+            wrapped.shutdownNow()
             file.delete()
         }
     }

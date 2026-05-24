@@ -383,13 +383,15 @@ object ProfilerDaemon {
 
     private fun getPathArgs(syscallName: String, args: LongArray, pid: Int): List<String> {
         val paths = mutableListOf<String>()
+        fun isAtFdcwd(fd: Long): Boolean = fd == -100L || fd == 4294967196L || fd.toInt() == -100
+
         fun tryRead(addr: Long, dirfd: Long = -100L): String? {
             if (addr == 0L) return null
             val path = readStringFromProcess(pid, addr) ?: return null
             if (path.startsWith("/")) return path
 
             // Resolve relative paths
-            val dirPath = if (dirfd == -100L) {
+            val dirPath = if (isAtFdcwd(dirfd)) {
                 // AT_FDCWD
                 resolveCwd(pid)
             } else if (dirfd >= 0) {
@@ -402,8 +404,11 @@ object ProfilerDaemon {
             return path
         }
         when (syscallName) {
-            "OPEN", "EXECVE", "MKDIR", "RMDIR", "CHMOD", "FCHMOD", "CHOWN", "LCHOWN", "FCHOWN", "UNLINK", "READLINK", "CHROOT", "UTIME", "UTIMES" ->
+            "OPEN", "EXECVE", "MKDIR", "RMDIR", "CHMOD", "CHOWN", "LCHOWN", "UNLINK", "READLINK", "CHROOT", "UTIME", "UTIMES" ->
                 tryRead(args[0], -100L)?.let { paths.add(it) }
+                
+            "FCHMOD", "FCHOWN", "FSTAT" ->
+                resolveFdPath(pid, args[0].toInt())?.let { paths.add(it) }
 
             "SYMLINK", "LINK", "RENAME" -> {
                 tryRead(args[0], -100L)?.let { paths.add(it) }

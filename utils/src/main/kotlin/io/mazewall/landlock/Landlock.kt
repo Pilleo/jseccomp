@@ -329,7 +329,8 @@ object Landlock {
      * @throws RuntimeException if any Landlock syscall fails unexpectedly.
      */
     fun applyRuleset(policy: Policy) {
-        val needsLandlock = policy.allowedFsReadPaths.isNotEmpty() ||
+        val needsLandlock = policy.enforceLandlock || 
+                            policy.allowedFsReadPaths.isNotEmpty() ||
                             policy.allowedFsWritePaths.isNotEmpty() ||
                             policy.isSyscallAllowed(Syscall.IO_URING_SETUP) ||
                             policy.isSyscallAllowed(Syscall.IO_URING_ENTER)
