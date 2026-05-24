@@ -31,6 +31,14 @@
 
 ## Remaining Issues
 
+### 🔴 High: Remove Deprecated Landlock Audit Logic
+**Context:** The `MAZEWALL_PROFILER_AUDIT` logic in `Profiler.kt` and `Landlock.kt` is based on the false assumption that Landlock Audit is transparent. In reality, it causes `EACCES` crashes.
+**Needed:** Rip out the `Landlock.applyProfilingRuleset()` and related Netlink socket code from the Tier S profiler to restore its transparency guarantee.
+
+### 🔴 High: Implement Tier P (Privileged Profiler)
+**Context:** High-performance `io_uring` profiling currently requires either the slow `IterativeProfiler` or a performance-degrading fallback to standard I/O.
+**Needed:** A root-privileged profiler using eBPF tracepoints (`sys_enter_io_uring_setup`, etc.) or `strace` to achieve true transparent "Fast Path" profiling.
+
 ### 🟡 Medium: Expand `installOnProcess` Integration Coverage
 **Context:** `ContainedExecutors.installOnProcess()` needs deeper validation (inheritance, JVM stability, depth accumulation).
 **Needed:** Expanded test suite.

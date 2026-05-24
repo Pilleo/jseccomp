@@ -55,12 +55,23 @@ To bypass these constraints, we designed a **Tiered Profiling System** that prov
          |                               |                               |
          ▼                               ▼                               ▼
 +------------------+           +------------------+            +------------------+
-|      Tier S      |           |      Tier A      |            |      Tier B      |
-|  Out-of-Process  |           | Iterative Retry  |            | SECCOMP_RET_LOG  |
-|   USER_NOTIF     |           | (Zero-Privilege) |            | (Aspirational)   |
+|      Tier P      |           |      Tier S      |            |      Tier A      |
+|    Privileged    |           |  Out-of-Process  |            | Iterative Retry  |
+|   eBPF / Trace   |           |   USER_NOTIF     |            | (Zero-Privilege) |
 +------------------+           +------------------+            +------------------+
 ```
-### Tier S: Out-of-Process `USER_NOTIF` Supervisor (The Production Default)
+
+### Tier P: Privileged eBPF / Trace Profiler (Recommended for Performance)
+In environments where `root` access is acceptable during the profiling phase (e.g. local development or dedicated CI runners), Tier P provides **absolute transparency**.
+
+*   **Mechanism:** The JVM spawns a root-privileged daemon (using `sudo` or capabilities) that attaches eBPF probes to kernel tracepoints (`sys_enter`, `sys_exit`) or uses the `perf` subsystem.
+*   **Benefits:** 
+    *   **Zero-Blocking:** It observes syscalls and VFS paths without ever blocking or denying them. 
+    *   **Async Visibility:** It has perfect visibility into `io_uring` operations as it hooks the kernel directly.
+    *   **Transparency:** The application runs at near-native speed with zero risk of `EACCES` crashes.
+*   **Output:** Generates a complete `BillOfBehavior` including "Fast Path" `io_uring` operations.
+
+### Tier S: Out-of-Process `USER_NOTIF` Supervisor (The Unprivileged Default)
 Placing the supervisor thread inside the *same* JVM leads to fatal safepoint deadlocks. Relying on `strace` leads to noisy, process-wide telemetry and brittle text scraping. Instead, we use `SECCOMP_RET_USER_NOTIF` backed by a lightweight sidecar process communicating via Unix Domain Sockets using a structured binary protocol to prevent log injection.
 
 **Synchronous & Stateless `profile<T>` API:**
@@ -69,52 +80,43 @@ The profiling session is run synchronously inside a dedicated OS platform thread
 **Timing-Safe JVM Stack Capture:**
 The Unix domain socket protocol includes a round-trip acknowledgment. The supervisor daemon blocks the worker thread in-kernel using seccomp, sends the `TraceEvent` to the parent JVM, and waits for an ACK byte. While the worker thread is blocked in-kernel, the trace listener in the parent JVM safely and stably captures the worker's Java stack trace via `Thread.stackTrace` on a best-effort basis, before sending the ACK. Once acknowledged, the daemon sends `FLAG_CONTINUE` to resume worker execution. This eliminates race conditions during stack profiling.
 
-**SBoB-Aligned Composable Output:**
-The profiler produces a `BillOfBehavior` representing raw observations of `opens`, `fsWritePaths`, `syscalls`, and `execs`, aligned to the Software Bill of Behavior (SBoB) spec draft v0.0.1. Bills from multiple runs can be composed using `+`, and transpiled to concrete enforcement policies via `bill.toPolicy(base)`.
+**The `io_uring` Blind Spot & The Landlock Audit Catch-22:**
+Seccomp-BPF is blind to operations submitted via `io_uring` rings. 
 
-**Audit-Assisted Asynchronous Profiling (`io_uring`):**
-Because Seccomp-BPF is blind to operations submitted via `io_uring` rings, the Profiler automatically enables an **Audit-Assisted Sensor**. By applying a restrictive Landlock ruleset (denying everything except essential JVM classpath), the kernel is forced to emit `LANDLOCK_ACCESS` audit records for every other VFS or Network operation, including those originating from `io_uring` kernel worker threads. The `ProfilerDaemon` asynchronously ingests these kernel audit logs, extracts absolute paths, and merges them into the trace stream. This allows the profiler to correctly build Bills of Behavior for high-performance async applications while remaining unprivileged (to install). If the Netlink audit socket creation fails, the daemon logs a warning to stderr and degrades gracefully, leaving standard USER_NOTIF events fully operational.
+> [!CAUTION]
+> **PHYSICS-LEVEL CONSTRAINT:** Early design iterations suggested using **Landlock Audit** (Type 1423) for transparent `io_uring` profiling. **This is physically impossible.** 
+>
+> Landlock does not have a "permissive" or "log-only" mode. It only emits an audit log when it **denies** access. If you apply a restrictive Landlock policy during profiling to force audit logs, Landlock will return `EACCES` to the application. This causes the JVM to crash with `FileNotFoundException` or `IOException`, breaking the profiling session.
 
 *   **Targeted Filtering:** The JVM installs a `USER_NOTIF` seccomp filter *only* on the specific worker thread executing the task.
 *   **FD Exfiltration:** Using FFM API and `sendmsg` (`SCM_RIGHTS`), the worker JVM passes the seccomp file descriptor to an external, lightweight Java daemon process.
 *   **Deadlock Immunity:** Because the supervisor runs in a completely separate OS process, its JVM safepoints are physically isolated from the main JVM. It cannot cause a safepoint deadlock.
 *   **Zero-Crash Execution (`FLAG_CONTINUE`):** When a worker thread blocks on a syscall, the external supervisor reads the notification struct. If the syscall takes pointer arguments (like `openat` file paths), the supervisor inspects the worker's memory via `process_vm_readv()` and resolves absolute paths by inspecting `/proc/[pid]/fd/`. After logging the operation to a binary stream back to the JVM, the supervisor replies to the kernel with `SECCOMP_USER_NOTIF_FLAG_CONTINUE` (Linux 5.5+). This guarantees the kernel executes the syscall natively without requiring dangerous user-space emulation.
 
-### Multi-Thread Synchronization (`TSYNC`) Hazard
-While `LANDLOCK_RESTRICT_SELF_TSYNC` (ABI 8, Linux 7.0) provides process-wide atomic sandboxing, it is **unsuitable for standard JVM test runners** and is **only available on cutting-edge kernels**. Most production servers and developer machines run LTS kernels (5.15, 6.1, 6.6) that do not support ABI 8; any use must include an explicit kernel version check. Because it sandboxes sibling threads, it breaks Gradle worker transparency and causes `Permission Denied` crashes on unrelated tasks. The profiler maintains TSYNC implementation for production baselines but disables it by default during profiling and testing to maintain suite stability.
-
-```
-Worker Thread (JVM 1)         Kernel            Supervisor Daemon (JVM 2)
-...
-      ├─ sys_openat() ─────────►│                         │
-      │                         ├─ USER_NOTIF ───────────►│
-      │   (Paused)              │                         ├─ Read syscall & args
-      │                         │                         ├─ Read memory (process_vm_readv)
-      │                         │◄─ FLAG_CONTINUE ────────┤
-      │◄─ Native Execution ─────┤                         │
-      │                         │                         │
-```
-
-### Tier A: Native Iterative Deny-and-Retry Loop (Zero-Privilege Fallback)
-For heavily locked-down environments where Unix Domain Socket sidecars or `USER_NOTIF` are blocked by strict OCI container profiles, the `IterativeProfiler` provides a fully in-process, zero-privilege alternative:
+### Tier A: Native Iterative Deny-and-Retry Loop (The Unprivileged Fallback)
+For heavily locked-down environments where `root` is unavailable and Tier S is blocked by strict OCI container profiles, the `IterativeProfiler` provides a fully in-process, zero-privilege alternative:
 
 1.  **Baseline Run:** Execute the target code under a restrictive baseline policy (e.g. `Policy.PURE_COMPUTE`).
-2.  **Exception Accumulation:** Instead of stopping on the first `ContainmentViolationException`, the profiler collects all unique violations across the entire run.
-3.  **Policy Expansion and Retry:** The blocked syscalls are appended to the policy model and the run is repeated.
-4.  **Convergence:** Execution converges in O(N) runs, where N is the number of syscall categories the code needs. Typically fewer than 15 iterations.
+2.  **Exception Accumulation:** Instead of stopping on the first `ContainmentViolationException`, the profiler catches `AccessDeniedException` and other I/O errors, extracts the missing path, and accumulates it.
+3.  **Policy Expansion and Retry:** The blocked paths/syscalls are added to the policy model and the run is repeated.
+4.  **Convergence:** Execution converges in O(N) runs.
 
-This mechanism is 100% in-process with zero external sidecars. Build-system integration (e.g., Gradle) is a usage pattern on top of this mechanism, not part of the core design.
-
-### Tier B: `SECCOMP_RET_LOG` Audit Logging (High Performance / Production Stage)
-For build systems running in environments with access to host kernel logs (or have `log` enabled in `/proc/sys/kernel/seccomp/actions_logged`):
-
-*   **Mechanism:** The profiling BPF filter returns `SECCOMP_RET_LOG` for all evaluated operations.
-*   **Behavior:** The kernel executes every system call normally (zero overhead, zero crashes) and writes an audit record to the kernel ring buffer (`dmesg` / `auditd`).
-*   **Compilation:** The profiler reads `/dev/kmsg` or streams system logs dynamically to generate the `Policy` file.
+**This is the ONLY unprivileged way to profile `io_uring` or Landlock paths.** Because Landlock is non-permissive, we must "learn" the policy by failing and retrying.
 
 ---
 
-## 3. Exception Handling & Containment Violations
+## 3. Profiling Identity vs. Performance
+
+When profiling an application that supports `io_uring`, the choice of profiling tier affects the resulting **Performance Profile** of the enforced application:
+
+| Profiling Strategy | Resulting Policy | Enforcement Behavior |
+|--------------------|------------------|----------------------|
+| **Tier P (Root)** | Includes `io_uring` | Application runs on the **Fast Path**. |
+| **Tier A (Iterative)**| Includes `io_uring` | Application runs on the **Fast Path**. |
+| **Tier S (w/o io_uring)** | Standard I/O only | Application is **Functionally Identical** but runs on the **Slow Path** (Seccomp blocks `io_uring_setup`, forcing app fallback). |
+
+Disabling `io_uring` during the profiling phase is a valid way to generate a functional policy without root or complex setup, provided the developer accepts the performance trade-off in the final sandboxed environment.
+
 
 Handling containment errors inside a managed, multithreaded platform like the HotSpot JVM is highly delicate. If a thread attempts to make a blocked syscall, it receives `-EPERM`. We must translate this error deterministically without corrupting the JVM state.
 
@@ -233,5 +235,5 @@ When a seccomp `USER_NOTIF` listener file descriptor is closed while tracee thre
 Landlock Audit logging (`LANDLOCK_ACCESS` records) is a kernel-specific telemetry feature.
 *   **The Hazard:** `AUDIT_LANDLOCK_ACCESS` was introduced in **Linux 6.13** (Landlock ABI 7). 
 *   **The Impact:** On kernels older than 6.13 (including standard LTS versions like 5.15), applying a restrictive Landlock "Audit" policy will silently block operations with `EACCES` without emitting any audit logs, causing the profiler to miss dependencies and the application to crash.
-*   **The Mitigation:** The profiler performs a kernel version check. If the kernel is `< 6.13`, it refuses to enable the Landlock-assisted sensor and logs a warning to stderr.
+*   **The Mitigation:** Transparent profiling of `io_uring` via Landlock Audit is physically impossible due to the lack of a permissive mode. `mazewall` requires either **Tier P (Privileged eBPF)** for transparent capture or **Tier A (Iterative Profiler)** to handle the non-transparent `EACCES` denials via retries.
 

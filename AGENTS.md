@@ -63,7 +63,7 @@ The repository is organized as a multi-module Gradle project. The **`/utils`** m
 | `BillOfBehavior.kt`    | Immutable record of kernel-level observations. SBoB-aligned. Produces `Policy` via `toPolicy()` or Kotlin DSL via `toDsl()`.                                                        |
 | `TraceEvent.kt`        | Wire-level event record: `(pid, syscallName, args, paths)`.                                                                                                                         |
 | `ProfilingResult.kt`   | `(returnValue: T, behavior: BillOfBehavior)`.                                                                                                                                       |
-| `IterativeProfiler.kt` | Tier A profiler (no daemon, no USER_NOTIF). Progressive Landlock restriction with `AccessDeniedException` retry to discover FS paths.                                               |
+| `IterativeProfiler.kt` | Tier A profiler (no daemon, no USER_NOTIF). Progressive Landlock restriction with `AccessDeniedException` retry. The **only** unprivileged way to profile Landlock paths and `io_uring`. |
 
 ### Additional Modules
 *   **`/demo`:** Log4Shell-style RCE showcase blocked by `Policy.NO_EXEC`.

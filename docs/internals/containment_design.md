@@ -294,9 +294,7 @@ Linux 7.0 (ABI 8) introduces `LANDLOCK_RESTRICT_SELF_TSYNC` which synchronizes t
 ### `applyProfilingRuleset()` vs. `applyRuleset(policy)`
 
 - `applyRuleset(policy)` — enforcement path; used by `ContainedExecutors`.
-- `applyProfilingRuleset()` — applies a "deny everything" Landlock domain used by
-  the profiler to force kernel audit events for `io_uring` operations. Activated only
-  via `MAZEWALL_PROFILER_AUDIT=true`. **Never call this in enforcement code paths.**
+- `applyProfilingRuleset()` — applies a restrictive Landlock domain. This is used by the **Iterative Profiler (Tier A)** to trigger path denials that are then caught and resolved. In older design iterations, it was used with `MAZEWALL_PROFILER_AUDIT=true` to trigger kernel audit events, but this is now deprecated for transparent profiling as Landlock lacks a permissive mode.
 
 ---
 

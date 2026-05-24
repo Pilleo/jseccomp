@@ -24,9 +24,11 @@ However, cluster-wide dynamic profiling has a few critical limitations for appli
 1. **Lack of Application Context:** A cluster-level eBPF tracer sees the JVM process as a single black box. It cannot easily distinguish between a high-privilege administrative thread, a low-privilege JSON parser thread, or the JIT compiler thread. It profiles the *average process*, not individual logical tasks.
 2. **Slow Developer Feedback Loop:** Running a container in a staging cluster, generating traffic, compiling eBPF logs, and generating a security policy is a heavy, slow process. It cannot easily be integrated into a developer's local inner loop or CI pipeline.
 
-**mazewall** takes a different approach: **developer-scoped, thread-level profiling**. 
+**mazewall** takes a different approach: **developer-scoped, thread-level profiling**. It offers three architectural tiers based on the required transparency and available environment privileges:
 
-Instead of observing the whole container from the host, mazewall embeds a lightweight profiler directly inside the JVM. Because mazewall operates at the thread level, it can profile a specific, isolated code block (such as an untrusted file parser or an API endpoint) during a local JUnit integration test. It captures exactly what that logical task needs, ignoring all background JVM noise, and outputs a ready-to-use security contract.
+1.  **Tier P (Privileged):** Uses root access to attach eBPF probes directly to the kernel. This is the only way to achieve **100% transparent profiling**, capturing even asynchronous `io_uring` operations without any application impact.
+2.  **Tier S (Standard):** Uses unprivileged `USER_NOTIF`. Transparent for synchronous syscalls, but has a "blind spot" for `io_uring`.
+3.  **Tier A (Iterative):** Fully in-process and unprivileged. It "learns" the policy through trial-and-error by catching and resolving `AccessDeniedException`s.
 
 ---
 
@@ -120,9 +122,11 @@ This generated policy contains three elements:
 
 System call profiling is straightforward, but file paths are highly dynamic. In a complex web application, a task might lazily read class files, local resources, or temporary data that isn't easily captured in a single linear execution.
 
-To solve this, mazewall provides the **Iterative Profiler** (`IterativeProfiler.profile`). 
+To solve this unprivileged, mazewall provides the **Iterative Profiler** (`IterativeProfiler.profile`).
 
-Unlike Seccomp (which intercepts system calls), Landlock (the Linux Security Module for filesystem paths) does not have a native, userspace tracing mechanism. To profile file paths, mazewall uses a pragmatic, loop-based learning algorithm:
+It is important to understand a fundamental kernel constraint here: **Landlock does not have a "permissive" or "log-only" mode.** Unlike AppArmor or SELinux, which can "complain" (log but allow), Landlock only logs when it **denies** access. This creates a "Catch-22" for transparent profiling: to see what an app is doing via Landlock logs, you must block its access; but if you block its access, the app crashes and you can't see the rest of the workload.
+
+To profile file paths without root, mazewall uses a pragmatic, loop-based learning algorithm:
 
 1. **Deploy in Staging/Test:** The workload is executed under a restricted base policy with filesystem access denied by default.
 2. **Catch Violations:** When the JVM attempts to read an unauthorized path (e.g., loading a lazy class or reading a config), the kernel blocks the access, throwing a filesystem `AccessDeniedException`.
