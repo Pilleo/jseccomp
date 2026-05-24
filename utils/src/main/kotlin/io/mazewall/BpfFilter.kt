@@ -97,26 +97,20 @@ object BpfFilter {
             }
         }
 
-        // mmap
-        if (!allowMmapExec && arch.mmap >= 0) {
-            handledNrs.add(arch.mmap)
-            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 4, arch.mmap))
-            filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_ARGS2_OFFSET))
-            // BPF_JSET: jt=0 -> if (ACC & 0x04) != 0 (PROT_EXEC set): execute next instr (RET_DENY)
-            //           jf=1 -> if (ACC & 0x04) == 0 (PROT_EXEC not set): skip 1 instr (the result)
-            filters.add(SockFilter((BPF_JMP or BPF_JSET or BPF_K).toShort(), 0, 1, 0x04))
-            filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyAction))
-            addInspectionResult(arch.mmap)
-        }
-
-        // mprotect
-        if (!allowMmapExec && arch.mprotect >= 0) {
-            handledNrs.add(arch.mprotect)
-            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 4, arch.mprotect))
-            filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_ARGS2_OFFSET))
-            filters.add(SockFilter((BPF_JMP or BPF_JSET or BPF_K).toShort(), 0, 1, 0x04))
-            filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyAction))
-            addInspectionResult(arch.mprotect)
+        // mmap & mprotect
+        if (!allowMmapExec) {
+            listOf(arch.mmap, arch.mprotect).forEach { nr ->
+                if (nr >= 0) {
+                    handledNrs.add(nr)
+                    filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 4, nr))
+                    filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_ARGS2_OFFSET))
+                    // BPF_JSET: jt=0 -> if (ACC & 0x04) != 0 (PROT_EXEC set): execute next instr (RET_DENY)
+                    //           jf=1 -> if (ACC & 0x04) == 0 (PROT_EXEC not set): skip 1 instr (the result)
+                    filters.add(SockFilter((BPF_JMP or BPF_JSET or BPF_K).toShort(), 0, 1, 0x04))
+                    filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyAction))
+                    addInspectionResult(nr)
+                }
+            }
         }
 
         // clone
