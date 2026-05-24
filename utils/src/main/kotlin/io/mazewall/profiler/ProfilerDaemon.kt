@@ -409,8 +409,7 @@ object ProfilerDaemon {
     }
 
     private fun MemorySegment.copyToString(len: Int): String {
-        val bytes = ByteArray(len)
-        for (i in 0 until len) bytes[i] = this.get(ValueLayout.JAVA_BYTE, i.toLong())
+        val bytes = this.asSlice(0L, len.toLong()).toArray(ValueLayout.JAVA_BYTE)
         return String(bytes, StandardCharsets.UTF_8)
     }
 }
