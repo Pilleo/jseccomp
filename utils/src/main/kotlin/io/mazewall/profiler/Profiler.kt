@@ -114,14 +114,14 @@ object Profiler {
             try {
                 Runtime.getRuntime().removeShutdownHook(shutdownHook)
             } catch (e: Exception) {
-                e.printStackTrace()
+                logger.log(java.util.logging.Level.WARNING, "Failed to remove shutdown hook", e)
             }
             triggerDaemonShutdown(socketPath)
             daemonProcess.destroyForcibly()
             try {
                 File(socketPath).delete()
             } catch (e: Exception) {
-                e.printStackTrace()
+                logger.log(java.util.logging.Level.WARNING, "Failed to delete socket file at $socketPath", e)
             }
         }
     }
@@ -147,7 +147,7 @@ object Profiler {
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            logger.log(java.util.logging.Level.WARNING, "Failed to trigger daemon shutdown", e)
             // best effort
         }
     }
@@ -421,8 +421,7 @@ object Profiler {
                     }
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
-                // socket closed or error
+                logger.log(java.util.logging.Level.WARNING, "Trace listener error or socket closed", e)
             } finally {
                 arena.close()
                 inputStream.close()
@@ -510,8 +509,7 @@ object Profiler {
             try {
                 Runtime.getRuntime().removeShutdownHook(shutdownHook)
             } catch (e: Exception) {
-                e.printStackTrace()
-                // Ignore if already shutting down
+                logger.log(java.util.logging.Level.WARNING, "Failed to remove shutdown hook", e)
             } finally {
                 delegate.shutdown()
                 // Do NOT destroy daemon immediately, as worker threads may still be in-kernel!
@@ -533,8 +531,7 @@ object Profiler {
             try {
                 Runtime.getRuntime().removeShutdownHook(shutdownHook)
             } catch (e: Exception) {
-                e.printStackTrace()
-                // Ignore if already shutting down
+                logger.log(java.util.logging.Level.WARNING, "Failed to remove shutdown hook during shutdownNow", e)
             } finally {
                 val tasks = delegate.shutdownNow()
                 triggerDaemonShutdown(socketPath)
