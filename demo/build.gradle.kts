@@ -2,7 +2,7 @@ plugins {
     kotlin("jvm")
     application
 }
-java{
+java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(25))
     }

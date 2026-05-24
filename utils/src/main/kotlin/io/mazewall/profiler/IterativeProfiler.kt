@@ -13,8 +13,10 @@ import java.nio.file.AccessDeniedException
  * This provides 100% unprivileged visibility into io_uring ring operations.
  */
 object IterativeProfiler {
-
-    fun profile(basePolicy: Policy = Policy.PURE_COMPUTE, task: Runnable): Policy {
+    fun profile(
+        basePolicy: Policy = Policy.PURE_COMPUTE,
+        task: Runnable,
+    ): Policy {
         var currentPolicy = basePolicy
         val maxRetries = 20
 
@@ -22,18 +24,19 @@ object IterativeProfiler {
             val builder = Policy.builder().base(currentPolicy)
             var error: Throwable? = null
 
-            val thread = Thread {
-                try {
-                    // Ensure Landlock is active even for empty policies to force discovery
-                    if (currentPolicy.allowedFsReadPaths.isEmpty() && currentPolicy.allowedFsWritePaths.isEmpty()) {
-                        Landlock.applyRestrictiveBarrier()
+            val thread =
+                Thread {
+                    try {
+                        // Ensure Landlock is active even for empty policies to force discovery
+                        if (currentPolicy.allowedFsReadPaths.isEmpty() && currentPolicy.allowedFsWritePaths.isEmpty()) {
+                            Landlock.applyRestrictiveBarrier()
+                        }
+                        ContainedExecutors.installOnCurrentThread(currentPolicy)
+                        task.run()
+                    } catch (t: Throwable) {
+                        error = t
                     }
-                    ContainedExecutors.installOnCurrentThread(currentPolicy)
-                    task.run()
-                } catch (t: Throwable) {
-                    error = t
                 }
-            }
             thread.start()
             thread.join()
 

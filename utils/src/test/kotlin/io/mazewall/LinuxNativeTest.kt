@@ -9,7 +9,6 @@ import kotlin.test.assertTrue
 
 @EnabledIfLinuxAndSupported
 class LinuxNativeTest {
-
     @Test
     fun testPrctlGetSeccomp() {
         val result = LinuxNative.prctl(LinuxNative.PR_GET_SECCOMP, 0, 0, 0, 0)
@@ -44,7 +43,9 @@ class LinuxNativeTest {
     fun testBasicSyscalls() {
         Arena.ofConfined().use { arena ->
             // test open/close/read/write on a temp file
-            val tempFile = java.nio.file.Files.createTempFile("native-test", ".txt")
+            val tempFile =
+                java.nio.file.Files
+                    .createTempFile("native-test", ".txt")
             val path = arena.allocateFrom(tempFile.toString())
 
             val openResult = LinuxNative.open(path, 0) // O_RDONLY
@@ -124,19 +125,24 @@ class LinuxNativeTest {
             localIovec.set(ValueLayout.ADDRESS, 0, destBuf)
             localIovec.set(ValueLayout.JAVA_LONG, 8, 10)
 
-            val result = LinuxNative.processVmReadv(
-                ProcessHandle.current().pid().toInt(),
-                localIovec, 1,
-                remoteIovec, 1,
-                0 // flags
-            )
+            val result =
+                LinuxNative.processVmReadv(
+                    ProcessHandle.current().pid().toInt(),
+                    localIovec,
+                    1,
+                    remoteIovec,
+                    1,
+                    0, // flags
+                )
         }
     }
 
     @Test
     fun testFcntl() {
         Arena.ofConfined().use { arena ->
-            val tempFile = java.nio.file.Files.createTempFile("fcntl-test", ".txt")
+            val tempFile =
+                java.nio.file.Files
+                    .createTempFile("fcntl-test", ".txt")
             val path = arena.allocateFrom(tempFile.toString())
             val openResult = LinuxNative.open(path, 0)
             val fd = openResult.returnValue.toInt()

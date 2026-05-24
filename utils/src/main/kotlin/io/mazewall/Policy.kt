@@ -3,7 +3,6 @@ package io.mazewall
 import io.mazewall.Policy.Companion.builder
 import io.mazewall.Policy.Companion.combine
 
-
 /**
  * Defines which syscalls to block. Create via [builder] or use the built-in presets.
  *
@@ -36,29 +35,26 @@ class Policy private constructor(
     internal val allowUnsafePrctl: Boolean = false,
     internal val allowedFsReadPaths: Set<String> = emptySet(),
     internal val allowedFsWritePaths: Set<String> = emptySet(),
-    internal val enforceLandlock: Boolean = false
+    internal val enforceLandlock: Boolean = false,
 ) {
-
     enum class Mode {
         /** Only explicitly allowed syscalls are permitted. Default deny. */
         ALLOW_LIST,
 
         /** All syscalls except those explicitly blocked are permitted. Default allow. */
-        DENY_LIST
+        DENY_LIST,
     }
 
-
-    /** 
-     * Returns true if the given [syscall] is allowed by this policy. 
+    /**
+     * Returns true if the given [syscall] is allowed by this policy.
      * This considers both the mode (ALLOW_LIST vs DENY_LIST) and the syscalls set.
      */
-    fun isSyscallAllowed(syscall: Syscall): Boolean {
-        return if (mode == Mode.DENY_LIST) {
+    fun isSyscallAllowed(syscall: Syscall): Boolean =
+        if (mode == Mode.DENY_LIST) {
             !syscalls.contains(syscall)
         } else {
             syscalls.contains(syscall)
         }
-    }
 
     /** Returns the concrete syscall numbers to restrict for the given [arch]. */
     fun syscallNumbers(arch: Arch): IntArray =
@@ -68,59 +64,64 @@ class Policy private constructor(
             .sorted()
             .toIntArray()
 
-
     companion object {
         /** Blocks all network I/O, process execution, and file opens. Suitable for pure computation tasks. */
-        val PURE_COMPUTE: Policy = builder()
-            .block(Syscall.CONNECT, Syscall.SENDTO, Syscall.SENDMSG, Syscall.SOCKET)
-            .block(Syscall.BIND, Syscall.LISTEN, Syscall.ACCEPT, Syscall.ACCEPT4)
-            .block(Syscall.EXECVE, Syscall.EXECVEAT)
-            .block(Syscall.OPEN, Syscall.OPENAT, Syscall.OPENAT2)
-            .block(Syscall.RENAME, Syscall.RENAMEAT, Syscall.RENAMEAT2)
-            .block(Syscall.LINK, Syscall.LINKAT, Syscall.UNLINK, Syscall.UNLINKAT)
-            .block(Syscall.SYMLINK, Syscall.SYMLINKAT, Syscall.READLINK, Syscall.READLINKAT)
-            .block(Syscall.MKDIR, Syscall.MKDIRAT, Syscall.RMDIR)
-            .block(Syscall.CHMOD, Syscall.FCHMOD, Syscall.FCHMODAT)
-            .block(Syscall.CHOWN, Syscall.LCHOWN, Syscall.FCHOWN, Syscall.FCHOWNAT)
-            .block(Syscall.UMASK, Syscall.UTIME, Syscall.UTIMES, Syscall.UTIMENSAT)
-            .block(Syscall.TRUNCATE, Syscall.FTRUNCATE)
-            .block(Syscall.MEMFD_CREATE, Syscall.PTRACE)
-            .block(Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER, Syscall.BPF)
-            .block(Syscall.PROCESS_VM_WRITEV, Syscall.PROCESS_VM_READV)
-            .block(Syscall.USERFAULTFD, Syscall.UNSHARE, Syscall.SETNS)
-            .block(Syscall.MOUNT, Syscall.UMOUNT2, Syscall.PIVOT_ROOT, Syscall.CHROOT)
-            .block(Syscall.INIT_MODULE, Syscall.FINIT_MODULE)
-            .build()
+        val PURE_COMPUTE: Policy =
+            builder()
+                .block(Syscall.CONNECT, Syscall.SENDTO, Syscall.SENDMSG, Syscall.SOCKET)
+                .block(Syscall.BIND, Syscall.LISTEN, Syscall.ACCEPT, Syscall.ACCEPT4)
+                .block(Syscall.EXECVE, Syscall.EXECVEAT)
+                .block(Syscall.OPEN, Syscall.OPENAT, Syscall.OPENAT2)
+                .block(Syscall.RENAME, Syscall.RENAMEAT, Syscall.RENAMEAT2)
+                .block(Syscall.LINK, Syscall.LINKAT, Syscall.UNLINK, Syscall.UNLINKAT)
+                .block(Syscall.SYMLINK, Syscall.SYMLINKAT, Syscall.READLINK, Syscall.READLINKAT)
+                .block(Syscall.MKDIR, Syscall.MKDIRAT, Syscall.RMDIR)
+                .block(Syscall.CHMOD, Syscall.FCHMOD, Syscall.FCHMODAT)
+                .block(Syscall.CHOWN, Syscall.LCHOWN, Syscall.FCHOWN, Syscall.FCHOWNAT)
+                .block(Syscall.UMASK, Syscall.UTIME, Syscall.UTIMES, Syscall.UTIMENSAT)
+                .block(Syscall.TRUNCATE, Syscall.FTRUNCATE)
+                .block(Syscall.MEMFD_CREATE, Syscall.PTRACE)
+                .block(Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER, Syscall.BPF)
+                .block(Syscall.PROCESS_VM_WRITEV, Syscall.PROCESS_VM_READV)
+                .block(Syscall.USERFAULTFD, Syscall.UNSHARE, Syscall.SETNS)
+                .block(Syscall.MOUNT, Syscall.UMOUNT2, Syscall.PIVOT_ROOT, Syscall.CHROOT)
+                .block(Syscall.INIT_MODULE, Syscall.FINIT_MODULE)
+                .build()
 
         /** Blocks outbound network syscalls only. */
-        val NO_NETWORK: Policy = builder()
-            .block(Syscall.CONNECT, Syscall.SENDTO, Syscall.SENDMSG, Syscall.SOCKET)
-            .block(Syscall.BIND, Syscall.LISTEN, Syscall.ACCEPT, Syscall.ACCEPT4)
-            .block(Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER)
-            .build()
+        val NO_NETWORK: Policy =
+            builder()
+                .block(Syscall.CONNECT, Syscall.SENDTO, Syscall.SENDMSG, Syscall.SOCKET)
+                .block(Syscall.BIND, Syscall.LISTEN, Syscall.ACCEPT, Syscall.ACCEPT4)
+                .block(Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER)
+                .build()
 
         /** Blocks process execution syscalls and bypasses like fileless execution. */
-        val NO_EXEC: Policy = builder()
-            .block(Syscall.EXECVE, Syscall.EXECVEAT)
-            .block(Syscall.FORK, Syscall.VFORK)
-            .block(Syscall.MEMFD_CREATE, Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER, Syscall.PTRACE)
-            .block(Syscall.INIT_MODULE, Syscall.FINIT_MODULE)
-            .build()
+        val NO_EXEC: Policy =
+            builder()
+                .block(Syscall.EXECVE, Syscall.EXECVEAT)
+                .block(Syscall.FORK, Syscall.VFORK)
+                .block(Syscall.MEMFD_CREATE, Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER, Syscall.PTRACE)
+                .block(Syscall.INIT_MODULE, Syscall.FINIT_MODULE)
+                .build()
 
         /**
          * A highly restrictive baseline that blocks all network, execution, and most filesystem access.
          * Automatically whitelists the JVM classpath to prevent lazy classloading deadlocks.
          * Suitable for worker threads that only perform pure computation using pre-loaded data.
          */
-        val STRICT_SANDBOX: Policy = builder()
-            .base(PURE_COMPUTE)
-            .allowJvmClasspath()
-            .build()
-
+        val STRICT_SANDBOX: Policy =
+            builder()
+                .base(PURE_COMPUTE)
+                .allowJvmClasspath()
+                .build()
 
         fun builder(): Builder = Builder()
 
-        private fun intersectPaths(set1: Set<String>, set2: Set<String>): Set<String> {
+        private fun intersectPaths(
+            set1: Set<String>,
+            set2: Set<String>,
+        ): Set<String> {
             val result = mutableSetOf<String>()
             for (p1 in set1) {
                 for (p2 in set2) {
@@ -162,11 +163,12 @@ class Policy private constructor(
             val mode = policies.first().mode
             require(policies.all { it.mode == mode }) { "Cannot combine policies with different modes: ${policies.map { it.mode }}" }
 
-            val combinedSyscalls = if (mode == Mode.DENY_LIST) {
-                policies.flatMap { it.syscalls }.toSet()
-            } else {
-                policies.map { it.syscalls }.reduce { acc, set -> acc.intersect(set) }
-            }
+            val combinedSyscalls =
+                if (mode == Mode.DENY_LIST) {
+                    policies.flatMap { it.syscalls }.toSet()
+                } else {
+                    policies.map { it.syscalls }.reduce { acc, set -> acc.intersect(set) }
+                }
 
             val mmapExec = policies.all { it.allowMmapExec }
             val cloneNonThread = policies.all { it.allowNonThreadClone }
@@ -191,7 +193,7 @@ class Policy private constructor(
                 allowUnsafePrctl = unsafePrctl,
                 allowedFsReadPaths = fsReads,
                 allowedFsWritePaths = fsWrites,
-                enforceLandlock = enforceLandlock
+                enforceLandlock = enforceLandlock,
             )
         }
     }
@@ -240,7 +242,6 @@ class Policy private constructor(
             allowedFsWritePaths.addAll(policy.allowedFsWritePaths)
             return this
         }
-
 
         /**
          * Allows reading from the specified file or directory path (and its children).
@@ -320,15 +321,16 @@ class Policy private constructor(
             require(!path.contains('\u0000')) { "Path cannot contain null bytes" }
         }
 
-        fun build(): Policy = Policy(
-            syscalls.toSet(),
-            mode,
-            allowMmapExec,
-            allowNonThreadClone,
-            allowUnsafePrctl,
-            allowedFsReadPaths.toSet(),
-            allowedFsWritePaths.toSet(),
-            enforceLandlock = allowedFsReadPaths.isNotEmpty() || allowedFsWritePaths.isNotEmpty()
-        )
+        fun build(): Policy =
+            Policy(
+                syscalls.toSet(),
+                mode,
+                allowMmapExec,
+                allowNonThreadClone,
+                allowUnsafePrctl,
+                allowedFsReadPaths.toSet(),
+                allowedFsWritePaths.toSet(),
+                enforceLandlock = allowedFsReadPaths.isNotEmpty() || allowedFsWritePaths.isNotEmpty(),
+            )
     }
 }

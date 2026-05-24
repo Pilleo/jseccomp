@@ -17,9 +17,7 @@ interface SeccompEngine {
      * This uses SECCOMP_FILTER_FLAG_TSYNC on Linux.
      * Throws [IllegalStateException] if installation fails or is not supported.
      */
-    fun installOnProcess(policy: Policy) {
-        throw UnsupportedOperationException("Global process containment is not supported by this engine.")
-    }
+    fun installOnProcess(policy: Policy): Unit = throw UnsupportedOperationException("Global process containment is not supported by this engine.")
 
     /**
      * Returns true if this engine is supported on the current system.

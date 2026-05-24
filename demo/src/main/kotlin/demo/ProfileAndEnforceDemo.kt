@@ -35,24 +35,25 @@ fun runProfileAndEnforce() {
     val serverSocket = ServerSocket(0, 50, loopback)
     val serverPort = serverSocket.localPort
 
-    val serverThread = thread(isDaemon = true, name = "demo-loopback-server") {
-        try {
-            while (!serverSocket.isClosed) {
-                val client = serverSocket.accept()
-                client.getOutputStream().write("Welcome to the secure endpoint!\n".toByteArray())
-                client.close()
+    val serverThread =
+        thread(isDaemon = true, name = "demo-loopback-server") {
+            try {
+                while (!serverSocket.isClosed) {
+                    val client = serverSocket.accept()
+                    client.getOutputStream().write("Welcome to the secure endpoint!\n".toByteArray())
+                    client.close()
+                }
+            } catch (e: Exception) {
+                // Server socket closed
             }
-        } catch (e: Exception) {
-            // Server socket closed
         }
-    }
 
     // This is the realistic workload we want to profile & run securely.
     // It does synchronous File/Socket I/O AND initializes a high-performance io_uring queue.
     val workload = {
         // [1. Synchronous File I/O] Read configuration from disk
         val config = configFile.readText()
-        
+
         // [2. Synchronous Socket I/O] Connect to local server and read greetings
         val clientSocket = Socket(loopback, serverPort)
         val serverGreeting = clientSocket.getInputStream().bufferedReader().readText()
@@ -78,9 +79,9 @@ fun runProfileAndEnforce() {
         }
 
         "Workload completed.\n" +
-        "  => Config read: ${config.trim()}\n" +
-        "  => Network greeting: ${serverGreeting.trim()}\n" +
-        "  => Async Engine: $ioUringStatus"
+            "  => Config read: ${config.trim()}\n" +
+            "  => Network greeting: ${serverGreeting.trim()}\n" +
+            "  => Async Engine: $ioUringStatus"
     }
 
     // ------------------------------------------------------------
@@ -89,9 +90,10 @@ fun runProfileAndEnforce() {
     println("\u001b[33;1m[PHASE 1] Profiling the Workload...\u001b[0m")
     println("Running the workload under the Tier S USER_NOTIF Profiler to audit exact syscalls & FS access...")
 
-    val profilingResult = Profiler.profile {
-        workload()
-    }
+    val profilingResult =
+        Profiler.profile {
+            workload()
+        }
 
     println("\n\u001b[32m[RESULT] Workload successfully executed during profiling:\u001b[0m")
     println(profilingResult.value)
@@ -115,10 +117,12 @@ fun runProfileAndEnforce() {
     // Compile the observed profile into a Landlock & Seccomp enforced Policy.
     // We explicitly unblock io_uring_setup to showcase how developers customize/stack policies
     // and to verify the perfect union even when container seccomp profiles block it.
-    val compiledPolicy = Policy.builder()
-        .base(bob.toPolicy(Policy.PURE_COMPUTE))
-        .unblock(Syscall.IO_URING_SETUP)
-        .build()
+    val compiledPolicy =
+        Policy
+            .builder()
+            .base(bob.toPolicy(Policy.PURE_COMPUTE))
+            .unblock(Syscall.IO_URING_SETUP)
+            .build()
 
     println("Creating standard Thread Pool and wrapping it with ContainedExecutors...")
     val baseExecutor = Executors.newSingleThreadExecutor()
@@ -179,22 +183,23 @@ fun runProfileAndEnforce() {
 
     val attackerIoUringEvasionTask = {
         println("  [Attacker] Preparing io_uring asynchronous read of '/etc/hosts'...")
-        
+
         // Simulating the kernel VFS check under Landlock active ruleset:
         // Even if io_uring submits the read, the kernel worker (io-wq) inherits Landlock restrictions,
         // which rejects access to '/etc/hosts' and returns EACCES (Permission denied).
         // Let's perform a validation check mimicking what the kernel async worker experiences:
         Arena.ofConfined().use { arena ->
-            val openResult = LinuxNative.open(
-                arena.allocateFrom(sensitiveFile.canonicalPath),
-                0 // O_RDONLY
-            )
-            
+            val openResult =
+                LinuxNative.open(
+                    arena.allocateFrom(sensitiveFile.canonicalPath),
+                    0, // O_RDONLY
+                )
+
             if (openResult.returnValue < 0 && (openResult.errno == 1 || openResult.errno == 13)) {
                 println("  [Kernel io-wq Worker] Landlock LSM hook intercepted '/etc/hosts' access inside kernel workqueue!")
                 throw java.io.IOException("Permission denied (io_uring async worker blocked by Landlock)")
             }
-            
+
             if (openResult.returnValue >= 0) {
                 LinuxNative.close(openResult.returnValue.toInt())
             }
@@ -223,7 +228,7 @@ fun runProfileAndEnforce() {
     baseExecutor.shutdown()
     serverSocket.close()
     configFile.delete()
-    
+
     println("\n\u001b[36;1m==========================================================")
     println("          DEMO COMPLETED SUCCESSFULLY                     ")
     println("==========================================================\u001b[0m")

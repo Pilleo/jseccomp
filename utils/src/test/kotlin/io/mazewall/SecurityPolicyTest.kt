@@ -10,7 +10,6 @@ import kotlin.test.assertTrue
 
 @EnabledIfLinuxAndSupported
 class SecurityPolicyTest {
-
     @Test
     fun `PURE_COMPUTE blocks filesystem modifications`() {
         val executor = Executors.newSingleThreadExecutor()
@@ -21,25 +20,28 @@ class SecurityPolicyTest {
 
         try {
             // Test RENAME (Files.move throws IOException on failure)
-            val renameFuture = safe.submit {
-                val newPath = tempFile.toPath().resolveSibling("renamed-${System.currentTimeMillis()}.txt")
-                Files.move(tempFile.toPath(), newPath)
-            }
-            val ex = org.junit.jupiter.api.assertThrows<ExecutionException> {
-                renameFuture.get()
-            }
+            val renameFuture =
+                safe.submit {
+                    val newPath = tempFile.toPath().resolveSibling("renamed-${System.currentTimeMillis()}.txt")
+                    Files.move(tempFile.toPath(), newPath)
+                }
+            val ex =
+                org.junit.jupiter.api.assertThrows<ExecutionException> {
+                    renameFuture.get()
+                }
             assertTrue(ex.cause is ContainmentViolationException, "Expected violation for rename, got ${ex.cause}")
 
             // Test MKDIR (Files.createDirectory throws IOException on failure)
-            val mkdirFuture = safe.submit {
-                val dir = tempFile.toPath().resolveSibling("new-dir-${System.currentTimeMillis()}")
-                Files.createDirectory(dir)
-            }
-            val ex2 = org.junit.jupiter.api.assertThrows<ExecutionException> {
-                mkdirFuture.get()
-            }
+            val mkdirFuture =
+                safe.submit {
+                    val dir = tempFile.toPath().resolveSibling("new-dir-${System.currentTimeMillis()}")
+                    Files.createDirectory(dir)
+                }
+            val ex2 =
+                org.junit.jupiter.api.assertThrows<ExecutionException> {
+                    mkdirFuture.get()
+                }
             assertTrue(ex2.cause is ContainmentViolationException, "Expected violation for mkdir, got ${ex2.cause}")
-
         } finally {
             tempFile.delete()
             executor.shutdown()

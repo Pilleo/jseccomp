@@ -5,7 +5,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertSame
 
 class ContainmentViolationExceptionTest {
-
     @Test
     fun `test constructors`() {
         val cause = RuntimeException("orig")

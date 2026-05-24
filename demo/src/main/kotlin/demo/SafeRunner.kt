@@ -12,9 +12,10 @@ object SafeRunner {
         val safeExecutor = ContainedExecutors.wrap(executor, Policy.NO_EXEC)
 
         try {
-            val future = safeExecutor.submit<String> {
-                VulnerableLogger.log(payload)
-            }
+            val future =
+                safeExecutor.submit<String> {
+                    VulnerableLogger.log(payload)
+                }
             future.get()
         } catch (e: ExecutionException) {
             if (e.cause is ContainmentViolationException) {

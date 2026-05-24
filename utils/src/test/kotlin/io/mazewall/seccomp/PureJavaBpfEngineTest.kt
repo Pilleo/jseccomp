@@ -9,21 +9,22 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class PureJavaBpfEngineTest {
-
     @Test
     @EnabledIfLinuxAndSupported
     fun `test PureJavaBpfEngine blocks execve`() {
         val executor = Executors.newSingleThreadExecutor()
         try {
-            val result = executor.submit<Boolean> {
-                PureJavaBpfEngine.install(Policy.NO_EXEC)
-                try {
-                    ProcessBuilder("echo", "hello").start()
-                    false
-                } catch (e: Exception) {
-                    true
-                }
-            }.get()
+            val result =
+                executor
+                    .submit<Boolean> {
+                        PureJavaBpfEngine.install(Policy.NO_EXEC)
+                        try {
+                            ProcessBuilder("echo", "hello").start()
+                            false
+                        } catch (e: Exception) {
+                            true
+                        }
+                    }.get()
             assertTrue(result == true, "execve should have been blocked by PureJavaBpfEngine")
         } finally {
             executor.shutdown()
@@ -39,14 +40,30 @@ class PureJavaBpfEngineTest {
     @Test
     @EnabledIfLinuxAndSupported
     fun `test PureJavaBpfEngine with large policy`() {
-        val safeSyscalls = listOf(
-            Syscall.EXECVE, Syscall.EXECVEAT, Syscall.FORK, Syscall.VFORK,
-            Syscall.CONNECT, Syscall.SOCKET, Syscall.BIND, Syscall.LISTEN,
-            Syscall.ACCEPT, Syscall.ACCEPT4, Syscall.SENDTO, Syscall.SENDMSG,
-            Syscall.MEMFD_CREATE, Syscall.IO_URING_SETUP, Syscall.BPF, Syscall.PTRACE,
-            Syscall.PROCESS_VM_WRITEV, Syscall.PROCESS_VM_READV,
-            Syscall.USERFAULTFD, Syscall.UNSHARE, Syscall.SETNS
-        )
+        val safeSyscalls =
+            listOf(
+                Syscall.EXECVE,
+                Syscall.EXECVEAT,
+                Syscall.FORK,
+                Syscall.VFORK,
+                Syscall.CONNECT,
+                Syscall.SOCKET,
+                Syscall.BIND,
+                Syscall.LISTEN,
+                Syscall.ACCEPT,
+                Syscall.ACCEPT4,
+                Syscall.SENDTO,
+                Syscall.SENDMSG,
+                Syscall.MEMFD_CREATE,
+                Syscall.IO_URING_SETUP,
+                Syscall.BPF,
+                Syscall.PTRACE,
+                Syscall.PROCESS_VM_WRITEV,
+                Syscall.PROCESS_VM_READV,
+                Syscall.USERFAULTFD,
+                Syscall.UNSHARE,
+                Syscall.SETNS,
+            )
         val builder = Policy.builder()
         // Block a reasonable number of safe syscalls to exercise BPF generation
         safeSyscalls.take(20).forEach { builder.block(it) }
@@ -54,9 +71,10 @@ class PureJavaBpfEngineTest {
 
         val executor = Executors.newSingleThreadExecutor()
         try {
-            executor.submit {
-                PureJavaBpfEngine.install(policy)
-            }.get()
+            executor
+                .submit {
+                    PureJavaBpfEngine.install(policy)
+                }.get()
         } finally {
             executor.shutdown()
         }
@@ -64,10 +82,12 @@ class PureJavaBpfEngineTest {
 
     @Test
     fun `test SeccompEngine default implementation`() {
-        val engine = object : SeccompEngine {
-            override val isSupported: Boolean = true
-            override fun install(policy: Policy) {}
-        }
+        val engine =
+            object : SeccompEngine {
+                override val isSupported: Boolean = true
+
+                override fun install(policy: Policy) {}
+            }
         // Should throw UnsupportedOperationException as per default impl
         assertFailsWith<UnsupportedOperationException> {
             engine.installOnProcess(Policy.PURE_COMPUTE)

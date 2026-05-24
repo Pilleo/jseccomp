@@ -8,7 +8,6 @@ import java.util.*
  * and aggregates them into a [BillOfBehavior].
  */
 object BobCompiler {
-
     private const val O_WRONLY = 1L
     private const val O_RDWR = 2L
     private const val O_CREAT = 64L
@@ -25,9 +24,10 @@ object BobCompiler {
 
         for (event in events) {
             // Map the syscall name to Syscall enum
-            val syscall = runCatching {
-                Syscall.valueOf(event.syscallName.uppercase(Locale.US))
-            }.getOrNull()
+            val syscall =
+                runCatching {
+                    Syscall.valueOf(event.syscallName.uppercase(Locale.US))
+                }.getOrNull()
 
             if (syscall != null) {
                 syscalls.add(syscall)
@@ -50,31 +50,44 @@ object BobCompiler {
             opens = opens,
             fsWritePaths = fsWritePaths,
             syscalls = syscalls,
-            execs = execs
+            execs = execs,
         )
     }
 
-    private fun isFileSystemMutation(syscallName: String): Boolean {
-        return syscallName in setOf(
-            "MKDIR", "MKDIRAT",
-            "RMDIR",
-            "UNLINK", "UNLINKAT",
-            "RENAME", "RENAMEAT", "RENAMEAT2",
-            "LINK", "LINKAT",
-            "SYMLINK", "SYMLINKAT",
-            "CHMOD", "FCHMODAT",
-            "CHOWN", "LCHOWN", "FCHOWNAT"
-        )
-    }
+    private fun isFileSystemMutation(syscallName: String): Boolean =
+        syscallName in
+            setOf(
+                "MKDIR",
+                "MKDIRAT",
+                "RMDIR",
+                "UNLINK",
+                "UNLINKAT",
+                "RENAME",
+                "RENAMEAT",
+                "RENAMEAT2",
+                "LINK",
+                "LINKAT",
+                "SYMLINK",
+                "SYMLINKAT",
+                "CHMOD",
+                "FCHMODAT",
+                "CHOWN",
+                "LCHOWN",
+                "FCHOWNAT",
+            )
 
-    private fun isOpenWrite(syscallName: String, args: LongArray): Boolean {
+    private fun isOpenWrite(
+        syscallName: String,
+        args: LongArray,
+    ): Boolean {
         if (syscallName == "OPENAT2") return true // Pointer to struct open_how, conservatively treat as write
 
-        val flags = when (syscallName) {
-            "OPEN" -> if (args.size > 1) args[1] else 0L
-            "OPENAT" -> if (args.size > 2) args[2] else 0L
-            else -> 0L
-        }
+        val flags =
+            when (syscallName) {
+                "OPEN" -> if (args.size > 1) args[1] else 0L
+                "OPENAT" -> if (args.size > 2) args[2] else 0L
+                else -> 0L
+            }
         val accessMode = flags and 3L
         val isWriteMode = accessMode == O_WRONLY || accessMode == O_RDWR
         val hasCreateOrTrunc = (flags and O_CREAT) != 0L || (flags and O_TRUNC) != 0L

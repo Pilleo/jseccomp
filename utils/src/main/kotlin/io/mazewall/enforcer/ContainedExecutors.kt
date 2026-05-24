@@ -66,24 +66,28 @@ object ContainedExecutors {
         installInternal(true, *policies)
     }
 
-    private fun installInternal(processWide: Boolean, vararg policies: Policy) {
+    private fun installInternal(
+        processWide: Boolean,
+        vararg policies: Policy,
+    ) {
         if (Thread.currentThread().isVirtual) {
             throw IllegalStateException(
                 "Attempted to apply seccomp containment inside a virtual thread. " +
-                        "Use a dedicated platform thread pool and install containment on its carrier threads instead."
+                        "Use a dedicated platform thread pool and install containment on its carrier threads instead.",
             )
         }
 
         val policy = Policy.combine(*policies)
 
-        val needsLandlock = policy.allowedFsReadPaths.isNotEmpty() || 
-                            policy.allowedFsWritePaths.isNotEmpty() ||
-                            policy.isSyscallAllowed(Syscall.IO_URING_SETUP)
+        val needsLandlock =
+            policy.allowedFsReadPaths.isNotEmpty() ||
+                    policy.allowedFsWritePaths.isNotEmpty() ||
+                    policy.isSyscallAllowed(Syscall.IO_URING_SETUP)
         if (needsLandlock) {
             if (processWide) {
                 throw UnsupportedOperationException(
                     "Process-wide containment (installOnProcess) does not support Landlock filesystem rules. " +
-                            "Use thread-scoped containment (installOnCurrentThread) for filesystem restrictions."
+                            "Use thread-scoped containment (installOnCurrentThread) for filesystem restrictions.",
                 )
             } else {
                 val appliedReads = THREAD_LANDLOCK_APPLIED_READS.get()
@@ -95,7 +99,7 @@ object ContainedExecutors {
                     val hasNewWrites = !prevWrites.containsAll(policy.allowedFsWritePaths)
                     if (hasNewReads || hasNewWrites) {
                         throw IllegalStateException(
-                            "Cannot expand Landlock filesystem permissions on an already restricted thread."
+                            "Cannot expand Landlock filesystem permissions on an already restricted thread.",
                         )
                     }
                 }
@@ -134,42 +138,49 @@ object ContainedExecutors {
             val currentlyAllowsUnsafePrctl = THREAD_ALLOWS_UNSAFE_PRCTL.get() && PROCESS_ALLOWS_UNSAFE_PRCTL
             val currentDepth = FILTER_DEPTH.get() + PROCESS_FILTER_DEPTH.get()
 
-            val newBlocks = if (policy.mode == Policy.Mode.DENY_LIST) {
-                policy.syscalls - currentlyBlocked
-            } else {
-                emptySet()
-            }
+            val newBlocks =
+                if (policy.mode == Policy.Mode.DENY_LIST) {
+                    policy.syscalls - currentlyBlocked
+                } else {
+                    emptySet()
+                }
 
             val needsMmapProtection = !policy.allowMmapExec && currentlyAllowsMmapExec
             val needsCloneProtection = !policy.allowNonThreadClone && currentlyAllowsNonThreadClone
             val needsPrctlProtection = !policy.allowUnsafePrctl && currentlyAllowsUnsafePrctl
 
-            val needsNewFilter = policy.mode == Policy.Mode.ALLOW_LIST ||
-                    newBlocks.isNotEmpty() ||
-                    needsMmapProtection ||
-                    needsCloneProtection ||
-                    needsPrctlProtection
+            val needsNewFilter =
+                policy.mode == Policy.Mode.ALLOW_LIST ||
+                        newBlocks.isNotEmpty() ||
+                        needsMmapProtection ||
+                        needsCloneProtection ||
+                        needsPrctlProtection
 
             if (needsNewFilter) {
                 if (currentDepth >= 32) {
-                    throw IllegalStateException("Cannot install more than 32 seccomp filters on a single thread (including process-wide filters).")
+                    throw IllegalStateException(
+                        "Cannot install more than 32 seccomp filters on a single thread (including process-wide filters).",
+                    )
                 }
                 if (currentDepth > 10) {
                     logger.warning("Thread ${Thread.currentThread().name} has $currentDepth seccomp filters.")
                 }
 
-                val toInstall = if (policy.mode == Policy.Mode.ALLOW_LIST) {
-                    policy
-                } else {
-                    // Use PureJavaBpfEngine exclusively for zero-dependency enforcement
-                    val incremental = Policy.builder()
-                        .block(*newBlocks.toTypedArray())
+                val toInstall =
+                    if (policy.mode == Policy.Mode.ALLOW_LIST) {
+                        policy
+                    } else {
+                        // Use PureJavaBpfEngine exclusively for zero-dependency enforcement
+                        val incremental =
+                            Policy
+                                .builder()
+                                .block(*newBlocks.toTypedArray())
 
-                    if (policy.allowMmapExec) incremental.allowMmapExec()
-                    if (policy.allowNonThreadClone) incremental.allowNonThreadClone()
-                    if (policy.allowUnsafePrctl) incremental.allowUnsafePrctl()
-                    incremental.build()
-                }
+                        if (policy.allowMmapExec) incremental.allowMmapExec()
+                        if (policy.allowNonThreadClone) incremental.allowNonThreadClone()
+                        if (policy.allowUnsafePrctl) incremental.allowUnsafePrctl()
+                        incremental.build()
+                    }
 
                 if (processWide) {
                     PureJavaBpfEngine.installOnProcess(toInstall)
@@ -204,7 +215,10 @@ object ContainedExecutors {
      *
      * For best results, always use a dedicated [java.util.concurrent.ExecutorService] for restricted tasks.
      */
-    fun wrap(delegate: ExecutorService, vararg policies: Policy): ExecutorService {
+    fun wrap(
+        delegate: ExecutorService,
+        vararg policies: Policy,
+    ): ExecutorService {
         val combinedPolicy = Policy.combine(*policies)
         val fallback = Platform.configuredFallback()
         val supported = Platform.isSupported()
@@ -216,9 +230,7 @@ object ContainedExecutors {
      * Examines an exception thrown by a task to determine if it was likely
      * caused by a seccomp containment violation (e.g. EPERM).
      */
-    internal fun isContainmentViolation(t: Throwable): Boolean {
-        return isDirectContainmentViolation(t) || isViolationInCauseChain(t) || isViolationInSuppressed(t)
-    }
+    internal fun isContainmentViolation(t: Throwable): Boolean = isDirectContainmentViolation(t) || isViolationInCauseChain(t) || isViolationInSuppressed(t)
 
     internal fun findViolationCause(t: Throwable): Throwable? {
         if (isDirectContainmentViolation(t)) return t
@@ -284,13 +296,14 @@ object ContainedExecutors {
     }
 
     // Priority 2: OS message fallback (locale-sensitive, narrowed to known safe patterns)
-    internal val DENIED_PHRASES = arrayOf(
-        "Operation not permitted",
-        "Permission denied",
-        "refusé",
-        "verweigert",
-        "negado"
-    )
+    internal val DENIED_PHRASES =
+        arrayOf(
+            "Operation not permitted",
+            "Permission denied",
+            "refusé",
+            "verweigert",
+            "negado",
+        )
 
     private fun containsDeniedPhrase(msg: String): Boolean {
         for (phrase in DENIED_PHRASES) {
@@ -351,40 +364,41 @@ object ContainedExecutors {
         private val delegate: ExecutorService,
         private val policy: Policy,
         private val supported: Boolean,
-        private val fallback: Platform.FallbackBehavior
+        private val fallback: Platform.FallbackBehavior,
     ) : ExecutorService by delegate {
-
-        private fun <T> wrapCallable(task: Callable<T>): Callable<T> = Callable {
-            // applyContainment() failures (e.g. landlock_create_ruleset errno, depth limit)
-            // propagate as-is — they are not containment violations by the user task.
-            applyContainment()
-            try {
-                task.call()
-            } catch (e: Error) {
-                // Critical JVM errors (OOM, StackOverflow) should propagate immediately
-                throw e
-            } catch (e: Exception) {
-                // Only inspect exceptions thrown by the user task body.
-                if (isContainmentViolation(e)) {
-                    throw ContainmentViolationException("Task violated containment policy", e)
+        private fun <T> wrapCallable(task: Callable<T>): Callable<T> =
+            Callable {
+                // applyContainment() failures (e.g. landlock_create_ruleset errno, depth limit)
+                // propagate as-is — they are not containment violations by the user task.
+                applyContainment()
+                try {
+                    task.call()
+                } catch (e: Error) {
+                    // Critical JVM errors (OOM, StackOverflow) should propagate immediately
+                    throw e
+                } catch (e: Exception) {
+                    // Only inspect exceptions thrown by the user task body.
+                    if (isContainmentViolation(e)) {
+                        throw ContainmentViolationException("Task violated containment policy", e)
+                    }
+                    throw e
                 }
-                throw e
             }
-        }
 
-        private fun wrapRunnable(task: Runnable): Runnable = Runnable {
-            applyContainment()
-            try {
-                task.run()
-            } catch (e: Error) {
-                throw e
-            } catch (e: Exception) {
-                if (isContainmentViolation(e)) {
-                    throw ContainmentViolationException("Task violated containment policy", e)
+        private fun wrapRunnable(task: Runnable): Runnable =
+            Runnable {
+                applyContainment()
+                try {
+                    task.run()
+                } catch (e: Error) {
+                    throw e
+                } catch (e: Exception) {
+                    if (isContainmentViolation(e)) {
+                        throw ContainmentViolationException("Task violated containment policy", e)
+                    }
+                    throw e
                 }
-                throw e
             }
-        }
 
         private fun applyContainment() {
             installOnCurrentThread(policy)
@@ -394,26 +408,30 @@ object ContainedExecutors {
             delegate.execute(wrapRunnable(command))
         }
 
-        override fun <T> submit(task: Callable<T>): Future<T> =
-            delegate.submit(wrapCallable(task))
+        override fun <T> submit(task: Callable<T>): Future<T> = delegate.submit(wrapCallable(task))
 
-        override fun <T> submit(task: Runnable, result: T): Future<T> =
-            delegate.submit(wrapRunnable(task), result)
+        override fun <T> submit(
+            task: Runnable,
+            result: T,
+        ): Future<T> = delegate.submit(wrapRunnable(task), result)
 
-        override fun submit(task: Runnable): Future<*> =
-            delegate.submit(wrapRunnable(task))
+        override fun submit(task: Runnable): Future<*> = delegate.submit(wrapRunnable(task))
 
-        override fun <T> invokeAll(tasks: Collection<Callable<T>>): List<Future<T>> =
-            delegate.invokeAll(tasks.map { wrapCallable(it) })
+        override fun <T> invokeAll(tasks: Collection<Callable<T>>): List<Future<T>> = delegate.invokeAll(tasks.map { wrapCallable(it) })
 
-        override fun <T> invokeAll(tasks: Collection<Callable<T>>, timeout: Long, unit: TimeUnit): List<Future<T>> =
-            delegate.invokeAll(tasks.map { wrapCallable(it) }, timeout, unit)
+        override fun <T> invokeAll(
+            tasks: Collection<Callable<T>>,
+            timeout: Long,
+            unit: TimeUnit,
+        ): List<Future<T>> = delegate.invokeAll(tasks.map { wrapCallable(it) }, timeout, unit)
 
-        override fun <T> invokeAny(tasks: Collection<Callable<T>>): T =
-            delegate.invokeAny(tasks.map { wrapCallable(it) })
+        override fun <T> invokeAny(tasks: Collection<Callable<T>>): T = delegate.invokeAny(tasks.map { wrapCallable(it) })
 
-        override fun <T> invokeAny(tasks: Collection<Callable<T>>, timeout: Long, unit: TimeUnit): T =
-            delegate.invokeAny(tasks.map { wrapCallable(it) }, timeout, unit)
+        override fun <T> invokeAny(
+            tasks: Collection<Callable<T>>,
+            timeout: Long,
+            unit: TimeUnit,
+        ): T = delegate.invokeAny(tasks.map { wrapCallable(it) }, timeout, unit)
 
         override fun close() {
             delegate.close()

@@ -5,7 +5,6 @@ import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
 
 class ProfileAndEnforceDemoTest {
-
     @Test
     @EnabledOnOs(OS.LINUX)
     fun `test profile and enforce demo runs successfully`() {

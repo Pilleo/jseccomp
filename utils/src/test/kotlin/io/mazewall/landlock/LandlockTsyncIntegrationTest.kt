@@ -10,28 +10,30 @@ import kotlin.test.assertEquals
 
 @EnabledIfLinuxAndSupported
 class LandlockTsyncIntegrationTest {
-
     /**
      * Tiny main class for the out-of-process TSYNC test.
      */
     object TsyncChild {
         @JvmStatic
         fun main(args: Array<String>) {
-            val policy = Policy.builder()
-                .block(Syscall.OPEN, Syscall.OPENAT, Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER)
-                .build()
+            val policy =
+                Policy
+                    .builder()
+                    .block(Syscall.OPEN, Syscall.OPENAT, Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER)
+                    .build()
 
             Landlock.applyRuleset(policy)
 
             // This sibling thread should also be sandboxed
-            val thread = Thread {
-                try {
-                    File("/etc/hostname").readText()
-                    exitProcess(0) // Should have succeeded (if TSYNC is disabled)
-                } catch (e: Exception) {
-                    exitProcess(42) // Correctly sandboxed (if TSYNC is enabled)
+            val thread =
+                Thread {
+                    try {
+                        File("/etc/hostname").readText()
+                        exitProcess(0) // Should have succeeded (if TSYNC is disabled)
+                    } catch (e: Exception) {
+                        exitProcess(42) // Correctly sandboxed (if TSYNC is enabled)
+                    }
                 }
-            }
             thread.start()
             thread.join()
         }
@@ -39,15 +41,22 @@ class LandlockTsyncIntegrationTest {
 
     @Test
     fun `test TSYNC sandboxes sibling threads in child process`() {
-        val javaBin = ProcessHandle.current().info().command().orElse("java")
+        val javaBin =
+            ProcessHandle
+                .current()
+                .info()
+                .command()
+                .orElse("java")
         val classpath = System.getProperty("java.class.path")
 
-        val pb = ProcessBuilder(
-            javaBin,
-            "--enable-native-access=ALL-UNNAMED",
-            "-cp", classpath,
-            $$"io.mazewall.landlock.LandlockTsyncIntegrationTest$TsyncChild"
-        )
+        val pb =
+            ProcessBuilder(
+                javaBin,
+                "--enable-native-access=ALL-UNNAMED",
+                "-cp",
+                classpath,
+                $$"io.mazewall.landlock.LandlockTsyncIntegrationTest$TsyncChild",
+            )
 
         val process = pb.start()
         val exitCode = process.waitFor()

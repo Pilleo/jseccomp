@@ -12,9 +12,9 @@ object Platform {
      * Enum defining how the library behaves when run on an unsupported platform (e.g. macOS or Windows).
      */
     enum class FallbackBehavior {
-        FAIL,            // throw UnsupportedOperationException
+        FAIL, // throw UnsupportedOperationException
         WARN_AND_BYPASS, // log warning, run task uncontained
-        SILENT_BYPASS    // run task uncontained, no warning
+        SILENT_BYPASS, // run task uncontained, no warning
     }
 
     /**
@@ -35,8 +35,10 @@ object Platform {
         // Some container environments or broken kernels might silently return 0 or a different error.
         val bogusCheck = LinuxNative.prctl(LinuxNative.PR_SET_SECCOMP, -1L, 0L, 0, 0)
         if (bogusCheck.returnValue == 0L || bogusCheck.errno != 22) { // 22 is EINVAL (Invalid argument)
-             logger.warning("Seccomp sanity check failed. The kernel returned unexpected results (ret=${bogusCheck.returnValue}, errno=${bogusCheck.errno}). Seccomp may be stubbed or broken in this environment.")
-             return false
+            logger.warning(
+                "Seccomp sanity check failed. The kernel returned unexpected results (ret=${bogusCheck.returnValue}, errno=${bogusCheck.errno}). Seccomp may be stubbed or broken in this environment.",
+            )
+            return false
         }
 
         return try {
@@ -52,9 +54,10 @@ object Platform {
      * Resolves the configured fallback behavior based on system properties or environment variables.
      */
     fun configuredFallback(): FallbackBehavior {
-        val prop = System.getProperty("io.mazewall.fallback") 
-            ?: System.getenv("IO_MAZEWALL_FALLBACK")
-            
+        val prop =
+            System.getProperty("io.mazewall.fallback")
+                ?: System.getenv("IO_MAZEWALL_FALLBACK")
+
         if (prop != null) {
             try {
                 return FallbackBehavior.valueOf(prop.uppercase())

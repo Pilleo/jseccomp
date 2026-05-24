@@ -6,7 +6,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class BillOfBehaviorTest {
-
     @Test
     fun `test plus operator merges stack traces without data loss`() {
         val event = TraceEvent(0, "OPEN", longArrayOf(1), listOf("/test"))
@@ -14,13 +13,15 @@ class BillOfBehaviorTest {
         val stack1 = arrayOf(StackTraceElement("Class1", "method1", "File1.kt", 1))
         val stack2 = arrayOf(StackTraceElement("Class2", "method2", "File2.kt", 2))
 
-        val bob1 = BillOfBehavior(
-            stackProfile = mapOf(event to listOf(stack1))
-        )
+        val bob1 =
+            BillOfBehavior(
+                stackProfile = mapOf(event to listOf(stack1)),
+            )
 
-        val bob2 = BillOfBehavior(
-            stackProfile = mapOf(event to listOf(stack2))
-        )
+        val bob2 =
+            BillOfBehavior(
+                stackProfile = mapOf(event to listOf(stack2)),
+            )
 
         val merged = bob1 + bob2
 
@@ -33,19 +34,21 @@ class BillOfBehaviorTest {
 
     @Test
     fun `test plus operator merges other fields correctly`() {
-        val bob1 = BillOfBehavior(
-            opens = setOf("/read1"),
-            fsWritePaths = setOf("/write1"),
-            syscalls = setOf(Syscall.OPEN),
-            execs = setOf("/bin/ls")
-        )
+        val bob1 =
+            BillOfBehavior(
+                opens = setOf("/read1"),
+                fsWritePaths = setOf("/write1"),
+                syscalls = setOf(Syscall.OPEN),
+                execs = setOf("/bin/ls"),
+            )
 
-        val bob2 = BillOfBehavior(
-            opens = setOf("/read2"),
-            fsWritePaths = setOf("/write2"),
-            syscalls = setOf(Syscall.GETPID),
-            execs = setOf("/bin/sh")
-        )
+        val bob2 =
+            BillOfBehavior(
+                opens = setOf("/read2"),
+                fsWritePaths = setOf("/write2"),
+                syscalls = setOf(Syscall.GETPID),
+                execs = setOf("/bin/sh"),
+            )
 
         val merged = bob1 + bob2
 
@@ -57,11 +60,12 @@ class BillOfBehaviorTest {
 
     @Test
     fun `test toPolicy translates fields correctly`() {
-        val bob = BillOfBehavior(
-            opens = setOf("/read"),
-            fsWritePaths = setOf("/write"),
-            syscalls = setOf(Syscall.OPEN, Syscall.CONNECT)
-        )
+        val bob =
+            BillOfBehavior(
+                opens = setOf("/read"),
+                fsWritePaths = setOf("/write"),
+                syscalls = setOf(Syscall.OPEN, Syscall.CONNECT),
+            )
 
         // Deny-list mode base policy (blocks OPEN, so should unblock it)
         val denyPolicy = io.mazewall.Policy.PURE_COMPUTE
@@ -70,7 +74,11 @@ class BillOfBehaviorTest {
         assertEquals(setOf("/write"), compiledDeny.allowedFsWritePaths)
 
         // Allow-list mode base policy
-        val allowBase = io.mazewall.Policy.builder().mode(io.mazewall.Policy.Mode.ALLOW_LIST).build()
+        val allowBase =
+            io.mazewall.Policy
+                .builder()
+                .mode(io.mazewall.Policy.Mode.ALLOW_LIST)
+                .build()
         val compiledAllow = bob.toPolicy(allowBase)
         assertEquals(io.mazewall.Policy.Mode.ALLOW_LIST, compiledAllow.mode)
         assertTrue(compiledAllow.syscalls.contains(Syscall.OPEN))
@@ -79,11 +87,12 @@ class BillOfBehaviorTest {
 
     @Test
     fun `test toDsl generates correct snippets`() {
-        val bob = BillOfBehavior(
-            opens = setOf("/read"),
-            fsWritePaths = setOf("/write"),
-            syscalls = setOf(Syscall.OPEN)
-        )
+        val bob =
+            BillOfBehavior(
+                opens = setOf("/read"),
+                fsWritePaths = setOf("/write"),
+                syscalls = setOf(Syscall.OPEN),
+            )
 
         // Deny-list base DSL
         val dslDeny = bob.toDsl("Policy.PURE_COMPUTE", io.mazewall.Policy.PURE_COMPUTE)
@@ -94,7 +103,11 @@ class BillOfBehaviorTest {
         assertTrue(dslDeny.contains(".allowFsWrite(\"/write\")"))
 
         // Allow-list base DSL
-        val allowBase = io.mazewall.Policy.builder().mode(io.mazewall.Policy.Mode.ALLOW_LIST).build()
+        val allowBase =
+            io.mazewall.Policy
+                .builder()
+                .mode(io.mazewall.Policy.Mode.ALLOW_LIST)
+                .build()
         val dslAllow = bob.toDsl("Policy.builder().mode(Mode.ALLOW_LIST).build()", allowBase)
         assertTrue(dslAllow.contains(".allow("))
         assertTrue(dslAllow.contains("Syscall.OPEN"))

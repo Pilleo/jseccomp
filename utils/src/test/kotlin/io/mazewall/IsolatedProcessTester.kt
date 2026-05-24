@@ -9,22 +9,27 @@ import kotlin.test.assertEquals
  * preventing them from "poisoning" the shared Gradle test worker thread/process.
  */
 object IsolatedProcessTester {
-
     /**
      * Spawns a new JVM process to run the specified [testClassName]'s [main] method with [mode].
      * Asserts that the process exits with code 0.
      */
-    fun runIsolatedTest(testClassName: String, mode: String) {
+    fun runIsolatedTest(
+        testClassName: String,
+        mode: String,
+    ) {
         val javaHome = System.getProperty("java.home")
         val javaBin = javaHome + File.separator + "bin" + File.separator + "java"
         val classpath = System.getProperty("java.class.path")
 
-        val builder = ProcessBuilder(
-            javaBin, "-cp", classpath,
-            "--enable-native-access=ALL-UNNAMED",
-            testClassName,
-            mode
-        )
+        val builder =
+            ProcessBuilder(
+                javaBin,
+                "-cp",
+                classpath,
+                "--enable-native-access=ALL-UNNAMED",
+                testClassName,
+                mode,
+            )
         builder.inheritIO()
         val process = builder.start()
         val exitCode = process.waitFor()

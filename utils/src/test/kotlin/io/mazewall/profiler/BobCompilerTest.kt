@@ -8,7 +8,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class BobCompilerTest {
-
     companion object {
         private const val O_WRONLY = 1L
         private const val O_CREAT = 64L
@@ -16,22 +15,23 @@ class BobCompilerTest {
 
     @Test
     fun `test compiling various events to policy and DSL`() {
-        val events = listOf(
-            TraceEvent(12345, "CONNECT", longArrayOf(3, 139626353982016, 16, 0, 0, 0), emptyList()),
-            TraceEvent(
-                12345,
-                "OPENAT",
-                longArrayOf(0, 139626353983000, 0, 0, 0, 0),
-                listOf("/etc/hostname")
-            ), // O_RDONLY
-            TraceEvent(
-                12345,
-                "OPEN",
-                longArrayOf(139626353983000, O_WRONLY, 0, 0, 0, 0),
-                listOf("/tmp/write-test.txt")
-            ), // O_WRONLY
-            TraceEvent(12345, "MKDIR", longArrayOf(139626353983000, 0, 0, 0, 0, 0), listOf("/tmp/new-dir"))
-        )
+        val events =
+            listOf(
+                TraceEvent(12345, "CONNECT", longArrayOf(3, 139626353982016, 16, 0, 0, 0), emptyList()),
+                TraceEvent(
+                    12345,
+                    "OPENAT",
+                    longArrayOf(0, 139626353983000, 0, 0, 0, 0),
+                    listOf("/etc/hostname"),
+                ), // O_RDONLY
+                TraceEvent(
+                    12345,
+                    "OPEN",
+                    longArrayOf(139626353983000, O_WRONLY, 0, 0, 0, 0),
+                    listOf("/tmp/write-test.txt"),
+                ), // O_WRONLY
+                TraceEvent(12345, "MKDIR", longArrayOf(139626353983000, 0, 0, 0, 0, 0), listOf("/tmp/new-dir")),
+            )
 
         // Compile to Bill of Behavior
         val bob = BobCompiler.compile(events)
@@ -61,7 +61,8 @@ class BobCompilerTest {
         val dsl = bob.toDsl("Policy.PURE_COMPUTE", Policy.PURE_COMPUTE)
         println("Generated DSL:\n$dsl")
 
-        val expectedDsl = """
+        val expectedDsl =
+            """
 val policy = Policy.builder()
     .base(Policy.PURE_COMPUTE)
     .unblock(
@@ -74,7 +75,7 @@ val policy = Policy.builder()
     .allowFsWrite("/tmp/new-dir")
     .allowFsWrite("/tmp/write-test.txt")
     .build()
-        """.trimIndent()
+            """.trimIndent()
 
         assertEquals(expectedDsl.trim(), dsl.trim())
     }
@@ -91,11 +92,12 @@ val policy = Policy.builder()
         assertTrue(policy.allowedFsWritePaths.isEmpty())
 
         val dsl = bob.toDsl("Policy.PURE_COMPUTE", Policy.PURE_COMPUTE)
-        val expectedDsl = """
+        val expectedDsl =
+            """
 val policy = Policy.builder()
     .base(Policy.PURE_COMPUTE)
     .build()
-        """.trimIndent()
+            """.trimIndent()
         assertEquals(expectedDsl.trim(), dsl.trim())
     }
 
@@ -104,51 +106,54 @@ val policy = Policy.builder()
         // GETPID is generally not restricted by Policy.PURE_COMPUTE.
         // If we observe GETPID, compiling against PURE_COMPUTE should NOT list it in the unrestricted list of the DSL
         // and should not have any effect.
-        val events = listOf(
-            TraceEvent(12345, "GETPID", longArrayOf(0, 0, 0, 0, 0, 0), emptyList())
-        )
+        val events =
+            listOf(
+                TraceEvent(12345, "GETPID", longArrayOf(0, 0, 0, 0, 0, 0), emptyList()),
+            )
 
         val bob = BobCompiler.compile(events)
 
         // Generate DSL - GETPID should not be listed as unrestricted since PURE_COMPUTE does not block it.
         val dsl = bob.toDsl("Policy.PURE_COMPUTE", Policy.PURE_COMPUTE)
-        val expectedDsl = """
+        val expectedDsl =
+            """
 val policy = Policy.builder()
     .base(Policy.PURE_COMPUTE)
     .build()
-        """.trimIndent()
+            """.trimIndent()
 
         assertEquals(expectedDsl.trim(), dsl.trim())
     }
 
     @Test
     fun `test OPENAT2 and AT variants categorization`() {
-        val events = listOf(
-            TraceEvent(
-                12345,
-                "OPENAT2",
-                longArrayOf(0, 0, 0x12345678, 0, 0, 0), // args[2] is a pointer
-                listOf("/tmp/openat2-test.txt")
-            ),
-            TraceEvent(
-                12345,
-                "UNLINKAT",
-                longArrayOf(0, 0, 0, 0, 0, 0),
-                listOf("/tmp/deleted-file.txt")
-            ),
-            TraceEvent(
-                12345,
-                "MKDIRAT",
-                longArrayOf(0, 0, 0, 0, 0, 0),
-                listOf("/tmp/new-subdir")
-            ),
-            TraceEvent(
-                12345,
-                "RENAMEAT2",
-                longArrayOf(0, 0, 0, 0, 0, 0),
-                listOf("/tmp/old-name", "/tmp/new-name")
+        val events =
+            listOf(
+                TraceEvent(
+                    12345,
+                    "OPENAT2",
+                    longArrayOf(0, 0, 0x12345678, 0, 0, 0), // args[2] is a pointer
+                    listOf("/tmp/openat2-test.txt"),
+                ),
+                TraceEvent(
+                    12345,
+                    "UNLINKAT",
+                    longArrayOf(0, 0, 0, 0, 0, 0),
+                    listOf("/tmp/deleted-file.txt"),
+                ),
+                TraceEvent(
+                    12345,
+                    "MKDIRAT",
+                    longArrayOf(0, 0, 0, 0, 0, 0),
+                    listOf("/tmp/new-subdir"),
+                ),
+                TraceEvent(
+                    12345,
+                    "RENAMEAT2",
+                    longArrayOf(0, 0, 0, 0, 0, 0),
+                    listOf("/tmp/old-name", "/tmp/new-name"),
+                ),
             )
-        )
 
         val bob = BobCompiler.compile(events)
 

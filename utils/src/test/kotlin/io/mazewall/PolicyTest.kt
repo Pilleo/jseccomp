@@ -7,12 +7,13 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PolicyTest {
-
     @Test
     fun `syscallNumbers returns sorted array`() {
-        val policy = Policy.builder()
-            .block(Syscall.SENDTO, Syscall.ACCEPT, Syscall.CONNECT, Syscall.BIND)
-            .build()
+        val policy =
+            Policy
+                .builder()
+                .block(Syscall.SENDTO, Syscall.ACCEPT, Syscall.CONNECT, Syscall.BIND)
+                .build()
 
         val restricted = policy.syscallNumbers(Arch.current())
         val sorted = restricted.sortedArray()
@@ -35,13 +36,15 @@ class PolicyTest {
 
     @Test
     fun `builder methods correctly set flags`() {
-        val policy = Policy.builder()
-            .allowMmapExec()
-            .allowNonThreadClone()
-            .allowUnsafePrctl()
-            .allowFsRead("/tmp/r")
-            .allowFsWrite("/tmp/w")
-            .build()
+        val policy =
+            Policy
+                .builder()
+                .allowMmapExec()
+                .allowNonThreadClone()
+                .allowUnsafePrctl()
+                .allowFsRead("/tmp/r")
+                .allowFsWrite("/tmp/w")
+                .build()
 
         assertTrue(policy.allowMmapExec, "allowMmapExec should be true")
         assertTrue(policy.allowNonThreadClone, "allowNonThreadClone should be true")
@@ -52,18 +55,22 @@ class PolicyTest {
 
     @Test
     fun `builder allowJvmClasspath works`() {
-        val policy = Policy.builder()
-            .allowJvmClasspath()
-            .build()
+        val policy =
+            Policy
+                .builder()
+                .allowJvmClasspath()
+                .build()
         assertTrue(policy.allowedFsReadPaths.isNotEmpty())
     }
 
     @Test
     fun `builder base() correctly merges policies`() {
-        val policy = Policy.builder()
-            .base(Policy.NO_NETWORK)
-            .unblock(Syscall.CONNECT)
-            .build()
+        val policy =
+            Policy
+                .builder()
+                .base(Policy.NO_NETWORK)
+                .unblock(Syscall.CONNECT)
+                .build()
 
         val arch = Arch.current()
         val restricted = policy.syscallNumbers(arch).toList()
@@ -95,8 +102,18 @@ class PolicyTest {
 
     @Test
     fun `combine() intersects ALLOW_LIST syscalls`() {
-        val p1 = Policy.builder().mode(Policy.Mode.ALLOW_LIST).allow(Syscall.READ, Syscall.WRITE).build()
-        val p2 = Policy.builder().mode(Policy.Mode.ALLOW_LIST).allow(Syscall.WRITE, Syscall.CLOSE).build()
+        val p1 =
+            Policy
+                .builder()
+                .mode(Policy.Mode.ALLOW_LIST)
+                .allow(Syscall.READ, Syscall.WRITE)
+                .build()
+        val p2 =
+            Policy
+                .builder()
+                .mode(Policy.Mode.ALLOW_LIST)
+                .allow(Syscall.WRITE, Syscall.CLOSE)
+                .build()
         val combined = Policy.combine(p1, p2)
 
         assertEquals(Policy.Mode.ALLOW_LIST, combined.mode)
@@ -105,19 +122,23 @@ class PolicyTest {
 
     @Test
     fun `builder unblock of already unblocked syscall`() {
-        val policy = Policy.builder()
-            .unblock(Syscall.OPEN)
-            .unblock(Syscall.OPEN)
-            .build()
+        val policy =
+            Policy
+                .builder()
+                .unblock(Syscall.OPEN)
+                .unblock(Syscall.OPEN)
+                .build()
         assertTrue(!policy.syscallNumbers(Arch.current()).toList().contains(Arch.current().open))
     }
 
     @Test
     fun `builder allowFsRead with duplicate path`() {
-        val policy = Policy.builder()
-            .allowFsRead("/tmp/r")
-            .allowFsRead("/tmp/r")
-            .build()
+        val policy =
+            Policy
+                .builder()
+                .allowFsRead("/tmp/r")
+                .allowFsRead("/tmp/r")
+                .build()
         assertEquals(1, policy.allowedFsReadPaths.size)
     }
 
@@ -143,14 +164,16 @@ class PolicyTest {
 
     @Test
     fun `builder base() merges all flags`() {
-        val p1 = Policy.builder()
-            .allowMmapExec()
-            .allowNonThreadClone()
-            .allowUnsafePrctl()
-            .allowFsRead("/r")
-            .allowFsWrite("/w")
-            .block(Syscall.OPEN)
-            .build()
+        val p1 =
+            Policy
+                .builder()
+                .allowMmapExec()
+                .allowNonThreadClone()
+                .allowUnsafePrctl()
+                .allowFsRead("/r")
+                .allowFsWrite("/w")
+                .block(Syscall.OPEN)
+                .build()
 
         val p2 = Policy.builder().base(p1).build()
 
@@ -173,8 +196,18 @@ class PolicyTest {
 
     @Test
     fun `combine() intersects Landlock paths`() {
-        val p1 = Policy.builder().allowFsRead("/a").allowFsRead("/common").build()
-        val p2 = Policy.builder().allowFsRead("/b").allowFsRead("/common").build()
+        val p1 =
+            Policy
+                .builder()
+                .allowFsRead("/a")
+                .allowFsRead("/common")
+                .build()
+        val p2 =
+            Policy
+                .builder()
+                .allowFsRead("/b")
+                .allowFsRead("/common")
+                .build()
         val combined = Policy.combine(p1, p2)
 
         assertEquals(setOf("/common"), combined.allowedFsReadPaths, "Landlock paths should be intersected")
@@ -220,15 +253,26 @@ class PolicyTest {
         assertTrue(restricted.contains(arch.execve))
         assertTrue(policy.allowedFsReadPaths.isNotEmpty(), "STRICT_SANDBOX should allow reading from classpath")
     }
+
     @Test
     fun `isSyscallAllowed checks mode correctly`() {
         // Deny list mode
-        val p1 = Policy.builder().mode(Policy.Mode.DENY_LIST).block(Syscall.OPEN).build()
+        val p1 =
+            Policy
+                .builder()
+                .mode(Policy.Mode.DENY_LIST)
+                .block(Syscall.OPEN)
+                .build()
         assertFalse(p1.isSyscallAllowed(Syscall.OPEN))
         assertTrue(p1.isSyscallAllowed(Syscall.CLOSE))
 
         // Allow list mode
-        val p2 = Policy.builder().mode(Policy.Mode.ALLOW_LIST).allow(Syscall.READ).build()
+        val p2 =
+            Policy
+                .builder()
+                .mode(Policy.Mode.ALLOW_LIST)
+                .allow(Syscall.READ)
+                .build()
         assertTrue(p2.isSyscallAllowed(Syscall.READ))
         assertFalse(p2.isSyscallAllowed(Syscall.WRITE))
     }

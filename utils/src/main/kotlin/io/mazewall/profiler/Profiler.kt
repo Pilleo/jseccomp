@@ -4,7 +4,6 @@ import io.mazewall.Arch
 import io.mazewall.BpfFilter
 import io.mazewall.LinuxNative
 import io.mazewall.Policy
-import io.mazewall.landlock.Landlock
 import java.io.BufferedInputStream
 import java.io.DataInputStream
 import java.io.File
@@ -70,21 +69,22 @@ object Profiler {
             var blockError: Throwable? = null
 
             // Dedicated OS platform thread for block
-            val thread = Thread {
-                installProfilingFilterForThread(
-                    socketPath,
-                    Policy.PURE_COMPUTE,
-                    localLogs,
-                    localStackProfile,
-                    localPathCache
-                ) { workerThread }
+            val thread =
+                Thread {
+                    installProfilingFilterForThread(
+                        socketPath,
+                        Policy.PURE_COMPUTE,
+                        localLogs,
+                        localStackProfile,
+                        localPathCache,
+                    ) { workerThread }
 
-                try {
-                    blockResult = block()
-                } catch (t: Throwable) {
-                    blockError = t
+                    try {
+                        blockResult = block()
+                    } catch (t: Throwable) {
+                        blockError = t
+                    }
                 }
-            }
 
             workerThread = thread
             thread.start()
@@ -93,9 +93,10 @@ object Profiler {
             val err = blockError
             if (err != null) throw err
 
-            val behavior = BobCompiler.compile(localLogs).copy(
-                stackProfile = localStackProfile.toMap()
-            )
+            val behavior =
+                BobCompiler.compile(localLogs).copy(
+                    stackProfile = localStackProfile.toMap(),
+                )
 
             @Suppress("UNCHECKED_CAST")
             return ProfilingResult(blockResult as T, behavior)
@@ -141,7 +142,10 @@ object Profiler {
         }
     }
 
-    fun wrap(delegate: ExecutorService, vararg policies: Policy): ProfilerExecutorWrapper {
+    fun wrap(
+        delegate: ExecutorService,
+        vararg policies: Policy,
+    ): ProfilerExecutorWrapper {
         val policy = Policy.combine(*policies)
 
         val (socketPath, daemonProcess, shutdownHook) = spawnDaemon()
@@ -149,7 +153,11 @@ object Profiler {
         return ProfilerExecutorWrapper(delegate, policy, socketPath, daemonProcess, shutdownHook)
     }
 
-    private fun connectWithRetry(socketPath: String, maxRetries: Int = 30, delayMs: Long = 100): Int {
+    private fun connectWithRetry(
+        socketPath: String,
+        maxRetries: Int = 30,
+        delayMs: Long = 100,
+    ): Int {
         Arena.ofConfined().use { arena ->
             val addr = setupSockAddrUn(arena, socketPath)
 
@@ -169,11 +177,16 @@ object Profiler {
 
                 Thread.sleep(delayMs)
             }
-            throw IllegalStateException("Failed to connect to daemon socket at $socketPath after $maxRetries retries. Last errno=$lastErrno")
+            throw IllegalStateException(
+                "Failed to connect to daemon socket at $socketPath after $maxRetries retries. Last errno=$lastErrno",
+            )
         }
     }
 
-    private fun sendDescriptor(socketFd: Int, fdToSend: Int): Boolean {
+    private fun sendDescriptor(
+        socketFd: Int,
+        fdToSend: Int,
+    ): Boolean {
         Arena.ofConfined().use { arena ->
             val dummyByte = arena.allocate(ValueLayout.JAVA_BYTE)
             dummyByte.set(ValueLayout.JAVA_BYTE, 0, 0.toByte())
@@ -181,8 +194,8 @@ object Profiler {
             val controlBuf = arena.allocate(24)
             controlBuf.fill(0)
             controlBuf.set(ValueLayout.JAVA_LONG, 0L, 20L) // cmsg_len
-            controlBuf.set(ValueLayout.JAVA_INT, 8L, 1)    // cmsg_level (SOL_SOCKET = 1)
-            controlBuf.set(ValueLayout.JAVA_INT, 12L, 1)   // cmsg_type (SCM_RIGHTS = 1)
+            controlBuf.set(ValueLayout.JAVA_INT, 8L, 1) // cmsg_level (SOL_SOCKET = 1)
+            controlBuf.set(ValueLayout.JAVA_INT, 12L, 1) // cmsg_type (SCM_RIGHTS = 1)
             controlBuf.set(ValueLayout.JAVA_INT, 16L, fdToSend)
 
             val msg = DescriptorPassing.setupScmRightsMsgHdr(arena, dummyByte, controlBuf)
@@ -198,52 +211,56 @@ object Profiler {
         accumulatedLogs: MutableList<TraceEvent>,
         stackTracesMap: MutableMap<TraceEvent, MutableList<Array<StackTraceElement>>>?,
         pathCache: MutableMap<String, Long>,
-        workerThreadProvider: () -> Thread?
+        workerThreadProvider: () -> Thread?,
     ) {
         val installLatch = CountDownLatch(1)
         val proceedLatch = CountDownLatch(1)
         val listenerFd = AtomicInteger(-1)
         val installError = AtomicReference<Throwable?>(null)
 
-        val coordinatorThread = Thread {
-            try {
-                installLatch.await()
-                val fd = listenerFd.get()
-                if (fd < 0) {
-                    val err = installError.get() ?: IllegalStateException("Failed to install seccomp filter")
-                    throw err
-                }
-
-                val socketFd = connectWithRetry(socketPath)
+        val coordinatorThread =
+            Thread {
                 try {
-                    val sent = sendDescriptor(socketFd, fd)
-                    if (!sent) {
-                        throw IllegalStateException("Failed to send seccomp listener FD to daemon")
+                    installLatch.await()
+                    val fd = listenerFd.get()
+                    if (fd < 0) {
+                        val err = installError.get() ?: IllegalStateException("Failed to install seccomp filter")
+                        throw err
                     }
 
-                    // Wait for ACK byte from daemon
-                    Arena.ofConfined().use { arena ->
-                        val ackBuf = arena.allocate(1)
-                        val res = LinuxNative.read(socketFd, ackBuf, 1)
-                        if (res.returnValue != 1L || ackBuf.get(ValueLayout.JAVA_BYTE, 0) != 0xAC.toByte()) {
-                            throw IllegalStateException("Daemon failed to ACK listener receipt")
+                    val socketFd = connectWithRetry(socketPath)
+                    try {
+                        val sent = sendDescriptor(socketFd, fd)
+                        if (!sent) {
+                            throw IllegalStateException("Failed to send seccomp listener FD to daemon")
                         }
-                    }
 
-                    // Start listener thread for this socket to receive TraceEvents
-                    startTraceListener(socketFd, accumulatedLogs, stackTracesMap, pathCache, workerThreadProvider)
-                } catch (e: Exception) {
-                    LinuxNative.close(socketFd)
-                    throw e
+                        // Wait for ACK byte from daemon
+                        Arena.ofConfined().use { arena ->
+                            val ackBuf = arena.allocate(1)
+                            val res = LinuxNative.read(socketFd, ackBuf, 1)
+                            if (res.returnValue != 1L || ackBuf.get(ValueLayout.JAVA_BYTE, 0) != 0xAC.toByte()) {
+                                throw IllegalStateException("Daemon failed to ACK listener receipt")
+                            }
+                        }
+
+                        // Start listener thread for this socket to receive TraceEvents
+                        startTraceListener(socketFd, accumulatedLogs, stackTracesMap, pathCache, workerThreadProvider)
+                    } catch (e: Exception) {
+                        LinuxNative.close(socketFd)
+                        throw e
+                    } finally {
+                        LinuxNative.close(fd)
+                    }
+                } catch (t: Throwable) {
+                    installError.set(t)
                 } finally {
-                    LinuxNative.close(fd)
+                    proceedLatch.countDown()
                 }
-            } catch (t: Throwable) {
-                installError.set(t)
-            } finally {
-                proceedLatch.countDown()
+            }.apply {
+                isDaemon = true
+                name = "profiler-coordinator"
             }
-        }.apply { isDaemon = true; name = "profiler-coordinator" }
 
         coordinatorThread.start()
 
@@ -261,12 +278,13 @@ object Profiler {
             Arena.ofConfined().use { arena ->
                 val prog = LinuxNative.newSockFProg(arena, filters)
 
-                val r = LinuxNative.syscall(
-                    arch.seccompSyscallNumber.toLong(),
-                    LinuxNative.SECCOMP_SET_MODE_FILTER.toLong(),
-                    LinuxNative.SECCOMP_FILTER_FLAG_NEW_LISTENER,
-                    prog
-                )
+                val r =
+                    LinuxNative.syscall(
+                        arch.seccompSyscallNumber.toLong(),
+                        LinuxNative.SECCOMP_SET_MODE_FILTER.toLong(),
+                        LinuxNative.SECCOMP_FILTER_FLAG_NEW_LISTENER,
+                        prog,
+                    )
 
                 if (r.returnValue < 0) {
                     throw IllegalStateException("Failed to install seccomp profiling listener: errno=${r.errno}")
@@ -292,7 +310,7 @@ object Profiler {
         accumulatedLogs: MutableList<TraceEvent>,
         stackTracesMap: MutableMap<TraceEvent, MutableList<Array<StackTraceElement>>>?,
         pathCache: MutableMap<String, Long>,
-        workerThreadProvider: () -> Thread?
+        workerThreadProvider: () -> Thread?,
     ) {
         val arena = Arena.ofShared()
         val readBuf = arena.allocate(1)
@@ -300,27 +318,32 @@ object Profiler {
         ackBuf.set(ValueLayout.JAVA_BYTE, 0L, 0x41.toByte()) // ACK byte
         val multiBuf = arena.allocate(8192)
 
-        val inputStream = object : InputStream() {
-            override fun read(): Int {
-                val res = LinuxNative.read(socketFd, readBuf, 1)
-                if (res.returnValue <= 0) return -1
-                return readBuf.get(ValueLayout.JAVA_BYTE, 0L).toInt() and 0xFF
-            }
+        val inputStream =
+            object : InputStream() {
+                override fun read(): Int {
+                    val res = LinuxNative.read(socketFd, readBuf, 1)
+                    if (res.returnValue <= 0) return -1
+                    return readBuf.get(ValueLayout.JAVA_BYTE, 0L).toInt() and 0xFF
+                }
 
-            override fun read(b: ByteArray, off: Int, len: Int): Int {
-                if (len == 0) return 0
-                val count = Math.min(len.toLong(), 8192L)
-                val res = LinuxNative.read(socketFd, multiBuf, count)
-                if (res.returnValue <= 0) return -1
-                val readLen = res.returnValue.toInt()
-                MemorySegment.copy(multiBuf, ValueLayout.JAVA_BYTE, 0L, b, off, readLen)
-                return readLen
-            }
+                override fun read(
+                    b: ByteArray,
+                    off: Int,
+                    len: Int,
+                ): Int {
+                    if (len == 0) return 0
+                    val count = Math.min(len.toLong(), 8192L)
+                    val res = LinuxNative.read(socketFd, multiBuf, count)
+                    if (res.returnValue <= 0) return -1
+                    val readLen = res.returnValue.toInt()
+                    MemorySegment.copy(multiBuf, ValueLayout.JAVA_BYTE, 0L, b, off, readLen)
+                    return readLen
+                }
 
-            override fun close() {
-                LinuxNative.close(socketFd)
+                override fun close() {
+                    LinuxNative.close(socketFd)
+                }
             }
-        }
 
         Thread {
             try {
@@ -372,9 +395,10 @@ object Profiler {
                         val workerThread = workerThreadProvider()
                         if (workerThread != null) {
                             val frames = workerThread.stackTrace
-                            stackTracesMap.computeIfAbsent(event) {
-                                CopyOnWriteArrayList<Array<StackTraceElement>>()
-                            }.add(frames)
+                            stackTracesMap
+                                .computeIfAbsent(event) {
+                                    CopyOnWriteArrayList<Array<StackTraceElement>>()
+                                }.add(frames)
                         }
                     }
 
@@ -393,7 +417,10 @@ object Profiler {
                 arena.close()
                 inputStream.close()
             }
-        }.apply { isDaemon = true; name = "trace-listener-$socketFd" }.start()
+        }.apply {
+            isDaemon = true
+            name = "trace-listener-$socketFd"
+        }.start()
     }
 
     class ProfilerExecutorWrapper(
@@ -401,9 +428,8 @@ object Profiler {
         private val policy: Policy,
         private val socketPath: String,
         private val daemonProcess: Process,
-        private val shutdownHook: Thread
+        private val shutdownHook: Thread,
     ) : ExecutorService by delegate {
-
         private val threadApplied = ThreadLocal.withInitial { false }
         val recentLogs = CopyOnWriteArrayList<TraceEvent>()
         val recentStackProfiles =
@@ -413,11 +439,10 @@ object Profiler {
         /**
          * Compiles the captured logs and stack traces into a [BillOfBehavior].
          */
-        fun compileBillOfBehavior(): BillOfBehavior {
-            return BobCompiler.compile(recentLogs).copy(
-                stackProfile = recentStackProfiles.toMap()
+        fun compileBillOfBehavior(): BillOfBehavior =
+            BobCompiler.compile(recentLogs).copy(
+                stackProfile = recentStackProfiles.toMap(),
             )
-        }
 
         override fun execute(command: Runnable) {
             delegate.execute {
@@ -427,12 +452,17 @@ object Profiler {
         }
 
         override fun <T> submit(task: Callable<T>): Future<T> =
-            delegate.submit(Callable {
-                ensureApplied()
-                task.call()
-            })
+            delegate.submit(
+                Callable {
+                    ensureApplied()
+                    task.call()
+                },
+            )
 
-        override fun <T> submit(task: Runnable, result: T): Future<T> =
+        override fun <T> submit(
+            task: Runnable,
+            result: T,
+        ): Future<T> =
             delegate.submit({
                 ensureApplied()
                 task.run()
@@ -459,7 +489,7 @@ object Profiler {
                     policy,
                     recentLogs,
                     recentStackProfiles,
-                    sharedPathCache
+                    sharedPathCache,
                 ) { currentThread }
 
                 threadApplied.set(true)
@@ -482,7 +512,10 @@ object Profiler {
                     } finally {
                         daemonProcess.destroy()
                     }
-                }.apply { isDaemon = true; name = "profiler-shutdown-waiter" }.start()
+                }.apply {
+                    isDaemon = true
+                    name = "profiler-shutdown-waiter"
+                }.start()
             }
         }
 
@@ -501,7 +534,11 @@ object Profiler {
         }
     }
 
-    private data class DaemonContext(val socketPath: String, val daemonProcess: Process, val shutdownHook: Thread)
+    private data class DaemonContext(
+        val socketPath: String,
+        val daemonProcess: Process,
+        val shutdownHook: Thread,
+    )
 
     private fun spawnDaemon(): DaemonContext {
         // Setup socket path
@@ -512,13 +549,15 @@ object Profiler {
         // Spawn Daemon
         val javaBin = System.getProperty("java.home") + "/bin/java"
         val classpath = System.getProperty("java.class.path")
-        val pb = ProcessBuilder(
-            javaBin,
-            "--enable-native-access=ALL-UNNAMED",
-            "-cp", classpath,
-            "io.mazewall.profiler.ProfilerDaemon",
-            socketPath
-        )
+        val pb =
+            ProcessBuilder(
+                javaBin,
+                "--enable-native-access=ALL-UNNAMED",
+                "-cp",
+                classpath,
+                "io.mazewall.profiler.ProfilerDaemon",
+                socketPath,
+            )
         val daemonProcess = pb.start()
         val daemonPid = daemonProcess.pid()
 
@@ -533,18 +572,25 @@ object Profiler {
                     System.err.flush()
                 }
             }
-        }.apply { isDaemon = true; name = "profiler-daemon-stderr" }.start()
+        }.apply {
+            isDaemon = true
+            name = "profiler-daemon-stderr"
+        }.start()
 
         // Ensure daemon process is cleaned up on JVM exit
-        val shutdownHook = Thread {
-            daemonProcess.destroyForcibly()
-        }
+        val shutdownHook =
+            Thread {
+                daemonProcess.destroyForcibly()
+            }
         Runtime.getRuntime().addShutdownHook(shutdownHook)
 
         return DaemonContext(socketPath, daemonProcess, shutdownHook)
     }
 
-    private fun setupSockAddrUn(arena: Arena, socketPath: String): MemorySegment {
+    private fun setupSockAddrUn(
+        arena: Arena,
+        socketPath: String,
+    ): MemorySegment {
         val addr = arena.allocate(LinuxNative.SOCKADDR_UN_LAYOUT)
         addr.fill(0)
         addr.set(ValueLayout.JAVA_SHORT, 0L, 1.toShort()) // AF_UNIX = 1

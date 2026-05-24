@@ -10,7 +10,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class DemoAppTest {
-
     @Test
     @EnabledOnOs(OS.LINUX)
     fun `main with no arguments runs all demos and succeeds`() {

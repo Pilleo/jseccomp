@@ -8,14 +8,15 @@ import org.junit.jupiter.api.Test
 import kotlin.test.assertTrue
 
 class BpfFilterLabelTest {
-
     private val arch = Arch.AMD64
 
     @Test
     fun `linear scan filter generation handles multiple syscalls`() {
-        val policy = Policy.builder()
-            .block(Syscall.EXECVE, Syscall.OPEN, Syscall.SOCKET)
-            .build()
+        val policy =
+            Policy
+                .builder()
+                .block(Syscall.EXECVE, Syscall.OPEN, Syscall.SOCKET)
+                .build()
 
         val filter = BpfFilter.build(arch, policy)
         assertTrue(filter.size >= 10, "Expected at least 10 instructions, got ${filter.size}")
@@ -34,11 +35,11 @@ class BpfFilterLabelTest {
                 val jf = insn.jf.toInt() and 0xff
                 assertTrue(
                     i + jt + 1 < filter.size,
-                    "jt out of bounds at index $i (target ${i + jt + 1}, size ${filter.size})"
+                    "jt out of bounds at index $i (target ${i + jt + 1}, size ${filter.size})",
                 )
                 assertTrue(
                     i + jf + 1 < filter.size,
-                    "jf out of bounds at index $i (target ${i + jf + 1}, size ${filter.size})"
+                    "jf out of bounds at index $i (target ${i + jf + 1}, size ${filter.size})",
                 )
             }
         }

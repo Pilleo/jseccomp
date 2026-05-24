@@ -6,7 +6,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class BpfFilterTest {
-
     private val arch = Arch.AMD64
 
     @Test
@@ -50,10 +49,12 @@ class BpfFilterTest {
 
     @Test
     fun `ALLOW_LIST mode generates RET ALLOW for listed syscalls`() {
-        val policy = Policy.builder()
-            .mode(Policy.Mode.ALLOW_LIST)
-            .allow(Syscall.READ)
-            .build()
+        val policy =
+            Policy
+                .builder()
+                .mode(Policy.Mode.ALLOW_LIST)
+                .allow(Syscall.READ)
+                .build()
         val filter = BpfFilter.build(arch, policy)
 
         // Find JEQ read -> RET ALLOW
@@ -96,21 +97,23 @@ class BpfFilterTest {
     @Test
     @EnabledIfLinuxAndSupported
     fun `filter is accepted by the kernel (BPF verifier)`() {
-        val thread = Thread {
-            val filter = BpfFilter.build(Arch.current(), Policy.NO_EXEC)
-            java.lang.foreign.Arena.ofConfined().use { arena ->
-                val prog = LinuxNative.newSockFProg(arena, filter)
-                LinuxNative.prctl(LinuxNative.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
-                val r = LinuxNative.prctl(
-                    LinuxNative.PR_SET_SECCOMP,
-                    LinuxNative.SECCOMP_MODE_FILTER.toLong(),
-                    prog,
-                    0,
-                    0
-                )
-                assertEquals(0L, r.returnValue, "Kernel rejected BPF: errno ${r.errno}")
+        val thread =
+            Thread {
+                val filter = BpfFilter.build(Arch.current(), Policy.NO_EXEC)
+                java.lang.foreign.Arena.ofConfined().use { arena ->
+                    val prog = LinuxNative.newSockFProg(arena, filter)
+                    LinuxNative.prctl(LinuxNative.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
+                    val r =
+                        LinuxNative.prctl(
+                            LinuxNative.PR_SET_SECCOMP,
+                            LinuxNative.SECCOMP_MODE_FILTER.toLong(),
+                            prog,
+                            0,
+                            0,
+                        )
+                    assertEquals(0L, r.returnValue, "Kernel rejected BPF: errno ${r.errno}")
+                }
             }
-        }
         thread.start()
         thread.join()
     }

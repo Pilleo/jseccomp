@@ -20,7 +20,7 @@ internal object DescriptorPassing {
     fun setupScmRightsMsgHdr(
         arena: Arena,
         dummyByte: MemorySegment,
-        controlBuf: MemorySegment
+        controlBuf: MemorySegment,
     ): MemorySegment {
         val iov = arena.allocate(LinuxNative.IOVEC_LAYOUT)
         iov.set(ValueLayout.ADDRESS, 0L, dummyByte)

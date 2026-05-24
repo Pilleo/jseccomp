@@ -12,21 +12,22 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class ContainedExecutorsTest {
-
     @Test
     @EnabledIfLinuxAndSupported
     fun `test containment wrapper blocks execve`() {
         val executor = Executors.newSingleThreadExecutor()
         val safeExecutor = ContainedExecutors.wrap(executor, Policy.NO_EXEC)
 
-        val future = safeExecutor.submit {
-            // Attempt to spawn a process
-            ProcessBuilder("echo", "hello").start()
-        }
+        val future =
+            safeExecutor.submit {
+                // Attempt to spawn a process
+                ProcessBuilder("echo", "hello").start()
+            }
 
-        val ex = assertFailsWith<ExecutionException> {
-            future.get()
-        }
+        val ex =
+            assertFailsWith<ExecutionException> {
+                future.get()
+            }
 
         assertTrue(ex.cause is ContainmentViolationException, "Expected ContainmentViolationException, got ${ex.cause}")
 
@@ -42,9 +43,10 @@ class ContainedExecutorsTest {
         val safeExecutor = ContainedExecutors.wrap(executor, Policy.NO_EXEC)
 
         // Should not throw since it degrades gracefully on Mac/Windows
-        val future = safeExecutor.submit {
-            "success"
-        }
+        val future =
+            safeExecutor.submit {
+                "success"
+            }
 
         assertTrue(future.get() == "success")
         executor.shutdown()
@@ -57,9 +59,12 @@ class ContainedExecutorsTest {
         val safeExecutor = ContainedExecutors.wrap(executor, Policy.NO_EXEC)
 
         // 1. Run a task on the safe executor to install the seccomp filter on that specific thread
-        val future = safeExecutor.submit(java.util.concurrent.Callable {
-            "installed"
-        })
+        val future =
+            safeExecutor.submit(
+                java.util.concurrent.Callable {
+                    "installed"
+                },
+            )
         assertEquals("installed", future.get())
 
         // 2. Now the main thread (uncontained) should still be able to exec!
@@ -78,16 +83,18 @@ class ContainedExecutorsTest {
         val safeExecutor = ContainedExecutors.wrap(executor, Policy.NO_EXEC)
 
         try {
-            val tasks = listOf(
-                java.util.concurrent.Callable { ProcessBuilder("echo", "1").start() },
-                java.util.concurrent.Callable { ProcessBuilder("echo", "2").start() }
-            )
+            val tasks =
+                listOf(
+                    java.util.concurrent.Callable { ProcessBuilder("echo", "1").start() },
+                    java.util.concurrent.Callable { ProcessBuilder("echo", "2").start() },
+                )
 
             val futures = safeExecutor.invokeAll(tasks)
             for (future in futures) {
-                val ex = assertFailsWith<ExecutionException> {
-                    future.get()
-                }
+                val ex =
+                    assertFailsWith<ExecutionException> {
+                        future.get()
+                    }
                 assertTrue(ex.cause is ContainmentViolationException)
             }
         } finally {
@@ -102,12 +109,13 @@ class ContainedExecutorsTest {
         val safeExecutor = ContainedExecutors.wrap(executor, Policy.NO_EXEC)
 
         try {
-            val tasks = listOf(
-                java.util.concurrent.Callable {
-                    Runtime.getRuntime().exec(arrayOf("echo", "fail"))
-                    "should not reach here"
-                }
-            )
+            val tasks =
+                listOf(
+                    java.util.concurrent.Callable {
+                        Runtime.getRuntime().exec(arrayOf("echo", "fail"))
+                        "should not reach here"
+                    },
+                )
 
             assertFailsWith<ExecutionException> {
                 safeExecutor.invokeAny(tasks)
@@ -122,10 +130,11 @@ class ContainedExecutorsTest {
         val executor = Executors.newFixedThreadPool(2)
         val safeExecutor = ContainedExecutors.wrap(executor, Policy.PURE_COMPUTE)
 
-        val tasks = listOf(
-            java.util.concurrent.Callable { "task1" },
-            java.util.concurrent.Callable { "task2" }
-        )
+        val tasks =
+            listOf(
+                java.util.concurrent.Callable { "task1" },
+                java.util.concurrent.Callable { "task2" },
+            )
 
         val results = safeExecutor.invokeAll(tasks, 5, TimeUnit.SECONDS)
         assertEquals(2, results.size)
@@ -146,7 +155,7 @@ class ContainedExecutorsTest {
 
         assertTrue(
             ContainedExecutors.isContainmentViolation(deeplyNested),
-            "Should find violation in nested exception chain"
+            "Should find violation in nested exception chain",
         )
     }
 
@@ -162,16 +171,19 @@ class ContainedExecutorsTest {
 
     @Test
     fun `installOnProcess rejects policies with io_uring due to landlock requirement`() {
-        val policy = Policy.builder()
-            .base(Policy.PURE_COMPUTE)
-            .unblock(Syscall.IO_URING_SETUP)
-            .build()
-            
+        val policy =
+            Policy
+                .builder()
+                .base(Policy.PURE_COMPUTE)
+                .unblock(Syscall.IO_URING_SETUP)
+                .build()
+
         // Unblocking IO_URING_SETUP triggers needsLandlock = true.
         // installOnProcess does not support Landlock, so it should throw.
-        val ex = assertFailsWith<UnsupportedOperationException> {
-            ContainedExecutors.installOnProcess(policy)
-        }
+        val ex =
+            assertFailsWith<UnsupportedOperationException> {
+                ContainedExecutors.installOnProcess(policy)
+            }
         assertTrue(ex.message!!.contains("does not support Landlock filesystem rules"))
     }
 }

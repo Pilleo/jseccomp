@@ -58,14 +58,14 @@ fun runSafe() {
     println("\u001b[34;1m[CLIPBOARD] Bill of Behavior (BoB) for 'worker-thread':\u001b[0m")
     println(
         """
-    {
-      "syscalls": {
-        "allow": ["read", "write", "mmap", "exit"],
-        "block": ["execve", "fork", "socket", "connect"],
-        "action": "EPERM"
-      }
-    }
-    """.trimIndent()
+        {
+          "syscalls": {
+            "allow": ["read", "write", "mmap", "exit"],
+            "block": ["execve", "fork", "socket", "connect"],
+            "action": "EPERM"
+          }
+        }
+        """.trimIndent(),
     )
 
     println("Contract: \u001b[1mPolicy.NO_EXEC\u001b[0m + \u001b[1mPolicy.NO_NETWORK\u001b[0m")

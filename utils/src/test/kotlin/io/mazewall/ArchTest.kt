@@ -9,7 +9,6 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class ArchTest {
-
     companion object {
         @JvmStatic
         fun architectures() = listOf(Arch.AMD64, Arch.AARCH64)

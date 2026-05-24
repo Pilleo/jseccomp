@@ -1,0 +1,34 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>CyclomaticComplexMethod:ProfileAndEnforceDemo.kt:fun runProfileAndEnforce</ID>
+    <ID>LongMethod:ProfileAndEnforceDemo.kt:fun runProfileAndEnforce</ID>
+    <ID>MagicNumber:VulnerableLogger.kt:VulnerableLogger$5</ID>
+    <ID>MaxLineLength:ExploitDemonstrationTest.kt:ExploitDemonstrationTest$assertTrue(res.returnValue &gt;= 0, "memfd_create should succeed when unprotected, got: ${res.returnValue} (errno ${res.errno})")</ID>
+    <ID>MaxLineLength:ProfileAndEnforceDemo.kt:ioUringStatus = "io_uring_setup returned errno ${setupResult.errno} (gracefully falling back to standard I/O)"</ID>
+    <ID>MaxLineLength:ProfileAndEnforceDemo.kt:println(" [Kernel io-wq Worker] Landlock LSM hook intercepted '/etc/hosts' access inside kernel workqueue!")</ID>
+    <ID>MaxLineLength:ProfileAndEnforceDemo.kt:println(" it returns ENOSYS or EPERM before reaching our nested filter, so it won't be recorded in the profiling logs.")</ID>
+    <ID>MaxLineLength:ProfileAndEnforceDemo.kt:println("\u001b[31;1m[ALERT] VULNERABILITY! Stolen data leaked (Is Landlock supported on this kernel?):\n$stolenData\u001b[0m")</ID>
+    <ID>MaxLineLength:ProfileAndEnforceDemo.kt:println("\u001b[32;1m[BOUNCER SUCCESS] Landlock blocked the file read attempt at the kernel level!\u001b[0m")</ID>
+    <ID>MaxLineLength:ProfileAndEnforceDemo.kt:println("\u001b[32;1m[BOUNCER SUCCESS] The Perfect Union succeeded! Landlock blocked the io_uring async file read!\u001b[0m")</ID>
+    <ID>MaxLineLength:ProfileAndEnforceDemo.kt:println("\u001b[35m[INFO] Note: If io_uring_setup is blocked by the outer container runtime (like standard Podman/Docker),")</ID>
+    <ID>PrintStackTrace:ProfileAndEnforceDemo.kt:e</ID>
+    <ID>SwallowedException:ProfileAndEnforceDemo.kt:e: Exception</ID>
+    <ID>SwallowedException:SafeRunner.kt:SafeRunner$e: ExecutionException</ID>
+    <ID>TooGenericExceptionCaught:DemoApp.kt:e: Exception</ID>
+    <ID>TooGenericExceptionCaught:ProfileAndEnforceDemo.kt:e: Exception</ID>
+    <ID>VariableNaming:ExploitDemonstrationTest.kt:ExploitDemonstrationTest$val MAP_ANONYMOUS = 0x20</ID>
+    <ID>VariableNaming:ExploitDemonstrationTest.kt:ExploitDemonstrationTest$val MAP_PRIVATE = 0x02</ID>
+    <ID>VariableNaming:ExploitDemonstrationTest.kt:ExploitDemonstrationTest$val PROT_EXEC = 0x4</ID>
+    <ID>VariableNaming:ExploitDemonstrationTest.kt:ExploitDemonstrationTest$val PROT_READ = 0x1</ID>
+    <ID>VariableNaming:ExploitDemonstrationTest.kt:ExploitDemonstrationTest$val PROT_WRITE = 0x2</ID>
+    <ID>VariableNaming:ProtectionDemonstrationTest.kt:ProtectionDemonstrationTest$val MAP_ANONYMOUS = 0x20</ID>
+    <ID>VariableNaming:ProtectionDemonstrationTest.kt:ProtectionDemonstrationTest$val MAP_PRIVATE = 0x02</ID>
+    <ID>VariableNaming:ProtectionDemonstrationTest.kt:ProtectionDemonstrationTest$val PROT_EXEC = 0x4</ID>
+    <ID>VariableNaming:ProtectionDemonstrationTest.kt:ProtectionDemonstrationTest$val PROT_READ = 0x1</ID>
+    <ID>VariableNaming:ProtectionDemonstrationTest.kt:ProtectionDemonstrationTest$val PROT_WRITE = 0x2</ID>
+    <ID>WildcardImport:ExploitDemonstrationTest.kt:import java.lang.foreign.*</ID>
+    <ID>WildcardImport:ProtectionDemonstrationTest.kt:import java.lang.foreign.*</ID>
+  </CurrentIssues>
+</SmellBaseline>

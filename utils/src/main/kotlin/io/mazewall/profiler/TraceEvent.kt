@@ -4,7 +4,7 @@ data class TraceEvent(
     val pid: Int,
     val syscallName: String,
     val args: LongArray,
-    val paths: List<String>
+    val paths: List<String>,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

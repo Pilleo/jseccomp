@@ -7,7 +7,6 @@ import org.junit.jupiter.params.provider.MethodSource
 import kotlin.test.assertEquals
 
 class SyscallTest {
-
     companion object {
         @JvmStatic
         fun architectures() = listOf(Arch.AMD64, Arch.AARCH64)
@@ -55,11 +54,12 @@ class SyscallTest {
 
     @Test
     fun `numberFor works for all entries on current arch without throwing`() {
-        val currentArch = try {
-            Arch.current()
-        } catch (e: UnsupportedOperationException) {
-            return
-        }
+        val currentArch =
+            try {
+                Arch.current()
+            } catch (e: UnsupportedOperationException) {
+                return
+            }
 
         for (syscall in Syscall.entries) {
             assertDoesNotThrow {

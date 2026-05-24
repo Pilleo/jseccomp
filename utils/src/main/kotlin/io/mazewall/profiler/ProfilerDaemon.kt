@@ -41,9 +41,11 @@ object ProfilerDaemon {
         }
 
         // Shutdown hook for the daemon itself
-        Runtime.getRuntime().addShutdownHook(Thread {
-            triggerGlobalShutdown()
-        })
+        Runtime.getRuntime().addShutdownHook(
+            Thread {
+                triggerGlobalShutdown()
+            },
+        )
 
         Thread {
             try {
@@ -132,7 +134,8 @@ object ProfilerDaemon {
             listenerFd = fd
             activeListeners.add(listenerFd)
             Arena.ofConfined().use { arena ->
-                val ack = arena.allocate(1); ack.set(ValueLayout.JAVA_BYTE, 0L, 0xAC.toByte())
+                val ack = arena.allocate(1)
+                ack.set(ValueLayout.JAVA_BYTE, 0L, 0xAC.toByte())
                 LinuxNative.write(socketFd, ack, 1)
             }
 
@@ -193,7 +196,10 @@ object ProfilerDaemon {
         }
     }
 
-    private fun sendTraceEvent(socketFd: Int, event: TraceEvent) {
+    private fun sendTraceEvent(
+        socketFd: Int,
+        event: TraceEvent,
+    ) {
         val baos = java.io.ByteArrayOutputStream()
         val dos = DataOutputStream(baos)
         dos.writeInt(event.pid)
@@ -216,7 +222,8 @@ object ProfilerDaemon {
         if (bytes.isEmpty()) return
 
         val lock = socketLocks.computeIfAbsent(socketFd) { Any() }
-        synchronized(lock) { // Synchronize on lock object to prevent interleaved writes
+        synchronized(lock) {
+            // Synchronize on lock object to prevent interleaved writes
             Arena.ofConfined().use { arena ->
                 val buf = arena.allocate(bytes.size.toLong())
                 MemorySegment.copy(bytes, 0, buf, ValueLayout.JAVA_BYTE, 0L, bytes.size)
@@ -236,11 +243,17 @@ object ProfilerDaemon {
         }
     }
 
-    private fun readStringFromProcess(pid: Int, remoteAddress: Long, maxLen: Int = 4096): String? {
+    private fun readStringFromProcess(
+        pid: Int,
+        remoteAddress: Long,
+        maxLen: Int = 4096,
+    ): String? {
         Arena.ofConfined().use { arena ->
-            val localBuf = arena.allocate(maxLen.toLong()); localBuf.fill(0)
+            val localBuf = arena.allocate(maxLen.toLong())
+            localBuf.fill(0)
             val localIov = arena.allocate(LinuxNative.IOVEC_LAYOUT)
-            localIov.set(ValueLayout.ADDRESS, 0L, localBuf); localIov.set(ValueLayout.JAVA_LONG, 8L, maxLen.toLong())
+            localIov.set(ValueLayout.ADDRESS, 0L, localBuf)
+            localIov.set(ValueLayout.JAVA_LONG, 8L, maxLen.toLong())
             val remoteIov = arena.allocate(LinuxNative.IOVEC_LAYOUT)
             remoteIov.set(ValueLayout.ADDRESS, 0L, MemorySegment.ofAddress(remoteAddress))
             remoteIov.set(ValueLayout.JAVA_LONG, 8L, maxLen.toLong())
@@ -258,22 +271,33 @@ object ProfilerDaemon {
         }
     }
 
-    private fun getPathArgs(syscallName: String, args: LongArray, pid: Int): List<String> {
+    private fun getPathArgs(
+        syscallName: String,
+        args: LongArray,
+        pid: Int,
+    ): List<String> {
         val paths = mutableListOf<String>()
+
         fun isAtFdcwd(fd: Long): Boolean = fd == -100L || fd == 4294967196L || fd.toInt() == -100
 
-        fun tryRead(addr: Long, dirfd: Long = -100L): String? {
+        fun tryRead(
+            addr: Long,
+            dirfd: Long = -100L,
+        ): String? {
             if (addr == 0L) return null
             val path = readStringFromProcess(pid, addr) ?: return null
             if (path.startsWith("/")) return path
 
             // Resolve relative paths
-            val dirPath = if (isAtFdcwd(dirfd)) {
-                // AT_FDCWD
-                resolveCwd(pid)
-            } else if (dirfd >= 0) {
-                resolveFdPath(pid, dirfd.toInt())
-            } else null
+            val dirPath =
+                if (isAtFdcwd(dirfd)) {
+                    // AT_FDCWD
+                    resolveCwd(pid)
+                } else if (dirfd >= 0) {
+                    resolveFdPath(pid, dirfd.toInt())
+                } else {
+                    null
+                }
 
             if (dirPath != null) {
                 return if (dirPath.endsWith("/")) "$dirPath$path" else "$dirPath/$path"
@@ -303,15 +327,17 @@ object ProfilerDaemon {
         return paths
     }
 
-    private fun resolveCwd(pid: Int): String? {
-        return resolveLink(pid, "cwd")
-    }
+    private fun resolveCwd(pid: Int): String? = resolveLink(pid, "cwd")
 
-    private fun resolveFdPath(pid: Int, fd: Int): String? {
-        return resolveLink(pid, "fd/$fd")
-    }
+    private fun resolveFdPath(
+        pid: Int,
+        fd: Int,
+    ): String? = resolveLink(pid, "fd/$fd")
 
-    private fun resolveLink(pid: Int, link: String): String? {
+    private fun resolveLink(
+        pid: Int,
+        link: String,
+    ): String? {
         val procPath = "/proc/$pid/$link"
         Arena.ofConfined().use { arena ->
             val pathSeg = arena.allocateFrom(procPath)
@@ -322,7 +348,11 @@ object ProfilerDaemon {
         }
     }
 
-    private fun sendContinueResponse(listenerFd: Int, id: Long, resp: MemorySegment) {
+    private fun sendContinueResponse(
+        listenerFd: Int,
+        id: Long,
+        resp: MemorySegment,
+    ) {
         resp.fill(0)
         resp.set(ValueLayout.JAVA_LONG, 0L, id)
         resp.set(ValueLayout.JAVA_LONG, 8L, 0L)

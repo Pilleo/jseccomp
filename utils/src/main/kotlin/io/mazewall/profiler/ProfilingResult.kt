@@ -12,5 +12,5 @@ package io.mazewall.profiler
  */
 data class ProfilingResult<T>(
     val value: T,
-    val behavior: BillOfBehavior
+    val behavior: BillOfBehavior,
 )

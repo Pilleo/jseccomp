@@ -32,11 +32,13 @@ object SeccompIsolatedTestApp {
     }
 
     private fun testProcessWide() {
-        val safeGlobalPolicy = Policy.builder()
-            .block(Syscall.EXECVE, Syscall.EXECVEAT, Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER)
-            .allowMmapExec()
-            .allowNonThreadClone()
-            .build()
+        val safeGlobalPolicy =
+            Policy
+                .builder()
+                .block(Syscall.EXECVE, Syscall.EXECVEAT, Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER)
+                .allowMmapExec()
+                .allowNonThreadClone()
+                .build()
 
         ContainedExecutors.installOnProcess(safeGlobalPolicy)
         try {
@@ -52,16 +54,17 @@ object SeccompIsolatedTestApp {
     private fun testInheritance() {
         ContainedExecutors.installOnProcess(Policy.NO_EXEC)
 
-        val thread = Thread {
-            try {
-                ProcessBuilder("echo", "should-fail").start()
-                throw IllegalStateException("Child thread should have been contained")
-            } catch (e: Exception) {
-                if (!ContainedExecutors.isContainmentViolation(e)) {
-                    throw e
+        val thread =
+            Thread {
+                try {
+                    ProcessBuilder("echo", "should-fail").start()
+                    throw IllegalStateException("Child thread should have been contained")
+                } catch (e: Exception) {
+                    if (!ContainedExecutors.isContainmentViolation(e)) {
+                        throw e
+                    }
                 }
             }
-        }
         thread.start()
         thread.join()
     }
@@ -97,29 +100,65 @@ object SeccompIsolatedTestApp {
     }
 
     private fun testThreadDepth() {
-        val safeSyscalls = listOf(
-            Syscall.EXECVE, Syscall.EXECVEAT, Syscall.FORK, Syscall.VFORK,
-            Syscall.CONNECT, Syscall.SOCKET, Syscall.BIND, Syscall.LISTEN,
-            Syscall.ACCEPT, Syscall.ACCEPT4, Syscall.SENDTO, Syscall.SENDMSG,
-            Syscall.MEMFD_CREATE, Syscall.IO_URING_SETUP, Syscall.BPF, Syscall.PTRACE,
-            Syscall.PROCESS_VM_WRITEV, Syscall.PROCESS_VM_READV,
-            Syscall.USERFAULTFD, Syscall.UNSHARE, Syscall.SETNS,
-            Syscall.MOUNT, Syscall.UMOUNT2, Syscall.PIVOT_ROOT, Syscall.CHROOT,
-            Syscall.INIT_MODULE, Syscall.FINIT_MODULE,
-            Syscall.GETPID, Syscall.GETPPID, Syscall.GETUID,
-            Syscall.GETEUID, Syscall.GETGID, Syscall.GETEGID,
-            Syscall.GETTID, Syscall.GETCWD, Syscall.UMASK
-        )
+        val safeSyscalls =
+            listOf(
+                Syscall.EXECVE,
+                Syscall.EXECVEAT,
+                Syscall.FORK,
+                Syscall.VFORK,
+                Syscall.CONNECT,
+                Syscall.SOCKET,
+                Syscall.BIND,
+                Syscall.LISTEN,
+                Syscall.ACCEPT,
+                Syscall.ACCEPT4,
+                Syscall.SENDTO,
+                Syscall.SENDMSG,
+                Syscall.MEMFD_CREATE,
+                Syscall.IO_URING_SETUP,
+                Syscall.BPF,
+                Syscall.PTRACE,
+                Syscall.PROCESS_VM_WRITEV,
+                Syscall.PROCESS_VM_READV,
+                Syscall.USERFAULTFD,
+                Syscall.UNSHARE,
+                Syscall.SETNS,
+                Syscall.MOUNT,
+                Syscall.UMOUNT2,
+                Syscall.PIVOT_ROOT,
+                Syscall.CHROOT,
+                Syscall.INIT_MODULE,
+                Syscall.FINIT_MODULE,
+                Syscall.GETPID,
+                Syscall.GETPPID,
+                Syscall.GETUID,
+                Syscall.GETEUID,
+                Syscall.GETGID,
+                Syscall.GETEGID,
+                Syscall.GETTID,
+                Syscall.GETCWD,
+                Syscall.UMASK,
+            )
 
         for (i in 0 until 32) {
             ContainedExecutors.installOnCurrentThread(
-                Policy.builder().block(safeSyscalls[i]).allowMmapExec().allowNonThreadClone().build()
+                Policy
+                    .builder()
+                    .block(safeSyscalls[i])
+                    .allowMmapExec()
+                    .allowNonThreadClone()
+                    .build(),
             )
         }
 
         try {
             ContainedExecutors.installOnCurrentThread(
-                Policy.builder().block(safeSyscalls[32]).allowMmapExec().allowNonThreadClone().build()
+                Policy
+                    .builder()
+                    .block(safeSyscalls[32])
+                    .allowMmapExec()
+                    .allowNonThreadClone()
+                    .build(),
             )
             throw IllegalStateException("Should have failed")
         } catch (e: IllegalStateException) {
@@ -131,7 +170,6 @@ object SeccompIsolatedTestApp {
 }
 
 class ProcessContainmentTest {
-
     @Test
     @EnabledIfLinuxAndSupported
     fun `installOnProcess applies containment globally`() {

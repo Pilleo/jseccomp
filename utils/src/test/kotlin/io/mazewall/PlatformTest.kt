@@ -5,7 +5,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class PlatformTest {
-
     @Test
     fun `test Platform support`() {
         val osName = System.getProperty("os.name")

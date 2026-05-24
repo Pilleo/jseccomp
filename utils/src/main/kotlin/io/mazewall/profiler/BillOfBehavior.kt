@@ -37,7 +37,6 @@ data class BillOfBehavior(
      * readlink, etc.). Maps to SBoB §4.6 `opens` with `flags` indicating read access.
      */
     val opens: Set<String> = emptySet(),
-
     /**
      * Filesystem paths opened for write, created, or mutated (O_WRONLY, O_RDWR,
      * O_CREAT, O_TRUNC, mkdir, rmdir, rename, chmod, chown, etc.).
@@ -51,19 +50,16 @@ data class BillOfBehavior(
      * Landlock rules — correct for a profiling tool whose goal is discovery, not enforcement.
      */
     val fsWritePaths: Set<String> = emptySet(),
-
     /**
      * All syscall names intercepted during the run. A superset of what any
      * specific base [io.mazewall.Policy] would block — the caller decides which subset matters
      * via [toPolicy].
      */
     val syscalls: Set<Syscall> = emptySet(),
-
     /**
      * Child processes spawned (execve/execveat paths). Maps to SBoB §4.5 `execs`.
      */
     val execs: Set<String> = emptySet(),
-
     /**
      * Per-syscall JVM stack traces captured at the moment the kernel paused the
      * worker thread for USER_NOTIF. The worker thread is blocked in-kernel and its
@@ -75,7 +71,7 @@ data class BillOfBehavior(
      * Keyed by [TraceEvent] identity; multiple events for the same syscall name
      * may produce different stack entries if triggered from different call sites.
      */
-    val stackProfile: Map<TraceEvent, List<Array<StackTraceElement>>> = emptyMap()
+    val stackProfile: Map<TraceEvent, List<Array<StackTraceElement>>> = emptyMap(),
 ) {
     /**
      * Compiles this bill of behavior into a [io.mazewall.Policy] starting from [base].
@@ -108,17 +104,18 @@ data class BillOfBehavior(
      */
     fun toDsl(
         basePolicyName: String = "Policy.PURE_COMPUTE",
-        base: Policy = Policy.PURE_COMPUTE
+        base: Policy = Policy.PURE_COMPUTE,
     ): String {
         val sb = StringBuilder()
         sb.append("val policy = Policy.builder()\n")
         sb.append("    .base($basePolicyName)\n")
 
-        val (methodName, list) = if (base.mode == Policy.Mode.DENY_LIST) {
-            ".unblock" to syscalls.filter { base.syscalls.contains(it) }.sortedBy { it.name }
-        } else {
-            ".allow" to syscalls.sortedBy { it.name }
-        }
+        val (methodName, list) =
+            if (base.mode == Policy.Mode.DENY_LIST) {
+                ".unblock" to syscalls.filter { base.syscalls.contains(it) }.sortedBy { it.name }
+            } else {
+                ".allow" to syscalls.sortedBy { it.name }
+            }
 
         if (list.isNotEmpty()) {
             sb.append("    $methodName(\n")
@@ -147,7 +144,7 @@ data class BillOfBehavior(
             fsWritePaths = fsWritePaths + other.fsWritePaths,
             syscalls = syscalls + other.syscalls,
             execs = execs + other.execs,
-            stackProfile = mergedStackProfile
+            stackProfile = mergedStackProfile,
         )
     }
 }

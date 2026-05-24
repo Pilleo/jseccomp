@@ -25,7 +25,11 @@ object BpfFilter {
     private const val SECCOMP_DATA_ARGS_OFFSET = 16
     private const val SECCOMP_ARGS2_OFFSET = SECCOMP_DATA_ARGS_OFFSET + 16 // args[2] byte offset
 
-    fun build(arch: Arch, policy: Policy, profilingMode: Boolean = false): Array<SockFilter> =
+    fun build(
+        arch: Arch,
+        policy: Policy,
+        profilingMode: Boolean = false,
+    ): Array<SockFilter> =
         buildFromNumbers(
             arch,
             policy.syscallNumbers(arch),
@@ -33,7 +37,7 @@ object BpfFilter {
             policy.allowMmapExec,
             policy.allowNonThreadClone,
             policy.allowUnsafePrctl,
-            profilingMode
+            profilingMode,
         )
 
     /**
@@ -58,7 +62,7 @@ object BpfFilter {
         allowMmapExec: Boolean = false,
         allowNonThreadClone: Boolean = false,
         allowUnsafePrctl: Boolean = false,
-        profilingMode: Boolean = false
+        profilingMode: Boolean = false,
     ): Array<SockFilter> {
         val filters = mutableListOf<SockFilter>()
         val denyAction =

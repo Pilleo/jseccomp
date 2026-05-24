@@ -5,7 +5,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 
 class TraceEventTest {
-
     @Test
     fun `test trace events equality ignores pid`() {
         val event1 = TraceEvent(1001, "OPENAT", longArrayOf(1, 2, 3), listOf("/etc/passwd"))

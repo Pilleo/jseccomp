@@ -11,36 +11,40 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ContainmentViolationDetectorTest {
-
-    data class ViolationCase(val exception: Throwable, val expected: Boolean, val description: String)
+    data class ViolationCase(
+        val exception: Throwable,
+        val expected: Boolean,
+        val description: String,
+    )
 
     companion object {
         @JvmStatic
-        fun violationCases() = listOf(
-            ViolationCase(IOException("Operation not permitted"), true, "IOException with EPERM"),
-            ViolationCase(IOException("Permission denied"), true, "IOException with Permission denied"),
-            ViolationCase(SocketException("Permission denied"), true, "SocketException with Permission denied"),
-            ViolationCase(AccessDeniedException("/some/path"), true, "AccessDeniedException"),
-            ViolationCase(
-                IOException("Cannot run program \"/bin/sh\": IOException: error=1, Operation not permitted"),
-                true,
-                "JVM exec EPERM"
-            ),
-            ViolationCase(ConnectException("Permission denied"), true, "ConnectException with Permission denied"),
-            ViolationCase(IOException(null as String?), false, "IOException with null message"),
-            ViolationCase(IOException("Connection reset by peer"), false, "Unrelated IOException"),
-            ViolationCase(IllegalArgumentException("bad argument"), false, "Unrelated RuntimeException"),
-            ViolationCase(
-                RuntimeException("Access denied by application rule"),
-                false,
-                "Non-IO exception with 'denied'"
-            ),
-            ViolationCase(
-                IOException("Authentication denied by endpoint"),
-                false,
-                "IOException with unrelated 'denied'"
+        fun violationCases() =
+            listOf(
+                ViolationCase(IOException("Operation not permitted"), true, "IOException with EPERM"),
+                ViolationCase(IOException("Permission denied"), true, "IOException with Permission denied"),
+                ViolationCase(SocketException("Permission denied"), true, "SocketException with Permission denied"),
+                ViolationCase(AccessDeniedException("/some/path"), true, "AccessDeniedException"),
+                ViolationCase(
+                    IOException("Cannot run program \"/bin/sh\": IOException: error=1, Operation not permitted"),
+                    true,
+                    "JVM exec EPERM",
+                ),
+                ViolationCase(ConnectException("Permission denied"), true, "ConnectException with Permission denied"),
+                ViolationCase(IOException(null as String?), false, "IOException with null message"),
+                ViolationCase(IOException("Connection reset by peer"), false, "Unrelated IOException"),
+                ViolationCase(IllegalArgumentException("bad argument"), false, "Unrelated RuntimeException"),
+                ViolationCase(
+                    RuntimeException("Access denied by application rule"),
+                    false,
+                    "Non-IO exception with 'denied'",
+                ),
+                ViolationCase(
+                    IOException("Authentication denied by endpoint"),
+                    false,
+                    "IOException with unrelated 'denied'",
+                ),
             )
-        )
     }
 
     @ParameterizedTest(name = "{0}")

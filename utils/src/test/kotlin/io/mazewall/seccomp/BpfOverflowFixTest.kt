@@ -7,7 +7,6 @@ import org.junit.jupiter.api.Test
 import kotlin.test.assertTrue
 
 class BpfOverflowFixTest {
-
     @Test
     fun `linear scan filter generation handles 100 syscalls without jump offset overflow`() {
         val arch = Arch.AMD64

@@ -11,16 +11,16 @@ import kotlin.test.assertTrue
 
 @EnabledIfLinuxAndSupported
 class ProfilerIntegrationTest {
-
     @Test
     fun `test profiler intercepts and logs file opens with path resolving and stack trace capture`() {
         val targetFile = File("/etc/hostname")
         assertTrue(targetFile.exists(), "/etc/hostname should exist on Linux")
 
         // Submit task inside the new stateless profile block
-        val result = Profiler.profile {
-            targetFile.readText()
-        }
+        val result =
+            Profiler.profile {
+                targetFile.readText()
+            }
 
         assertTrue(result.value.isNotEmpty())
         val bob = result.behavior
@@ -28,36 +28,38 @@ class ProfilerIntegrationTest {
         // Verify we captured the OPEN or OPENAT syscall in bob
         assertTrue(
             bob.syscalls.contains(Syscall.OPEN) ||
-                    bob.syscalls.contains(Syscall.OPENAT) ||
-                    bob.syscalls.contains(Syscall.OPENAT2),
-            "Should capture file open syscall. Observed: ${bob.syscalls}"
+                bob.syscalls.contains(Syscall.OPENAT) ||
+                bob.syscalls.contains(Syscall.OPENAT2),
+            "Should capture file open syscall. Observed: ${bob.syscalls}",
         )
         assertTrue(bob.opens.contains("/etc/hostname"), "Should contain opened path /etc/hostname")
 
         // Assert that the stackProfile contains the trace event and its stack trace has our test class name!
         assertTrue(bob.stackProfile.isNotEmpty(), "Stack profile should not be empty")
-        val hasOurClass = bob.stackProfile.values.any { traces ->
-            traces.any { frames ->
-                frames.any { frame -> frame.className.contains("ProfilerIntegrationTest") }
+        val hasOurClass =
+            bob.stackProfile.values.any { traces ->
+                traces.any { frames ->
+                    frames.any { frame -> frame.className.contains("ProfilerIntegrationTest") }
+                }
             }
-        }
         assertTrue(hasOurClass, "Stack trace should contain the ProfilerIntegrationTest call frame")
     }
 
     @Test
     fun `test profiler robustly handles grandchild process execution without crashing`() {
         // Submit a task that runs a ProcessBuilder (triggers execve/execveat in grandchild)
-        val result = Profiler.profile {
-            val pb = ProcessBuilder("echo", "hello-profiler")
-            val process = pb.start()
-            val exitCode = process.waitFor()
-            assertEquals(0, exitCode)
-        }
+        val result =
+            Profiler.profile {
+                val pb = ProcessBuilder("echo", "hello-profiler")
+                val process = pb.start()
+                val exitCode = process.waitFor()
+                assertEquals(0, exitCode)
+            }
 
         val bob = result.behavior
         assertTrue(
             bob.syscalls.contains(Syscall.EXECVE) || bob.syscalls.contains(Syscall.EXECVEAT),
-            "Should capture process execution syscall. Observed: ${bob.syscalls}"
+            "Should capture process execution syscall. Observed: ${bob.syscalls}",
         )
     }
 
@@ -67,9 +69,10 @@ class ProfilerIntegrationTest {
         assertTrue(targetFile.exists())
 
         // Read the file inside the sandboxed thread (triggers OPEN/OPENAT/OPENAT2)
-        val result = Profiler.profile {
-            targetFile.readText()
-        }
+        val result =
+            Profiler.profile {
+                targetFile.readText()
+            }
 
         assertTrue(result.value.isNotEmpty())
         val bob = result.behavior
@@ -92,7 +95,7 @@ class ProfilerIntegrationTest {
         // The compiled policy should allow reading from /etc/hostname
         assertTrue(
             compiledPolicy.allowedFsReadPaths.contains("/etc/hostname"),
-            "Should contain read-path for /etc/hostname"
+            "Should contain read-path for /etc/hostname",
         )
 
         // Verify DSL has the correct builder and allowFsRead
@@ -104,12 +107,14 @@ class ProfilerIntegrationTest {
     fun `test profiler rejects being run inside virtual thread`() {
         val vExecutor = Executors.newVirtualThreadPerTaskExecutor()
         try {
-            val future = vExecutor.submit {
-                Profiler.profile { println("inside virtual thread") }
-            }
-            val ex = org.junit.jupiter.api.assertThrows<java.util.concurrent.ExecutionException> {
-                future.get(5, TimeUnit.SECONDS)
-            }
+            val future =
+                vExecutor.submit {
+                    Profiler.profile { println("inside virtual thread") }
+                }
+            val ex =
+                org.junit.jupiter.api.assertThrows<java.util.concurrent.ExecutionException> {
+                    future.get(5, TimeUnit.SECONDS)
+                }
             assertTrue(ex.cause is IllegalStateException)
             assertTrue(ex.cause?.message?.contains("virtual threads") == true)
         } finally {
@@ -123,14 +128,15 @@ class ProfilerIntegrationTest {
         val file = File(fileName)
         file.writeText("relative content")
         try {
-            val result = Profiler.profile {
-                // This triggers openat(AT_FDCWD, "filename", ...)
-                file.readText()
-            }
+            val result =
+                Profiler.profile {
+                    // This triggers openat(AT_FDCWD, "filename", ...)
+                    file.readText()
+                }
             val absolutePath = file.absolutePath
             assertTrue(
                 result.behavior.opens.contains(absolutePath),
-                "Should resolve relative path $fileName to absolute path $absolutePath. Observed: ${result.behavior.opens}"
+                "Should resolve relative path $fileName to absolute path $absolutePath. Observed: ${result.behavior.opens}",
             )
         } finally {
             file.delete()
@@ -145,25 +151,30 @@ class ProfilerIntegrationTest {
         val pool = Executors.newSingleThreadExecutor()
         val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE)
         try {
-            wrapped.submit(Callable {
-                java.lang.foreign.Arena.ofConfined().use { arena ->
-                    val pathSeg = arena.allocateFrom(absolutePath)
-                    val openRes = LinuxNative.open(pathSeg, 0)
-                    if (openRes.returnValue >= 0) {
-                        val fd = openRes.returnValue.toInt()
-                        val fchmodNr = Syscall.FCHMOD.numberFor(Arch.current()).toLong()
-                        if (fchmodNr >= 0) {
-                            LinuxNative.syscall(fchmodNr, fd, 0x1FF) // 0777
+            wrapped
+                .submit(
+                    Callable {
+                        java.lang.foreign.Arena.ofConfined().use { arena ->
+                            val pathSeg = arena.allocateFrom(absolutePath)
+                            val openRes = LinuxNative.open(pathSeg, 0)
+                            if (openRes.returnValue >= 0) {
+                                val fd = openRes.returnValue.toInt()
+                                val fchmodNr = Syscall.FCHMOD.numberFor(Arch.current()).toLong()
+                                if (fchmodNr >= 0) {
+                                    LinuxNative.syscall(fchmodNr, fd, 0x1FF) // 0777
+                                }
+                                LinuxNative.close(fd)
+                            }
                         }
-                        LinuxNative.close(fd)
-                    }
-                }
-            }).get(5, TimeUnit.SECONDS)
+                    },
+                ).get(5, TimeUnit.SECONDS)
 
             val eventsWithPath = wrapped.recentLogs.filter { it.paths.contains(absolutePath) }
             assertTrue(
                 eventsWithPath.any { it.syscallName == "FCHMOD" || it.syscallName == "OPENAT" || it.syscallName == "OPEN" },
-                "Should resolve fd-based syscall paths to absolute path $absolutePath. Observed events: ${wrapped.recentLogs.map { it.syscallName to it.paths }}"
+                "Should resolve fd-based syscall paths to absolute path $absolutePath. Observed events: ${wrapped.recentLogs.map {
+                    it.syscallName to it.paths
+                }}",
             )
         } finally {
             wrapped.shutdownNow()
@@ -178,11 +189,14 @@ class ProfilerIntegrationTest {
         try {
             val taskCount = 200
             val target = File("/etc/hostname")
-            val futures = (1..taskCount).map {
-                wrapped.submit(Callable {
-                    target.readText()
-                })
-            }
+            val futures =
+                (1..taskCount).map {
+                    wrapped.submit(
+                        Callable {
+                            target.readText()
+                        },
+                    )
+                }
             futures.forEach { it.get(10, TimeUnit.SECONDS) }
 
             // If the stream was corrupted, BobCompiler would throw or return garbage.
@@ -204,15 +218,18 @@ class ProfilerIntegrationTest {
         val pool = Executors.newSingleThreadExecutor()
         val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE)
         try {
-            val future = wrapped.submit(Callable {
-                targetFile.readText()
-            })
+            val future =
+                wrapped.submit(
+                    Callable {
+                        targetFile.readText()
+                    },
+                )
             future.get(5, TimeUnit.SECONDS)
 
             val bob = wrapped.compileBillOfBehavior()
             assertTrue(
                 bob.opens.contains("/etc/hostname"),
-                "Path resolution should work in wrapped executor. Observed opens: ${bob.opens}"
+                "Path resolution should work in wrapped executor. Observed opens: ${bob.opens}",
             )
         } finally {
             wrapped.shutdownNow()
@@ -228,11 +245,14 @@ class ProfilerIntegrationTest {
         val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE)
         try {
             val target = File("/etc/hostname")
-            val tasks = (1..10).map {
-                wrapped.submit(Callable {
-                    target.readText()
-                })
-            }
+            val tasks =
+                (1..10).map {
+                    wrapped.submit(
+                        Callable {
+                            target.readText()
+                        },
+                    )
+                }
             tasks.forEach { it.get(5, TimeUnit.SECONDS) }
 
             val bob = wrapped.compileBillOfBehavior()
@@ -251,15 +271,20 @@ class ProfilerIntegrationTest {
         val pool = Executors.newSingleThreadExecutor()
         val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE)
         val latch = java.util.concurrent.CountDownLatch(1)
-        val finished = java.util.concurrent.atomic.AtomicBoolean(false)
+        val finished =
+            java.util.concurrent.atomic
+                .AtomicBoolean(false)
 
-        val future = wrapped.submit(Callable {
-            latch.countDown()
-            Thread.sleep(1000) // Simulate long-running syscall or operation
-            val text = File("/etc/hostname").readText()
-            finished.set(true)
-            text
-        })
+        val future =
+            wrapped.submit(
+                Callable {
+                    latch.countDown()
+                    Thread.sleep(1000) // Simulate long-running syscall or operation
+                    val text = File("/etc/hostname").readText()
+                    finished.set(true)
+                    text
+                },
+            )
 
         latch.await()
         wrapped.shutdown() // Should not kill daemon immediately
@@ -275,19 +300,23 @@ class ProfilerIntegrationTest {
         val pool = Executors.newSingleThreadExecutor()
         val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE)
         try {
-            wrapped.submit(Callable {
-                targetFile.readText()
-            }).get(5, TimeUnit.SECONDS)
+            wrapped
+                .submit(
+                    Callable {
+                        targetFile.readText()
+                    },
+                ).get(5, TimeUnit.SECONDS)
 
             assertTrue(
                 wrapped.recentStackProfiles.isNotEmpty(),
-                "Stack profiles should be captured in wrapped executor"
+                "Stack profiles should be captured in wrapped executor",
             )
-            val hasOurClass = wrapped.recentStackProfiles.values.any { traces ->
-                traces.any { frames ->
-                    frames.any { frame -> frame.className.contains("ProfilerIntegrationTest") }
+            val hasOurClass =
+                wrapped.recentStackProfiles.values.any { traces ->
+                    traces.any { frames ->
+                        frames.any { frame -> frame.className.contains("ProfilerIntegrationTest") }
+                    }
                 }
-            }
             assertTrue(hasOurClass, "Stack trace in wrapped executor should contain ProfilerIntegrationTest")
         } finally {
             wrapped.shutdownNow()
