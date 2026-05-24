@@ -11,6 +11,7 @@ import java.lang.foreign.ValueLayout
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.system.exitProcess
 
 /**
  * Standalone Profiler Daemon Process.
@@ -29,7 +30,7 @@ object ProfilerDaemon {
     fun main(args: Array<String>) {
         if (args.isEmpty()) {
             System.err.println("Usage: ProfilerDaemon <socket_path>")
-            System.exit(1)
+            exitProcess(1)
         }
         val socketPath = args[0]
 
@@ -52,7 +53,7 @@ object ProfilerDaemon {
                 e.printStackTrace()
             }
             triggerGlobalShutdown()
-            System.exit(0)
+            exitProcess(0)
         }.apply { isDaemon = true }.start()
 
         run(socketPath)

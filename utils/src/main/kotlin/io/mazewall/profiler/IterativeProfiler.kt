@@ -37,8 +37,7 @@ object IterativeProfiler {
             thread.start()
             thread.join()
 
-            val t = error
-            if (t == null) return currentPolicy
+            val t = error ?: return currentPolicy
 
             val path = extractViolationPath(t)
             if (path != null) {

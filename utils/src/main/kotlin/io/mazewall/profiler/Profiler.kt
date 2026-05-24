@@ -354,7 +354,7 @@ object Profiler {
                     if (paths.isNotEmpty()) {
                         val cacheKey = "$syscallName:${paths.sorted().joinToString(",")}"
                         val now = System.currentTimeMillis()
-                        val lastSeen = pathCache.get(cacheKey) ?: 0L
+                        val lastSeen = pathCache[cacheKey] ?: 0L
                         if (now - lastSeen < 500) {
                             println("[PROFILER] Deduplicated duplicate event for $cacheKey")
                             // Write ACK to daemon so the daemon doesn't hang!
