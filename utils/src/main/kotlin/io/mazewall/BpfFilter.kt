@@ -122,6 +122,10 @@ object BpfFilter {
             handledNrs.add(arch.clone)
             filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 5, arch.clone))
             filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_DATA_ARGS_OFFSET))
+
+            // Mask args[0] with CLONE_VM (0x00000100) | CLONE_THREAD (0x00010000) = 0x00010100
+            // This ensures the clone call is creating a standard JVM thread (sharing memory and thread group),
+            // and not attempting to fork a distinct process or bypass restrictions.
             filters.add(SockFilter((BPF_ALU or BPF_AND or BPF_K).toShort(), 0, 0, 0x00010100))
             filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 1, 0, 0x00010100))
             filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyAction))

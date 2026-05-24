@@ -366,6 +366,12 @@ object ProfilerDaemon {
             val bytesRead = res.returnValue.toInt()
             var len = 0
             while (len < bytesRead && localBuf.get(ValueLayout.JAVA_BYTE, len.toLong()) != 0.toByte()) len++
+
+            // TODO(Bug): Missing Null-Terminator Bounding
+            // If the target memory block does not contain a null terminator within `maxLen`,
+            // `len` will reach `bytesRead` and the daemon will copy a non-null-terminated block
+            // of memory as a string. A check should be added to reject or safely truncate strings
+            // if `len == maxLen` and no null byte was encountered.
             return localBuf.copyToString(len)
         }
     }
@@ -389,7 +395,10 @@ object ProfilerDaemon {
                 listOfNotNull(tryRead(pid, args[ARG_PATH], args[ARG_DIR_FD]))
 
             "RENAMEAT", "RENAMEAT2", "LINKAT", "SYMLINKAT" ->
-                listOfNotNull(tryRead(pid, args[ARG_OLD_PATH], args[ARG_OLD_DIR_FD]), tryRead(pid, args[ARG_NEW_PATH], args[ARG_NEW_DIR_FD]))
+                listOfNotNull(
+                    tryRead(pid, args[ARG_OLD_PATH], args[ARG_OLD_DIR_FD]),
+                    tryRead(pid, args[ARG_NEW_PATH], args[ARG_NEW_DIR_FD])
+                )
 
             else -> emptyList()
         }
@@ -415,7 +424,8 @@ object ProfilerDaemon {
         }
     }
 
-    private fun isAtFdcwd(fd: Long): Boolean = fd == AT_FDCWD_VAL || fd == AT_FDCWD_UNSIGNED_VAL || fd.toInt() == AT_FDCWD_INT_VAL
+    private fun isAtFdcwd(fd: Long): Boolean =
+        fd == AT_FDCWD_VAL || fd == AT_FDCWD_UNSIGNED_VAL || fd.toInt() == AT_FDCWD_INT_VAL
 
     private fun tryRead(
         pid: Int,

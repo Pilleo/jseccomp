@@ -85,22 +85,22 @@ object ContainedExecutors {
         if (Thread.currentThread().isVirtual) {
             throw IllegalStateException(
                 "Attempted to apply seccomp containment inside a virtual thread. " +
-                    "Use a dedicated platform thread pool and install containment on its carrier threads instead.",
+                        "Use a dedicated platform thread pool and install containment on its carrier threads instead.",
             )
         }
     }
 
     private fun applyLandlockIfNecessary(processWide: Boolean, policy: Policy) {
         val needsLandlock = policy.allowedFsReadPaths.isNotEmpty() ||
-            policy.allowedFsWritePaths.isNotEmpty() ||
-            policy.isSyscallAllowed(Syscall.IO_URING_SETUP)
+                policy.allowedFsWritePaths.isNotEmpty() ||
+                policy.isSyscallAllowed(Syscall.IO_URING_SETUP)
 
         if (!needsLandlock) return
 
         if (processWide) {
             throw UnsupportedOperationException(
                 "Process-wide containment (installOnProcess) does not support Landlock filesystem rules. " +
-                    "Use thread-scoped containment (installOnCurrentThread) for filesystem restrictions.",
+                        "Use thread-scoped containment (installOnCurrentThread) for filesystem restrictions.",
             )
         }
 
@@ -110,6 +110,13 @@ object ContainedExecutors {
         if (appliedReads != null || appliedWrites != null) {
             val prevReads = appliedReads ?: emptySet()
             val prevWrites = appliedWrites ?: emptySet()
+
+            // TODO(Bug): Hierarchical Rule Stacking Bug
+            // This verification incorrectly uses exact string matching (`containsAll`).
+            // In Landlock, if a thread already allows `/tmp` (which implies access to all descendants),
+            // and a nested task requests `/tmp/foo`, this evaluates to false and throws an exception,
+            // incorrectly preventing valid, restrictive Landlock rule stacking.
+            // It should perform a `startsWith`-based subset check instead.
             val hasNewReads = !prevReads.containsAll(policy.allowedFsReadPaths)
             val hasNewWrites = !prevWrites.containsAll(policy.allowedFsWritePaths)
             if (hasNewReads || hasNewWrites) {
@@ -129,19 +136,22 @@ object ContainedExecutors {
         when (fallback) {
             Platform.FallbackBehavior.FAIL ->
                 throw UnsupportedOperationException("Platform does not support seccomp")
+
             Platform.FallbackBehavior.WARN_AND_BYPASS ->
                 logger.warning("Platform does not support seccomp. Code will run uncontained.")
+
             Platform.FallbackBehavior.SILENT_BYPASS -> {}
         }
     }
 
-    private fun resolveCurrentState(): FilterInstallationPlanner.ContainerState = FilterInstallationPlanner.ContainerState(
-        currentlyBlocked = ContainerStateRegistry.THREAD_BLOCKED.get() + ContainerStateRegistry.PROCESS_BLOCKED,
-        currentlyAllowsMmapExec = ContainerStateRegistry.THREAD_ALLOWS_MMAP_EXEC.get() && ContainerStateRegistry.PROCESS_ALLOWS_MMAP_EXEC.get(),
-        currentlyAllowsNonThreadClone = ContainerStateRegistry.THREAD_ALLOWS_NON_THREAD_CLONE.get() && ContainerStateRegistry.PROCESS_ALLOWS_NON_THREAD_CLONE.get(),
-        currentlyAllowsUnsafePrctl = ContainerStateRegistry.THREAD_ALLOWS_UNSAFE_PRCTL.get() && ContainerStateRegistry.PROCESS_ALLOWS_UNSAFE_PRCTL.get(),
-        currentDepth = ContainerStateRegistry.FILTER_DEPTH.get() + ContainerStateRegistry.PROCESS_FILTER_DEPTH.get()
-    )
+    private fun resolveCurrentState(): FilterInstallationPlanner.ContainerState =
+        FilterInstallationPlanner.ContainerState(
+            currentlyBlocked = ContainerStateRegistry.THREAD_BLOCKED.get() + ContainerStateRegistry.PROCESS_BLOCKED,
+            currentlyAllowsMmapExec = ContainerStateRegistry.THREAD_ALLOWS_MMAP_EXEC.get() && ContainerStateRegistry.PROCESS_ALLOWS_MMAP_EXEC.get(),
+            currentlyAllowsNonThreadClone = ContainerStateRegistry.THREAD_ALLOWS_NON_THREAD_CLONE.get() && ContainerStateRegistry.PROCESS_ALLOWS_NON_THREAD_CLONE.get(),
+            currentlyAllowsUnsafePrctl = ContainerStateRegistry.THREAD_ALLOWS_UNSAFE_PRCTL.get() && ContainerStateRegistry.PROCESS_ALLOWS_UNSAFE_PRCTL.get(),
+            currentDepth = ContainerStateRegistry.FILTER_DEPTH.get() + ContainerStateRegistry.PROCESS_FILTER_DEPTH.get()
+        )
 
     private fun applyBpfFilter(
         processWide: Boolean,
@@ -249,7 +259,8 @@ object ContainedExecutors {
 
         override fun submit(task: Runnable): Future<*> = delegate.submit(wrapRunnable(task))
 
-        override fun <T> invokeAll(tasks: Collection<Callable<T>>): List<Future<T>> = delegate.invokeAll(tasks.map { wrapCallable(it) })
+        override fun <T> invokeAll(tasks: Collection<Callable<T>>): List<Future<T>> =
+            delegate.invokeAll(tasks.map { wrapCallable(it) })
 
         override fun <T> invokeAll(
             tasks: Collection<Callable<T>>,
@@ -257,7 +268,8 @@ object ContainedExecutors {
             unit: TimeUnit,
         ): List<Future<T>> = delegate.invokeAll(tasks.map { wrapCallable(it) }, timeout, unit)
 
-        override fun <T> invokeAny(tasks: Collection<Callable<T>>): T = delegate.invokeAny(tasks.map { wrapCallable(it) })
+        override fun <T> invokeAny(tasks: Collection<Callable<T>>): T =
+            delegate.invokeAny(tasks.map { wrapCallable(it) })
 
         override fun <T> invokeAny(
             tasks: Collection<Callable<T>>,

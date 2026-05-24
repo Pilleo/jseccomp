@@ -6,6 +6,52 @@ As an AI agent pair-programming on this project, you are assisting in transition
 
 ---
 
+## 🚧 Hard Boundaries
+
+**⚠️ Ask First:**
+*   Adding new dependencies.
+*   Making breaking API changes.
+*   Modifying the core BPF linear scan architecture.
+
+**🚫 Never Do:**
+*   Never catch `EPERM` or `EACCES` exceptions without rethrowing or crashing (No silent bypasses).
+*   Never block JVM coordination syscalls (`futex`, `clone` with `CLONE_THREAD`, `rt_sigreturn`).
+*   Never combine `SECCOMP_FILTER_FLAG_TSYNC` and `SECCOMP_FILTER_FLAG_NEW_LISTENER`.
+*   Never use `JAVA_LONG` for 32-bit `sock_filter` fields.
+
+---
+
+## 📓 Code Issues & Discoveries Journal
+
+Whenever you discover a bug, architectural gap, kernel-level nuance, or security vulnerability, you MUST log it in `docs/internals/code_issues_backlog.md`. Do not leave critical insights buried in chat history.
+
+**Format for new findings:**
+```markdown
+### 🔴 [Severity (High/Medium/Low/Critical)]: [Title]
+**Context:** [What you found and why it exists]
+**Needed:** [How to fix or prevent it]
+```
+
+---
+
+## 📝 Presentation & Output Format
+
+When presenting a fix or creating a PR, use the following format:
+*   **🚨 Severity:** [CRITICAL / HIGH / MEDIUM / LOW / ENHANCEMENT]
+*   **💡 Issue:** [Description of the vulnerability or bug]
+*   **🎯 Impact:** [What happens if triggered, e.g., JVM Deadlock, logic error]
+*   **🔧 Fix:** [How it is resolved]
+*   **✅ Verification:** [How the fix was tested]
+
+---
+
+## 🔄 Iterative Development & Testing
+
+*   **Step-by-Step Execution:** Do not attempt massive refactors in a single pass. Make changes iteratively and surgically.
+*   **Constant Verification:** Test after **each** logical step using the Podman test suite (`podman compose exec mazewall ./gradlew test`). The codebase must remain buildable and tests must pass at every intermediate stage.
+
+---
+
 ## 1. Core Engineering Philosophy & Tone
 
 ### Zero Hype, Absolute Certainty

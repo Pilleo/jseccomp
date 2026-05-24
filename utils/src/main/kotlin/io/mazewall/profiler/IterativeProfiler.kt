@@ -74,6 +74,12 @@ object IterativeProfiler {
             // It was already readable, so it's probably a write denial
             builder.allowFsWrite(path)
         } else {
+            // TODO(Security): Landlock missing file fallback over-permission.
+            // If the application attempts to read a missing file (e.g. `/app/data/missing.txt`),
+            // the kernel returns EACCES. This fallback conservatively grants BOTH Read and Write access
+            // to `/app/data/missing.txt`. When this policy is passed to Landlock.applyRuleset, Landlock detects
+            // the file is missing and falls back to applying the rule to the parent `/app/data`.
+            // As a result, a failed read of a missing file causes the profiler to grant full Write access to the parent directory.
             // Conservative fallback: grant both to guarantee convergence.
             // This covers cases where the file doesn't exist (Write needed for creation)
             // or where Read itself was the reason for denial.
