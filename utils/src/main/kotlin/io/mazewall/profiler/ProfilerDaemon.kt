@@ -107,7 +107,7 @@ object ProfilerDaemon {
 
             val pathBytes = socketPath.toByteArray(StandardCharsets.UTF_8)
             val pathSeg = addr.asSlice(2, 108)
-            for (i in pathBytes.indices) pathSeg.set(ValueLayout.JAVA_BYTE, i.toLong(), pathBytes[i])
+            MemorySegment.copy(pathBytes, 0, pathSeg, ValueLayout.JAVA_BYTE, 0L, pathBytes.size)
 
             File(socketPath).delete()
             if (LinuxNative.bind(serverFd, addr, ADDR_UN_SIZE).returnValue < 0) throw IllegalStateException("Failed to bind")

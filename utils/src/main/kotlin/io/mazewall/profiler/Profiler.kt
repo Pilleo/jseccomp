@@ -610,9 +610,7 @@ object Profiler {
         addr.set(ValueLayout.JAVA_SHORT, 0L, 1.toShort()) // AF_UNIX = 1
         val pathBytes = socketPath.toByteArray(Charsets.UTF_8)
         val pathSeg = addr.asSlice(2, 108)
-        for (i in pathBytes.indices) {
-            pathSeg.set(ValueLayout.JAVA_BYTE, i.toLong(), pathBytes[i])
-        }
+        MemorySegment.copy(pathBytes, 0, pathSeg, ValueLayout.JAVA_BYTE, 0L, pathBytes.size)
         return addr
     }
 }
