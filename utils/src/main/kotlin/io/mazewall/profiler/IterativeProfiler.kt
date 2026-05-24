@@ -21,54 +21,66 @@ object IterativeProfiler {
         val maxRetries = 20
 
         for (i in 0 until maxRetries) {
-            val builder = Policy.builder().base(currentPolicy)
-            var error: Throwable? = null
-
-            val thread =
-                Thread {
-                    try {
-                        // Ensure Landlock is active even for empty policies to force discovery
-                        if (currentPolicy.allowedFsReadPaths.isEmpty() && currentPolicy.allowedFsWritePaths.isEmpty()) {
-                            Landlock.applyRestrictiveBarrier()
-                        }
-                        ContainedExecutors.installOnCurrentThread(currentPolicy)
-                        task.run()
-                    } catch (t: Throwable) {
-                        error = t
-                    }
-                }
-            thread.start()
-            thread.join()
-
-            val t = error ?: return currentPolicy
+            val t = executeTask(currentPolicy, task) ?: return currentPolicy
 
             val path = extractViolationPath(t)
             if (path != null) {
-                // Heuristic-based access discovery.
-                // AccessDeniedException from Landlock does not explicitly carry the access mode that was denied.
-                // To avoid over-granting write access, we check if the path is already readable by the current
-                // process (ignoring Landlock). If it is already readable but we still got a violation, it was
-                // likely a Write attempt.
-                val file = java.io.File(path)
-                val isReadableOutsideSandbox = file.exists() && file.canRead()
-                val isCurrentlyReadAllowed = currentPolicy.allowedFsReadPaths.any { path.startsWith(it) }
-
-                if (isReadableOutsideSandbox && isCurrentlyReadAllowed) {
-                    // It was already readable, so it's probably a write denial
-                    builder.allowFsWrite(path)
-                } else {
-                    // Conservative fallback: grant both to guarantee convergence.
-                    // This covers cases where the file doesn't exist (Write needed for creation)
-                    // or where Read itself was the reason for denial.
-                    builder.allowFsRead(path)
-                    builder.allowFsWrite(path)
-                }
-                currentPolicy = builder.build()
+                currentPolicy = updatePolicyForViolation(currentPolicy, path)
                 continue
             }
             throw t
         }
         return currentPolicy
+    }
+
+    private fun executeTask(
+        currentPolicy: Policy,
+        task: Runnable,
+    ): Throwable? {
+        var error: Throwable? = null
+        val thread =
+            Thread {
+                try {
+                    // Ensure Landlock is active even for empty policies to force discovery
+                    if (currentPolicy.allowedFsReadPaths.isEmpty() && currentPolicy.allowedFsWritePaths.isEmpty()) {
+                        Landlock.applyRestrictiveBarrier()
+                    }
+                    ContainedExecutors.installOnCurrentThread(currentPolicy)
+                    task.run()
+                } catch (t: Throwable) {
+                    error = t
+                }
+            }
+        thread.start()
+        thread.join()
+        return error
+    }
+
+    private fun updatePolicyForViolation(
+        currentPolicy: Policy,
+        path: String,
+    ): Policy {
+        val builder = Policy.builder().base(currentPolicy)
+        // Heuristic-based access discovery.
+        // AccessDeniedException from Landlock does not explicitly carry the access mode that was denied.
+        // To avoid over-granting write access, we check if the path is already readable by the current
+        // process (ignoring Landlock). If it is already readable but we still got a violation, it was
+        // likely a Write attempt.
+        val file = java.io.File(path)
+        val isReadableOutsideSandbox = file.exists() && file.canRead()
+        val isCurrentlyReadAllowed = currentPolicy.allowedFsReadPaths.any { path.startsWith(it) }
+
+        if (isReadableOutsideSandbox && isCurrentlyReadAllowed) {
+            // It was already readable, so it's probably a write denial
+            builder.allowFsWrite(path)
+        } else {
+            // Conservative fallback: grant both to guarantee convergence.
+            // This covers cases where the file doesn't exist (Write needed for creation)
+            // or where Read itself was the reason for denial.
+            builder.allowFsRead(path)
+            builder.allowFsWrite(path)
+        }
+        return builder.build()
     }
 
     private fun extractViolationPath(t: Throwable): String? {
