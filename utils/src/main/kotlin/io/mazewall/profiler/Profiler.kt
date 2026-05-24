@@ -56,44 +56,7 @@ object Profiler {
             throw IllegalStateException("Seccomp profiling is not supported on Loom virtual threads.")
         }
 
-        // Setup socket path
-        val socketFile = File.createTempFile("mazewall-profiler-", ".sock")
-        socketFile.delete() // delete so bind can create it
-        val socketPath = socketFile.absolutePath
-
-        // Spawn Daemon
-        val javaBin = System.getProperty("java.home") + "/bin/java"
-        val classpath = System.getProperty("java.class.path")
-        val pb = ProcessBuilder(
-            javaBin,
-            "--enable-native-access=ALL-UNNAMED",
-            "-cp", classpath,
-            "io.mazewall.profiler.ProfilerDaemon",
-            socketPath
-        )
-        val daemonProcess = pb.start()
-        val daemonPid = daemonProcess.pid()
-
-        // Set the daemon process as our allowed ptrace tracer under Yama ptrace_scope = 1
-        // PR_SET_PTRACER
-        LinuxNative.prctl(LinuxNative.PR_SET_PTRACER, daemonPid, 0, 0, 0)
-
-        // Stream daemon errorStream to System.err
-        val stderrThread = Thread {
-            daemonProcess.errorStream.bufferedReader().useLines { lines ->
-                lines.forEach { line ->
-                    System.err.println("[DAEMON ERR] $line")
-                    System.err.flush()
-                }
-            }
-        }.apply { isDaemon = true; name = "profiler-daemon-stderr" }
-        stderrThread.start()
-
-        // Ensure daemon process is cleaned up on JVM exit
-        val shutdownHook = Thread {
-            daemonProcess.destroyForcibly()
-        }
-        Runtime.getRuntime().addShutdownHook(shutdownHook)
+        val (socketPath, daemonProcess, shutdownHook) = spawnDaemon()
 
         val localLogs = CopyOnWriteArrayList<TraceEvent>()
         val localStackProfile =
@@ -145,7 +108,7 @@ object Profiler {
             triggerDaemonShutdown(socketPath)
             daemonProcess.destroyForcibly()
             try {
-                socketFile.delete()
+                File(socketPath).delete()
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -159,12 +122,7 @@ object Profiler {
                 if (fdRes.returnValue < 0) return
                 val fd = fdRes.returnValue.toInt()
                 try {
-                    val addr = arena.allocate(LinuxNative.SOCKADDR_UN_LAYOUT)
-                    addr.fill(0)
-                    addr.set(ValueLayout.JAVA_SHORT, 0L, 1.toShort())
-                    val pathBytes = socketPath.toByteArray(Charsets.UTF_8)
-                    val pathSeg = addr.asSlice(2, 108)
-                    for (i in pathBytes.indices) pathSeg.set(ValueLayout.JAVA_BYTE, i.toLong(), pathBytes[i])
+                    val addr = setupSockAddrUn(arena, socketPath)
 
                     if (LinuxNative.connect(fd, addr, 110).returnValue == 0L) {
                         val cmd = arena.allocate(1)
@@ -186,58 +144,14 @@ object Profiler {
     fun wrap(delegate: ExecutorService, vararg policies: Policy): ProfilerExecutorWrapper {
         val policy = Policy.combine(*policies)
 
-        // Setup socket path
-        val socketFile = File.createTempFile("mazewall-profiler-", ".sock")
-        socketFile.delete() // delete so bind can create it
-        val socketPath = socketFile.absolutePath
-
-        // Spawn Daemon
-        val javaBin = System.getProperty("java.home") + "/bin/java"
-        val classpath = System.getProperty("java.class.path")
-        val pb = ProcessBuilder(
-            javaBin,
-            "--enable-native-access=ALL-UNNAMED",
-            "-cp", classpath,
-            "io.mazewall.profiler.ProfilerDaemon",
-            socketPath
-        )
-        val daemonProcess = pb.start()
-        val daemonPid = daemonProcess.pid()
-
-        // Set the daemon process as our allowed ptrace tracer under Yama ptrace_scope = 1
-        // PR_SET_PTRACER
-        LinuxNative.prctl(LinuxNative.PR_SET_PTRACER, daemonPid, 0, 0, 0)
-
-        // Stream daemon errorStream to System.err
-        Thread {
-            daemonProcess.errorStream.bufferedReader().useLines { lines ->
-                lines.forEach { line ->
-                    System.err.println("[DAEMON ERR] $line")
-                    System.err.flush()
-                }
-            }
-        }.apply { isDaemon = true; name = "profiler-daemon-stderr" }.start()
-
-        // Ensure daemon process is cleaned up on JVM exit
-        val shutdownHook = Thread {
-            daemonProcess.destroyForcibly()
-        }
-        Runtime.getRuntime().addShutdownHook(shutdownHook)
+        val (socketPath, daemonProcess, shutdownHook) = spawnDaemon()
 
         return ProfilerExecutorWrapper(delegate, policy, socketPath, daemonProcess, shutdownHook)
     }
 
     private fun connectWithRetry(socketPath: String, maxRetries: Int = 30, delayMs: Long = 100): Int {
         Arena.ofConfined().use { arena ->
-            val addr = arena.allocate(LinuxNative.SOCKADDR_UN_LAYOUT)
-            addr.fill(0)
-            addr.set(ValueLayout.JAVA_SHORT, 0L, 1.toShort()) // AF_UNIX = 1
-
-            val pathBytes = socketPath.toByteArray(Charsets.UTF_8)
-            val pathSeg = addr.asSlice(2, 108)
-            for (i in pathBytes.indices) {
-                pathSeg.set(ValueLayout.JAVA_BYTE, i.toLong(), pathBytes[i])
-            }
+            val addr = setupSockAddrUn(arena, socketPath)
 
             var lastErrno = 0
             for (retry in 0 until maxRetries) {
@@ -590,5 +504,60 @@ object Profiler {
                 return tasks
             }
         }
+    }
+
+    private data class DaemonContext(val socketPath: String, val daemonProcess: Process, val shutdownHook: Thread)
+
+    private fun spawnDaemon(): DaemonContext {
+        // Setup socket path
+        val socketFile = File.createTempFile("mazewall-profiler-", ".sock")
+        socketFile.delete() // delete so bind can create it
+        val socketPath = socketFile.absolutePath
+
+        // Spawn Daemon
+        val javaBin = System.getProperty("java.home") + "/bin/java"
+        val classpath = System.getProperty("java.class.path")
+        val pb = ProcessBuilder(
+            javaBin,
+            "--enable-native-access=ALL-UNNAMED",
+            "-cp", classpath,
+            "io.mazewall.profiler.ProfilerDaemon",
+            socketPath
+        )
+        val daemonProcess = pb.start()
+        val daemonPid = daemonProcess.pid()
+
+        // Set the daemon process as our allowed ptrace tracer under Yama ptrace_scope = 1
+        LinuxNative.prctl(LinuxNative.PR_SET_PTRACER, daemonPid, 0, 0, 0)
+
+        // Stream daemon errorStream to System.err
+        Thread {
+            daemonProcess.errorStream.bufferedReader().useLines { lines ->
+                lines.forEach { line ->
+                    System.err.println("[DAEMON ERR] $line")
+                    System.err.flush()
+                }
+            }
+        }.apply { isDaemon = true; name = "profiler-daemon-stderr" }.start()
+
+        // Ensure daemon process is cleaned up on JVM exit
+        val shutdownHook = Thread {
+            daemonProcess.destroyForcibly()
+        }
+        Runtime.getRuntime().addShutdownHook(shutdownHook)
+
+        return DaemonContext(socketPath, daemonProcess, shutdownHook)
+    }
+
+    private fun setupSockAddrUn(arena: Arena, socketPath: String): MemorySegment {
+        val addr = arena.allocate(LinuxNative.SOCKADDR_UN_LAYOUT)
+        addr.fill(0)
+        addr.set(ValueLayout.JAVA_SHORT, 0L, 1.toShort()) // AF_UNIX = 1
+        val pathBytes = socketPath.toByteArray(Charsets.UTF_8)
+        val pathSeg = addr.asSlice(2, 108)
+        for (i in pathBytes.indices) {
+            pathSeg.set(ValueLayout.JAVA_BYTE, i.toLong(), pathBytes[i])
+        }
+        return addr
     }
 }
