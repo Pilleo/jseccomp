@@ -12,6 +12,9 @@ import java.io.InputStream
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 import java.util.concurrent.*
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -66,7 +69,7 @@ object Profiler {
             throw IllegalStateException("Seccomp profiling is not supported on Loom virtual threads.")
         }
 
-        val (socketPath, daemonProcess, shutdownHook) = spawnDaemon()
+        val context = spawnDaemon()
 
         val localLogs = CopyOnWriteArrayList<TraceEvent>()
         val localStackProfile =
@@ -83,7 +86,7 @@ object Profiler {
             val thread =
                 Thread {
                     installProfilingFilterForThread(
-                        socketPath,
+                        context.socketPath,
                         Policy.PURE_COMPUTE,
                         localLogs,
                         localStackProfile,
@@ -112,20 +115,29 @@ object Profiler {
             @Suppress("UNCHECKED_CAST")
             return ProfilingResult(blockResult as T, behavior)
         } finally {
-            try {
-                Runtime.getRuntime().removeShutdownHook(shutdownHook)
-            } catch (e: IllegalStateException) {
-                logger.log(java.util.logging.Level.WARNING, "Failed to remove shutdown hook", e)
-            } catch (e: SecurityException) {
-                logger.log(java.util.logging.Level.WARNING, "Failed to remove shutdown hook", e)
-            }
-            triggerDaemonShutdown(socketPath)
-            daemonProcess.destroyForcibly()
-            try {
-                File(socketPath).delete()
-            } catch (e: SecurityException) {
-                logger.log(java.util.logging.Level.WARNING, "Failed to delete socket file at $socketPath", e)
-            }
+            cleanupDaemon(context)
+        }
+    }
+
+    private fun cleanupDaemon(context: DaemonContext) {
+        try {
+            Runtime.getRuntime().removeShutdownHook(context.shutdownHook)
+        } catch (e: IllegalStateException) {
+            logger.log(java.util.logging.Level.WARNING, "Failed to remove shutdown hook", e)
+        } catch (e: SecurityException) {
+            logger.log(java.util.logging.Level.WARNING, "Failed to remove shutdown hook", e)
+        }
+        triggerDaemonShutdown(context.socketPath)
+        context.daemonProcess.destroyForcibly()
+        try {
+            Files.deleteIfExists(context.socketDir.resolve("profiler.sock"))
+            Files.deleteIfExists(context.socketDir)
+        } catch (e: IOException) {
+            logger.log(
+                java.util.logging.Level.WARNING,
+                "Failed to delete secure socket directory at ${context.socketDir}",
+                e
+            )
         }
     }
 
@@ -160,9 +172,9 @@ object Profiler {
     ): ProfilerExecutorWrapper {
         val policy = Policy.combine(*policies)
 
-        val (socketPath, daemonProcess, shutdownHook) = spawnDaemon()
+        val context = spawnDaemon()
 
-        return ProfilerExecutorWrapper(delegate, policy, socketPath, daemonProcess, shutdownHook)
+        return ProfilerExecutorWrapper(delegate, policy, context)
     }
 
     private fun connectWithRetry(
@@ -370,9 +382,7 @@ object Profiler {
     class ProfilerExecutorWrapper(
         private val delegate: ExecutorService,
         private val policy: Policy,
-        private val socketPath: String,
-        private val daemonProcess: Process,
-        private val shutdownHook: Thread,
+        private val context: DaemonContext,
     ) : ExecutorService by delegate {
         private val threadApplied = ThreadLocal.withInitial { false }
         val recentLogs = CopyOnWriteArrayList<TraceEvent>()
@@ -429,7 +439,7 @@ object Profiler {
             if (!threadApplied.get()) {
                 val currentThread = Thread.currentThread()
                 installProfilingFilterForThread(
-                    socketPath,
+                    context.socketPath,
                     policy,
                     recentLogs,
                     recentStackProfiles,
@@ -441,56 +451,43 @@ object Profiler {
         }
 
         override fun shutdown() {
-            try {
-                Runtime.getRuntime().removeShutdownHook(shutdownHook)
-            } catch (e: IllegalStateException) {
-                logger.log(java.util.logging.Level.WARNING, "Failed to remove shutdown hook", e)
-            } catch (e: SecurityException) {
-                logger.log(java.util.logging.Level.WARNING, "Failed to remove shutdown hook", e)
-            } finally {
-                delegate.shutdown()
-                // Do NOT destroy daemon immediately, as worker threads may still be in-kernel!
-                // Instead, wait for termination in a separate daemon thread to release resources cleanly.
-                Thread {
-                    try {
-                        delegate.awaitTermination(1, TimeUnit.MINUTES)
-                    } finally {
-                        daemonProcess.destroy()
-                    }
-                }.apply {
-                    isDaemon = true
-                    name = "profiler-shutdown-waiter"
-                }.start()
-            }
+            delegate.shutdown()
+            // Do NOT destroy daemon immediately, as worker threads may still be in-kernel!
+            // Instead, wait for termination in a separate daemon thread to release resources cleanly.
+            Thread {
+                try {
+                    delegate.awaitTermination(1, TimeUnit.MINUTES)
+                } finally {
+                    cleanupDaemon(context)
+                }
+            }.apply {
+                isDaemon = true
+                name = "profiler-shutdown-waiter"
+            }.start()
         }
 
         override fun shutdownNow(): List<Runnable> {
-            try {
-                Runtime.getRuntime().removeShutdownHook(shutdownHook)
-            } catch (e: IllegalStateException) {
-                logger.log(java.util.logging.Level.WARNING, "Failed to remove shutdown hook during shutdownNow", e)
-            } catch (e: SecurityException) {
-                logger.log(java.util.logging.Level.WARNING, "Failed to remove shutdown hook during shutdownNow", e)
-            } finally {
-                val tasks = delegate.shutdownNow()
-                triggerDaemonShutdown(socketPath)
-                daemonProcess.destroyForcibly()
-                return tasks
-            }
+            val tasks = delegate.shutdownNow()
+            cleanupDaemon(context)
+            return tasks
         }
     }
 
-    private data class DaemonContext(
+    /**
+     * Internal context for the profiler daemon.
+     */
+    data class DaemonContext(
         val socketPath: String,
+        val socketDir: Path,
         val daemonProcess: Process,
         val shutdownHook: Thread,
     )
 
     private fun spawnDaemon(): DaemonContext {
-        // Setup socket path
-        val socketFile = File.createTempFile("mazewall-profiler-", ".sock")
-        socketFile.delete() // delete so bind can create it
-        val socketPath = socketFile.absolutePath
+        // Setup secure socket directory with restricted permissions (700)
+        val perms = PosixFilePermissions.fromString("rwx------")
+        val socketDir = Files.createTempDirectory("mazewall-profiler-", PosixFilePermissions.asFileAttribute(perms))
+        val socketPath = socketDir.resolve("profiler.sock").toAbsolutePath().toString()
 
         // Spawn Daemon
         val javaBin = System.getProperty("java.home") + "/bin/java"
@@ -530,7 +527,7 @@ object Profiler {
             }
         Runtime.getRuntime().addShutdownHook(shutdownHook)
 
-        return DaemonContext(socketPath, daemonProcess, shutdownHook)
+        return DaemonContext(socketPath, socketDir, daemonProcess, shutdownHook)
     }
 
     private fun setupSockAddrUn(
