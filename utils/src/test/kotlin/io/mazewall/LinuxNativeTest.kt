@@ -71,7 +71,6 @@ class LinuxNativeTest {
         LinuxNative.MSGHDR_LAYOUT
         LinuxNative.CMSGHDR_LAYOUT
         LinuxNative.SOCKADDR_UN_LAYOUT
-        LinuxNative.NLMSGHDR_LAYOUT
         LinuxNative.SECCOMP_DATA_LAYOUT
         LinuxNative.SECCOMP_NOTIF_LAYOUT
         LinuxNative.SECCOMP_NOTIF_RESP_LAYOUT

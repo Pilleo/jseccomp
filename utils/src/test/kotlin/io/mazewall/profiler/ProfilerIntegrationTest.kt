@@ -159,7 +159,7 @@ class ProfilerIntegrationTest {
                     }
                 }
             }).get(5, TimeUnit.SECONDS)
-            
+
             val eventsWithPath = wrapped.recentLogs.filter { it.paths.contains(absolutePath) }
             assertTrue(
                 eventsWithPath.any { it.syscallName == "FCHMOD" || it.syscallName == "OPENAT" || it.syscallName == "OPEN" },
@@ -292,24 +292,5 @@ class ProfilerIntegrationTest {
         } finally {
             wrapped.shutdownNow()
         }
-    }
-
-    // ── Issue #6: io_uring blind spot ───────────────────────────────────
-
-    @Test
-    fun `test profiler throws IllegalStateException if io_uring is used without audit`() {
-        val pool = Executors.newSingleThreadExecutor()
-        val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE)
-        
-        // We will fake an io_uring event in the logs to trigger the exception,
-        // since setting up actual io_uring is complex and might fail for other reasons.
-        wrapped.recentLogs.add(TraceEvent(1234, "IO_URING_SETUP", longArrayOf(), emptyList()))
-
-        val ex = org.junit.jupiter.api.assertThrows<IllegalStateException> {
-            wrapped.compileBillOfBehavior()
-        }
-        
-        assertTrue(ex.message!!.contains("Application uses io_uring, but this kernel does not support Landlock Audit"))
-        wrapped.shutdownNow()
     }
 }

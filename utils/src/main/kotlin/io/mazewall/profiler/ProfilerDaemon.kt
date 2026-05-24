@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Standalone Profiler Daemon Process.
  *
  * Communicates with the parent JVM via a Unix Domain Socket, sending binary [TraceEvent]
- * structures. Ingests structured audit events from [NETLINK_AUDIT].
+ * structures.
  */
 object ProfilerDaemon {
     private val syscallMap = mutableMapOf<Int, String>()
@@ -38,8 +38,6 @@ object ProfilerDaemon {
             val nr = s.numberFor(arch)
             if (nr >= 0) syscallMap[nr] = s.name
         }
-
-        startGlobalAuditListener()
 
         // Shutdown hook for the daemon itself
         Runtime.getRuntime().addShutdownHook(Thread {
@@ -204,112 +202,6 @@ object ProfilerDaemon {
         }
     }
 
-    private fun startGlobalAuditListener() {
-        Thread {
-            Arena.ofConfined().use { arena ->
-                val socketRes = LinuxNative.socket(LinuxNative.AF_NETLINK, 3 /* SOCK_RAW */, LinuxNative.NETLINK_AUDIT)
-
-                if (socketRes.returnValue < 0) {
-                    System.err.println(
-                        "[DAEMON] WARN: Netlink Audit socket unavailable (errno=${socketRes.errno}). " +
-                                "io_uring syscall visibility is DISABLED for this session. " +
-                                "All USER_NOTIF events are still captured normally. " +
-                                "To restore io_uring coverage, run with CAP_AUDIT_READ or grant the " +
-                                "necessary kernel audit permissions."
-                    )
-                    return@Thread
-                }
-                val auditFd = socketRes.returnValue.toInt()
-
-                try {
-                    val addr = arena.allocate(LinuxNative.SOCKADDR_NL_LAYOUT)
-                    addr.fill(0); addr.set(ValueLayout.JAVA_SHORT, 0L, LinuxNative.AF_NETLINK.toShort())
-                    if (LinuxNative.bind(auditFd, addr, 12).returnValue < 0) return@Thread
-
-                    // Enable kernel audit (AUDIT_SET = 1001)
-                    val status = arena.allocate(40); status.fill(0)
-                    status.set(ValueLayout.JAVA_INT, 0L, 1)
-                    status.set(ValueLayout.JAVA_INT, 4L, 1)
-                    sendNetlinkMsg(auditFd, 1001, status)
-
-                    val buf = arena.allocate(32768)
-                    val iov = arena.allocate(LinuxNative.IOVEC_LAYOUT)
-                    iov.set(ValueLayout.ADDRESS, 0L, buf); iov.set(ValueLayout.JAVA_LONG, 8L, 32768L)
-                    val msg = arena.allocate(LinuxNative.MSGHDR_LAYOUT)
-                    msg.fill(0); msg.set(ValueLayout.ADDRESS, 16L, iov); msg.set(ValueLayout.JAVA_LONG, 24L, 1L)
-
-                    while (true) {
-                        val res = LinuxNative.recvmsg(auditFd, msg, 0)
-                        if (res.returnValue <= 16) continue
-
-                        var offset = 0L
-                        while (offset + 16 <= res.returnValue) {
-                            val nlmsgLen = buf.get(ValueLayout.JAVA_INT, offset)
-                            val nlmsgType = buf.get(ValueLayout.JAVA_SHORT, offset + 4).toInt() and 0xFFFF
-
-                            if (nlmsgLen < 16) break
-
-                            if (nlmsgType >= 1100) {
-                                val payloadLen = nlmsgLen - 16
-                                if (payloadLen > 0) {
-                                    val payloadBytes =
-                                        buf.asSlice(offset + 16, payloadLen.toLong()).toArray(ValueLayout.JAVA_BYTE)
-                                    val payload = String(payloadBytes, StandardCharsets.UTF_8)
-
-                                    if (payload.contains("type=LANDLOCK_ACCESS") || payload.contains("type=1423")) {
-                                        val blockersIdx = payload.indexOf("blockers=")
-                                        val pathIdx = payload.indexOf("path=\"")
-
-                                        if (blockersIdx != -1 && pathIdx != -1) {
-                                            val blockersStart = blockersIdx + 9
-                                            val blockersEnd = payload.indexOf(' ', blockersStart)
-                                                .let { if (it == -1) payload.length else it }
-                                            val blockers = payload.substring(blockersStart, blockersEnd)
-
-                                            val pathStart = pathIdx + 6
-                                            val pathEnd = payload.indexOf('"', pathStart)
-
-                                            if (pathEnd != -1) {
-                                                val path = payload.substring(pathStart, pathEnd)
-                                                val syscallName =
-                                                    if (blockers.contains("fs.execute")) "EXECVE" else "OPENAT"
-                                                val event = TraceEvent(0, syscallName, LongArray(6), listOf(path))
-                                                clientSockets.firstOrNull()?.let { client ->
-                                                    try {
-                                                        sendTraceEvent(client, event)
-                                                    } catch (e: Exception) {
-                                                        e.printStackTrace()
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            offset += (nlmsgLen + 3) and 3.inv()
-                        }
-                    }
-                } finally {
-                    LinuxNative.close(auditFd)
-                }
-            }
-        }.apply { isDaemon = true; name = "netlink-audit-listener" }.start()
-    }
-
-    private fun sendNetlinkMsg(fd: Int, type: Int, payload: MemorySegment) {
-        Arena.ofConfined().use { arena ->
-            val totalLen = 16 + payload.byteSize().toInt()
-            val buf = arena.allocate(totalLen.toLong())
-            buf.set(ValueLayout.JAVA_INT, 0L, totalLen)
-            buf.set(ValueLayout.JAVA_SHORT, 4L, type.toShort())
-            buf.set(ValueLayout.JAVA_SHORT, 6L, 1)
-            buf.set(ValueLayout.JAVA_INT, 8L, 1)
-            buf.set(ValueLayout.JAVA_INT, 12L, 0)
-            MemorySegment.copy(payload, 0, buf, 16, payload.byteSize())
-            LinuxNative.write(fd, buf, totalLen.toLong())
-        }
-    }
-
     private fun sendTraceEvent(socketFd: Int, event: TraceEvent) {
         val baos = java.io.ByteArrayOutputStream()
         val dos = DataOutputStream(baos)
@@ -406,7 +298,7 @@ object ProfilerDaemon {
         when (syscallName) {
             "OPEN", "EXECVE", "MKDIR", "RMDIR", "CHMOD", "CHOWN", "LCHOWN", "UNLINK", "READLINK", "CHROOT", "UTIME", "UTIMES" ->
                 tryRead(args[0], -100L)?.let { paths.add(it) }
-                
+
             "FCHMOD", "FCHOWN", "FSTAT" ->
                 resolveFdPath(pid, args[0].toInt())?.let { paths.add(it) }
 

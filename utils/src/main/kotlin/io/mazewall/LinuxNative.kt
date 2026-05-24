@@ -85,26 +85,6 @@ object LinuxNative {
         MemoryLayout.sequenceLayout(108, ValueLayout.JAVA_BYTE).withName("sun_path")
     )
 
-    // Netlink constants & layouts
-    const val AF_NETLINK = 16
-    const val NETLINK_AUDIT = 9
-
-    val NLMSGHDR_LAYOUT = MemoryLayout.structLayout(
-        ValueLayout.JAVA_INT.withName("nlmsg_len"),
-        ValueLayout.JAVA_SHORT.withName("nlmsg_type"),
-        ValueLayout.JAVA_SHORT.withName("nlmsg_flags"),
-        ValueLayout.JAVA_INT.withName("nlmsg_seq"),
-        ValueLayout.JAVA_INT.withName("nlmsg_pid")
-    )
-    val NLMSG_HDRLEN = NLMSGHDR_LAYOUT.byteSize()
-
-    val SOCKADDR_NL_LAYOUT = MemoryLayout.structLayout(
-        ValueLayout.JAVA_SHORT.withName("nl_family"),
-        ValueLayout.JAVA_SHORT.withName("nl_pad"),
-        ValueLayout.JAVA_INT.withName("nl_pid"),
-        ValueLayout.JAVA_INT.withName("nl_groups")
-    )
-
     // Seccomp User Notification Layouts
     val SECCOMP_DATA_LAYOUT: StructLayout = MemoryLayout.structLayout(
         ValueLayout.JAVA_INT.withName("nr"),

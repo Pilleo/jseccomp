@@ -116,21 +116,6 @@ object Profiler {
                     localPathCache
                 ) { workerThread }
 
-                // Apply Landlock profiling ruleset if requested
-                if (System.getenv("MAZEWALL_PROFILER_AUDIT") == "true") {
-                    if (isLandlockAuditSupported()) {
-                        Landlock.applyProfilingRuleset()
-                    } else {
-                        System.err.println(
-                            "[PROFILER] WARN: MAZEWALL_PROFILER_AUDIT requested but not supported on kernel ${
-                                System.getProperty(
-                                    "os.version"
-                                )
-                            }. Requires Linux 6.13+ (ABI 7)."
-                        )
-                    }
-                }
-
                 try {
                     blockResult = block()
                 } catch (t: Throwable) {
@@ -144,11 +129,6 @@ object Profiler {
 
             val err = blockError
             if (err != null) throw err
-
-            val usesIoUring = localLogs.any { it.syscallName == "IO_URING_SETUP" || it.syscallName == "IO_URING_ENTER" }
-            if (usesIoUring && (!isLandlockAuditSupported() || System.getenv("MAZEWALL_PROFILER_AUDIT") != "true")) {
-                throw IllegalStateException("Fatal Security Profiling Error: Application uses io_uring, but this kernel does not support Landlock Audit (ABI 7 / Linux 6.13+ required). Async file paths cannot be securely captured. You MUST update your kernel or use IterativeProfiler. Silent profiling bypasses are not permitted.")
-            }
 
             val behavior = BobCompiler.compile(localLogs).copy(
                 stackProfile = localStackProfile.toMap()
@@ -511,15 +491,6 @@ object Profiler {
         }.apply { isDaemon = true; name = "trace-listener-$socketFd" }.start()
     }
 
-    private fun isLandlockAuditSupported(): Boolean {
-        val version = System.getProperty("os.version") ?: return false
-        val parts = version.split("-")[0].split(".")
-        if (parts.size < 2) return false
-        val major = parts[0].toIntOrNull() ?: 0
-        val minor = parts[1].toIntOrNull() ?: 0
-        return major > 6 || (major == 6 && minor >= 13)
-    }
-
     class ProfilerExecutorWrapper(
         private val delegate: ExecutorService,
         private val policy: Policy,
@@ -538,10 +509,6 @@ object Profiler {
          * Compiles the captured logs and stack traces into a [BillOfBehavior].
          */
         fun compileBillOfBehavior(): BillOfBehavior {
-            val usesIoUring = recentLogs.any { it.syscallName == "IO_URING_SETUP" || it.syscallName == "IO_URING_ENTER" }
-            if (usesIoUring && (!isLandlockAuditSupported() || System.getenv("MAZEWALL_PROFILER_AUDIT") != "true")) {
-                throw IllegalStateException("Fatal Security Profiling Error: Application uses io_uring, but this kernel does not support Landlock Audit (ABI 7 / Linux 6.13+ required). Async file paths cannot be securely captured. You MUST update your kernel or use IterativeProfiler. Silent profiling bypasses are not permitted.")
-            }
             return BobCompiler.compile(recentLogs).copy(
                 stackProfile = recentStackProfiles.toMap()
             )
@@ -585,22 +552,6 @@ object Profiler {
                     recentStackProfiles,
                     sharedPathCache
                 ) { currentThread }
-
-                // Landlock Audit is non-transparent (denies and logs).
-                // Only enable if explicitly requested for io_uring profiling.
-                if (System.getenv("MAZEWALL_PROFILER_AUDIT") == "true") {
-                    if (isLandlockAuditSupported()) {
-                        Landlock.applyProfilingRuleset()
-                    } else {
-                        System.err.println(
-                            "[PROFILER] WARN: MAZEWALL_PROFILER_AUDIT requested but not supported on kernel ${
-                                System.getProperty(
-                                    "os.version"
-                                )
-                            }. Requires Linux 6.13+ (ABI 7)."
-                        )
-                    }
-                }
 
                 threadApplied.set(true)
             }
