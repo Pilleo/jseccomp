@@ -2,7 +2,6 @@
 <SmellBaseline>
   <ManuallySuppressedIssues/>
   <CurrentIssues>
-    <ID>ComplexCondition:Landlock.kt:Landlock$policy.isSyscallAllowed(Syscall.RENAME) || policy.isSyscallAllowed(Syscall.RENAMEAT) || policy.isSyscallAllowed( Syscall.RENAMEAT2 ) || policy.isSyscallAllowed(Syscall.LINK) || policy.isSyscallAllowed(Syscall.LINKAT)</ID>
     <ID>ConstructorParameterNaming:Arch.kt:Arch$val clock_gettime: Int</ID>
     <ID>ConstructorParameterNaming:Arch.kt:Arch$val exit_group: Int</ID>
     <ID>ConstructorParameterNaming:Arch.kt:Arch$val rt_sigaction: Int</ID>
@@ -10,81 +9,21 @@
     <ID>ConstructorParameterNaming:Arch.kt:Arch$val rt_sigreturn: Int</ID>
     <ID>ConstructorParameterNaming:Arch.kt:Arch$val sched_yield: Int</ID>
     <ID>CyclomaticComplexMethod:BpfFilter.kt:BpfFilter$internal fun buildFromNumbers: Array&lt;SockFilter&gt;</ID>
-    <ID>CyclomaticComplexMethod:ContainedExecutors.kt:ContainedExecutors$private fun containsErrno: Boolean</ID>
     <ID>CyclomaticComplexMethod:ContainedExecutors.kt:ContainedExecutors$private fun installInternal</ID>
     <ID>CyclomaticComplexMethod:IterativeProfiler.kt:IterativeProfiler$private fun extractViolationPath: String?</ID>
     <ID>CyclomaticComplexMethod:Landlock.kt:Landlock$fun applyRuleset</ID>
     <ID>CyclomaticComplexMethod:ProfilerDaemon.kt:ProfilerDaemon$private fun getPathArgs: List&lt;String&gt;</ID>
-    <ID>CyclomaticComplexMethod:ProfilerDaemon.kt:ProfilerDaemon$private fun handleConnection</ID>
     <ID>CyclomaticComplexMethod:Syscall.kt:Syscall$fun numberFor: Int</ID>
     <ID>EmptyFunctionBlock:PureJavaBpfEngineTest.kt:PureJavaBpfEngineTest.&lt;no name provided&gt;${}</ID>
     <ID>LongMethod:ContainedExecutors.kt:ContainedExecutors$private fun installInternal</ID>
-    <ID>LoopWithTooManyJumpStatements:ContainedExecutors.kt:ContainedExecutors$while</ID>
     <ID>LoopWithTooManyJumpStatements:ProfilerDaemon.kt:ProfilerDaemon$while</ID>
-    <ID>MagicNumber:ContainedExecutors.kt:ContainedExecutors$10</ID>
-    <ID>MagicNumber:ContainedExecutors.kt:ContainedExecutors$32</ID>
-    <ID>MagicNumber:DescriptorPassing.kt:DescriptorPassing$16L</ID>
-    <ID>MagicNumber:DescriptorPassing.kt:DescriptorPassing$24L</ID>
-    <ID>MagicNumber:DescriptorPassing.kt:DescriptorPassing$32L</ID>
-    <ID>MagicNumber:DescriptorPassing.kt:DescriptorPassing$40L</ID>
-    <ID>MagicNumber:DescriptorPassing.kt:DescriptorPassing$8L</ID>
-    <ID>MagicNumber:Landlock.kt:Landlock$22</ID>
-    <ID>MagicNumber:Landlock.kt:Landlock$3</ID>
-    <ID>MagicNumber:Landlock.kt:Landlock$40</ID>
-    <ID>MagicNumber:Landlock.kt:Landlock$5</ID>
-    <ID>MagicNumber:Platform.kt:Platform$22</ID>
-    <ID>MagicNumber:Profiler.kt:Profiler$110</ID>
-    <ID>MagicNumber:Profiler.kt:Profiler$12L</ID>
-    <ID>MagicNumber:Profiler.kt:Profiler$16L</ID>
-    <ID>MagicNumber:Profiler.kt:Profiler$20L</ID>
-    <ID>MagicNumber:Profiler.kt:Profiler$500</ID>
-    <ID>MagicNumber:Profiler.kt:Profiler$8L</ID>
-    <ID>MagicNumber:ProfilerDaemon.kt:ProfilerDaemon$100</ID>
-    <ID>MagicNumber:ProfilerDaemon.kt:ProfilerDaemon$100L</ID>
-    <ID>MagicNumber:ProfilerDaemon.kt:ProfilerDaemon$110</ID>
-    <ID>MagicNumber:ProfilerDaemon.kt:ProfilerDaemon$128</ID>
-    <ID>MagicNumber:ProfilerDaemon.kt:ProfilerDaemon$16L</ID>
-    <ID>MagicNumber:ProfilerDaemon.kt:ProfilerDaemon$2048</ID>
-    <ID>MagicNumber:ProfilerDaemon.kt:ProfilerDaemon$20L</ID>
     <ID>MagicNumber:ProfilerDaemon.kt:ProfilerDaemon$3</ID>
-    <ID>MagicNumber:ProfilerDaemon.kt:ProfilerDaemon$32L</ID>
-    <ID>MagicNumber:ProfilerDaemon.kt:ProfilerDaemon$4</ID>
-    <ID>MagicNumber:ProfilerDaemon.kt:ProfilerDaemon$4294967196L</ID>
     <ID>MagicNumber:ProfilerDaemon.kt:ProfilerDaemon$5</ID>
     <ID>MagicNumber:ProfilerDaemon.kt:ProfilerDaemon$8L</ID>
-    <ID>MaxLineLength:AllowListTest.kt:AllowListTest$throw IllegalStateException("Expected EPERM (1) for mmap(PROT_EXEC), got returnValue=${result.returnValue}, errno=${result.errno}")</ID>
-    <ID>MaxLineLength:AllowListTest.kt:AllowListTest$throw IllegalStateException("Expected EPERM (1), got returnValue=${result.returnValue}, errno=${result.errno}")</ID>
-    <ID>MaxLineLength:BillOfBehavior.kt:BillOfBehavior$*</ID>
-    <ID>MaxLineLength:BpfFilter.kt:BpfFilter$if (profilingMode) LinuxNative.SECCOMP_RET_USER_NOTIF else (LinuxNative.SECCOMP_RET_ERRNO or LinuxNative.EPERM)</ID>
-    <ID>MaxLineLength:BpfHardeningTest.kt:BpfHardeningTest$.</ID>
-    <ID>MaxLineLength:ContainedExecutors.kt:ContainedExecutors$throw IllegalStateException("Cannot install more than 32 seccomp filters on a single thread (including process-wide filters).")</ID>
-    <ID>MaxLineLength:Landlock.kt:Landlock$logger.warning("landlock_add_rule rejected $path (EINVAL) — path may be a symlink or unsupported inode type. Use the resolved real path instead.")</ID>
-    <ID>MaxLineLength:Landlock.kt:Landlock$throw RuntimeException("landlock_restrict_self failed (flags=$flags) with errno ${restrictResult.errno}")</ID>
-    <ID>MaxLineLength:Landlock.kt:Landlock$throw UnsupportedOperationException("Fatal Security Error: Policy allows ioctl, but this kernel (Landlock ABI $abi) is too old to restrict dev ioctls (ABI 5 / Linux 6.10+ required). Update your kernel or block ioctl.")</ID>
-    <ID>MaxLineLength:Landlock.kt:Landlock$throw UnsupportedOperationException("Fatal Security Error: Policy allows rename/link syscalls, but this kernel (Landlock ABI $abi) is too old to restrict them (ABI 2 / Linux 5.19+ required). Update your kernel or block these syscalls.")</ID>
-    <ID>MaxLineLength:Landlock.kt:Landlock$throw UnsupportedOperationException("Fatal Security Error: Policy allows truncate syscalls, but this kernel (Landlock ABI $abi) is too old to restrict them (ABI 3 / Linux 6.2+ required). Update your kernel or block these syscalls.")</ID>
-    <ID>MaxLineLength:Landlock.kt:Landlock$throw UnsupportedOperationException("Landlock is not supported on this kernel but FS rules were requested.")</ID>
-    <ID>MaxLineLength:Landlock.kt:Landlock$}</ID>
-    <ID>MaxLineLength:Platform.kt:Platform$logger.warning("Seccomp sanity check failed. The kernel returned unexpected results (ret=${bogusCheck.returnValue}, errno=${bogusCheck.errno}). Seccomp may be stubbed or broken in this environment.")</ID>
-    <ID>MaxLineLength:Policy.kt:Policy.Companion$require(policies.all { it.mode == mode }) { "Cannot combine policies with different modes: ${policies.map { it.mode }}" }</ID>
-    <ID>MaxLineLength:PrctlProtectionTest.kt:PrctlProtectionTest$// When seccomp does not block it, it usually returns -1 with EINVAL (22) because the arguments are invalid.</ID>
-    <ID>MaxLineLength:Profiler.kt:Profiler$throw IllegalStateException("Failed to connect to daemon socket at $socketPath after $maxRetries retries. Last errno=$lastErrno")</ID>
-    <ID>MaxLineLength:ProfilerDaemon.kt:ProfilerDaemon$"OPEN"</ID>
-    <ID>MaxLineLength:ProfilerDaemon.kt:ProfilerDaemon$"OPENAT"</ID>
-    <ID>MaxLineLength:ProfilerDaemon.kt:ProfilerDaemon$System.err.println("[DAEMON] WARN: Permission denied reading memory from PID $pid. (Yama ptrace_scope?)")</ID>
-    <ID>MaxLineLength:ProfilerDaemon.kt:ProfilerDaemon$if (bindRes.returnValue &lt; 0) throw IllegalStateException("Failed to create daemon socket: errno=${bindRes.errno}")</ID>
-    <ID>MaxLineLength:ProfilerIntegrationTest.kt:ProfilerIntegrationTest$"Should resolve fd-based syscall paths to absolute path $absolutePath. Observed events: ${wrapped.recentLogs.map { it.syscallName to it.paths }}"</ID>
-    <ID>MaxLineLength:ProfilerIntegrationTest.kt:ProfilerIntegrationTest$"Should resolve relative path $fileName to absolute path $absolutePath. Observed: ${result.behavior.opens}"</ID>
-    <ID>MaxLineLength:ProfilerIntegrationTest.kt:ProfilerIntegrationTest$eventsWithPath.any { it.syscallName == "FCHMOD" || it.syscallName == "OPENAT" || it.syscallName == "OPEN" }</ID>
-    <ID>MaxLineLength:PureJavaBpfEngine.kt:PureJavaBpfEngine$"Process-wide seccomp installation (TSYNC) failed: seccomp(2) failed with errno $errno1. Your kernel may be too old to support SECCOMP_FILTER_FLAG_TSYNC."</ID>
     <ID>NestedBlockDepth:Policy.kt:Policy.Builder$fun allowJvmClasspath: Builder</ID>
     <ID>NestedBlockDepth:ProfilerDaemon.kt:ProfilerDaemon$private fun handleConnection</ID>
-    <ID>NewLineAtEndOfFile:ContainmentViolationException.kt:io.mazewall.enforcer.ContainmentViolationException.kt</ID>
     <ID>PrintStackTrace:ProcessContainmentTest.kt:SeccompIsolatedTestApp$e</ID>
-    <ID>PrintStackTrace:Profiler.kt:Profiler$e</ID>
-    <ID>PrintStackTrace:Profiler.kt:Profiler.ProfilerExecutorWrapper$e</ID>
     <ID>ReturnCount:ContainedExecutors.kt:ContainedExecutors$internal fun findViolationCause: Throwable?</ID>
-    <ID>ReturnCount:ContainedExecutors.kt:ContainedExecutors$private fun containsErrno: Boolean</ID>
     <ID>ReturnCount:ContainedExecutors.kt:ContainedExecutors$private fun isDirectContainmentViolation: Boolean</ID>
     <ID>ReturnCount:IterativeProfiler.kt:IterativeProfiler$private fun extractViolationPath: String?</ID>
     <ID>ReturnCount:Landlock.kt:Landlock$private fun addRule</ID>
@@ -92,12 +31,7 @@
     <ID>ReturnCount:Platform.kt:Platform$fun isSupported: Boolean</ID>
     <ID>ReturnCount:Profiler.kt:Profiler.&lt;no name provided&gt;$override fun read: Int</ID>
     <ID>ReturnCount:ProfilerDaemon.kt:ProfilerDaemon$fun tryRead: String?</ID>
-    <ID>SwallowedException:Landlock.kt:Landlock$e: Exception</ID>
-    <ID>SwallowedException:LandlockTsyncIntegrationTest.kt:LandlockTsyncIntegrationTest.TsyncChild$e: Exception</ID>
-    <ID>SwallowedException:ProcessContainmentInheritanceTest.kt:ProcessContainmentInheritanceTest$e: java.io.IOException</ID>
     <ID>SwallowedException:ProcessContainmentTest.kt:SeccompIsolatedTestApp$e: Exception</ID>
-    <ID>SwallowedException:PureJavaBpfEngineTest.kt:PureJavaBpfEngineTest$e: Exception</ID>
-    <ID>SwallowedException:SyscallTest.kt:SyscallTest$e: UnsupportedOperationException</ID>
     <ID>ThrowsCount:ContainedExecutors.kt:ContainedExecutors$private fun installInternal</ID>
     <ID>ThrowsCount:Landlock.kt:Landlock$fun applyRuleset</ID>
     <ID>ThrowsCount:Profiler.kt:Profiler$private fun installProfilingFilterForThread</ID>
@@ -105,16 +39,10 @@
     <ID>TooGenericExceptionCaught:ContainedExecutors.kt:ContainedExecutors.ContainedExecutorWrapper$e: Error</ID>
     <ID>TooGenericExceptionCaught:ContainedExecutors.kt:ContainedExecutors.ContainedExecutorWrapper$e: Exception</ID>
     <ID>TooGenericExceptionCaught:IterativeProfiler.kt:IterativeProfiler$t: Throwable</ID>
-    <ID>TooGenericExceptionCaught:Landlock.kt:Landlock$e: Exception</ID>
     <ID>TooGenericExceptionCaught:Profiler.kt:Profiler$e: Exception</ID>
     <ID>TooGenericExceptionCaught:Profiler.kt:Profiler$t: Throwable</ID>
     <ID>TooGenericExceptionCaught:Profiler.kt:Profiler.ProfilerExecutorWrapper$e: Exception</ID>
     <ID>TooGenericExceptionCaught:ProfilerDaemon.kt:ProfilerDaemon$e: Exception</ID>
-    <ID>TooGenericExceptionThrown:Landlock.kt:Landlock$throw RuntimeException("landlock_add_rule failed for $path with errno ${addResult.errno}")</ID>
-    <ID>TooGenericExceptionThrown:Landlock.kt:Landlock$throw RuntimeException("landlock_create_ruleset failed with errno ${rulesetFdResult.errno}")</ID>
-    <ID>TooGenericExceptionThrown:Landlock.kt:Landlock$throw RuntimeException("landlock_restrict_self failed (flags=$flags) with errno ${restrictResult.errno}")</ID>
-    <ID>TooGenericExceptionThrown:Landlock.kt:Landlock$throw RuntimeException("prctl(PR_SET_NO_NEW_PRIVS) failed with errno ${prctlResult.errno}")</ID>
-    <ID>TooGenericExceptionThrown:ProcessContainmentInheritanceTest.kt:ProcessContainmentInheritanceTest$throw RuntimeException("Should not have been able to exec")</ID>
     <ID>TooManyFunctions:ContainedExecutors.kt:ContainedExecutors$ContainedExecutorWrapper : ExecutorService</ID>
     <ID>TooManyFunctions:LinuxNative.kt:LinuxNative</ID>
     <ID>TooManyFunctions:Policy.kt:Policy$Builder</ID>

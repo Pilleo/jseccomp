@@ -459,7 +459,8 @@ object Landlock {
         val resolvedPath =
             try {
                 File(path).canonicalPath
-            } catch (e: Exception) {
+            } catch (e: java.io.IOException) {
+                logger.log(java.util.logging.Level.FINE, "Failed to canonicalize path $path: ${e.message}", e)
                 path
             }
         val openFlags = LinuxNative.O_PATH or LinuxNative.O_CLOEXEC or LinuxNative.O_NOFOLLOW
