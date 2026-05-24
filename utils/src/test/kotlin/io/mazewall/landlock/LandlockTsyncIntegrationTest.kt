@@ -5,6 +5,7 @@ import io.mazewall.Policy
 import io.mazewall.Syscall
 import org.junit.jupiter.api.Test
 import java.io.File
+import kotlin.system.exitProcess
 import kotlin.test.assertEquals
 
 @EnabledIfLinuxAndSupported
@@ -26,9 +27,9 @@ class LandlockTsyncIntegrationTest {
             val thread = Thread {
                 try {
                     File("/etc/hostname").readText()
-                    System.exit(0) // Should have succeeded (if TSYNC is disabled)
+                    exitProcess(0) // Should have succeeded (if TSYNC is disabled)
                 } catch (e: Exception) {
-                    System.exit(42) // Correctly sandboxed (if TSYNC is enabled)
+                    exitProcess(42) // Correctly sandboxed (if TSYNC is enabled)
                 }
             }
             thread.start()

@@ -166,12 +166,7 @@ object ProfilerDaemon {
                             triggerGlobalShutdown()
                         }
                     } finally {
-                        resp.fill(0)
-                        resp.set(ValueLayout.JAVA_LONG, 0L, id)
-                        resp.set(ValueLayout.JAVA_LONG, 8L, 0L)
-                        resp.set(ValueLayout.JAVA_INT, 16L, 0)
-                        resp.set(ValueLayout.JAVA_INT, 20L, LinuxNative.SECCOMP_USER_NOTIF_FLAG_CONTINUE.toInt())
-                        LinuxNative.ioctl(listenerFd, LinuxNative.SECCOMP_IOCTL_NOTIF_SEND, resp)
+                        sendContinueResponse(listenerFd, id, resp)
                     }
                 }
 
@@ -183,12 +178,7 @@ object ProfilerDaemon {
                         val ioctlRes = LinuxNative.ioctl(listenerFd, LinuxNative.SECCOMP_IOCTL_NOTIF_RECV, notif)
                         if (ioctlRes.returnValue < 0) break
                         val id = notif.get(ValueLayout.JAVA_LONG, 0L)
-                        resp.fill(0)
-                        resp.set(ValueLayout.JAVA_LONG, 0L, id)
-                        resp.set(ValueLayout.JAVA_LONG, 8L, 0L)
-                        resp.set(ValueLayout.JAVA_INT, 16L, 0)
-                        resp.set(ValueLayout.JAVA_INT, 20L, LinuxNative.SECCOMP_USER_NOTIF_FLAG_CONTINUE.toInt())
-                        LinuxNative.ioctl(listenerFd, LinuxNative.SECCOMP_IOCTL_NOTIF_SEND, resp)
+                        sendContinueResponse(listenerFd, id, resp)
                     }
                 }
             }
@@ -267,9 +257,7 @@ object ProfilerDaemon {
             val bytesRead = res.returnValue.toInt()
             var len = 0
             while (len < bytesRead && localBuf.get(ValueLayout.JAVA_BYTE, len.toLong()) != 0.toByte()) len++
-            val bytes = ByteArray(len)
-            for (i in 0 until len) bytes[i] = localBuf.get(ValueLayout.JAVA_BYTE, i.toLong())
-            return String(bytes, StandardCharsets.UTF_8)
+            return localBuf.copyToString(len)
         }
     }
 
@@ -333,10 +321,22 @@ object ProfilerDaemon {
             val buf = arena.allocate(4096)
             val res = LinuxNative.readlink(pathSeg, buf, 4096)
             if (res.returnValue < 0) return null
-            val len = res.returnValue.toInt()
-            val bytes = ByteArray(len)
-            for (i in 0 until len) bytes[i] = buf.get(ValueLayout.JAVA_BYTE, i.toLong())
-            return String(bytes, StandardCharsets.UTF_8)
+            return buf.copyToString(res.returnValue.toInt())
         }
+    }
+
+    private fun sendContinueResponse(listenerFd: Int, id: Long, resp: MemorySegment) {
+        resp.fill(0)
+        resp.set(ValueLayout.JAVA_LONG, 0L, id)
+        resp.set(ValueLayout.JAVA_LONG, 8L, 0L)
+        resp.set(ValueLayout.JAVA_INT, 16L, 0)
+        resp.set(ValueLayout.JAVA_INT, 20L, LinuxNative.SECCOMP_USER_NOTIF_FLAG_CONTINUE.toInt())
+        LinuxNative.ioctl(listenerFd, LinuxNative.SECCOMP_IOCTL_NOTIF_SEND, resp)
+    }
+
+    private fun MemorySegment.copyToString(len: Int): String {
+        val bytes = ByteArray(len)
+        for (i in 0 until len) bytes[i] = this.get(ValueLayout.JAVA_BYTE, i.toLong())
+        return String(bytes, StandardCharsets.UTF_8)
     }
 }
