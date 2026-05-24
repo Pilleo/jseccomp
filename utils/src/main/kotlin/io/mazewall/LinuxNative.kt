@@ -13,8 +13,8 @@ data class SockFilter(val code: Short, val jt: Short, val jf: Short, val k: Int)
 }
 
 object LinuxNative {
-    private val linker = Linker.nativeLinker()
-    private val stdlib = linker.defaultLookup()
+    private val linker: Linker = Linker.nativeLinker()
+    private val stdlib: SymbolLookup = linker.defaultLookup()
 
     private val PRCTL: MethodHandle
     private val SYSCALL: MethodHandle
@@ -38,7 +38,7 @@ object LinuxNative {
     private val FCNTL: MethodHandle
 
     val ERRNO_LAYOUT: StructLayout = Linker.Option.captureStateLayout()
-    private val ERRNO_OFFSET = ERRNO_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("errno"))
+    private val ERRNO_OFFSET: Long = ERRNO_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("errno"))
 
     val SOCK_FILTER_LAYOUT: StructLayout = MemoryLayout.structLayout(
         ValueLayout.JAVA_SHORT.withName("code"),
@@ -46,15 +46,16 @@ object LinuxNative {
         ValueLayout.JAVA_BYTE.withName("jf"),
         ValueLayout.JAVA_INT.withName("k")
     )
-    private val SOCK_FILTER_SIZE = SOCK_FILTER_LAYOUT.byteSize()
+    private val SOCK_FILTER_SIZE: Long = SOCK_FILTER_LAYOUT.byteSize()
 
     val SOCK_FPROG_LAYOUT: StructLayout = MemoryLayout.structLayout(
         ValueLayout.JAVA_SHORT.withName("len"),
         MemoryLayout.paddingLayout(6), // Align pointer to 8 bytes
         ValueLayout.ADDRESS.withName("filter")
     )
-    private val SOCK_FPROG_LEN_OFFSET = SOCK_FPROG_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("len"))
-    private val SOCK_FPROG_FILTER_OFFSET = SOCK_FPROG_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("filter"))
+    private val SOCK_FPROG_LEN_OFFSET: Long = SOCK_FPROG_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("len"))
+    private val SOCK_FPROG_FILTER_OFFSET: Long =
+        SOCK_FPROG_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("filter"))
 
     // Socket message layouts
     val IOVEC_LAYOUT: StructLayout = MemoryLayout.structLayout(
@@ -570,13 +571,13 @@ object LinuxNative {
     }
 
     // Landlock Layouts
-    val LANDLOCK_RULESET_ATTR_LAYOUT = MemoryLayout.structLayout(
+    val LANDLOCK_RULESET_ATTR_LAYOUT: StructLayout = MemoryLayout.structLayout(
         ValueLayout.JAVA_LONG.withName("handled_access_fs"),
         ValueLayout.JAVA_LONG.withName("handled_access_net")
     )
-    val LANDLOCK_RULESET_ATTR_FS_OFFSET =
+    val LANDLOCK_RULESET_ATTR_FS_OFFSET: Long =
         LANDLOCK_RULESET_ATTR_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("handled_access_fs"))
-    val LANDLOCK_RULESET_ATTR_NET_OFFSET =
+    val LANDLOCK_RULESET_ATTR_NET_OFFSET: Long =
         LANDLOCK_RULESET_ATTR_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("handled_access_net"))
 
     val LANDLOCK_PATH_BENEATH_ATTR_LAYOUT: StructLayout = MemoryLayout.structLayout(
@@ -584,9 +585,9 @@ object LinuxNative {
         ValueLayout.JAVA_INT.withByteAlignment(1).withName("parent_fd")
         // unaligned values prevent Java from adding padding, matching kernel packed struct
     )
-    val LANDLOCK_PATH_BENEATH_ATTR_ACCESS_OFFSET =
+    val LANDLOCK_PATH_BENEATH_ATTR_ACCESS_OFFSET: Long =
         LANDLOCK_PATH_BENEATH_ATTR_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("allowed_access"))
-    val LANDLOCK_PATH_BENEATH_ATTR_FD_OFFSET =
+    val LANDLOCK_PATH_BENEATH_ATTR_FD_OFFSET: Long =
         LANDLOCK_PATH_BENEATH_ATTR_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("parent_fd"))
 
     // Landlock system call numbers & constants
