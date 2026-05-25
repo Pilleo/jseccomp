@@ -25,8 +25,8 @@ To build a reliable BoB (system call allowlist + Landlock path rules), we analyz
 
 The mechanism `SECCOMP_RET_USER_NOTIF` itself is sound and *is* used by the Tier S architecture (see §2). What failed is placing the supervisor thread **inside the same JVM process** as the traced thread. The Tier S solution retains `USER_NOTIF` as the kernel mechanism while moving the supervisor to a separate OS process.
 
-Under in-process `SECCOMP_RET_USER_NOTIF`, the supervisor thread must synchronously decide to allow or block a syscall. 
-*   **The Trap:** If a Garbage Collection (GC) safepoint or a Thread Dump is triggered by the JVM while a worker thread is blocked in the kernel waiting for a seccomp decision, the JVM attempts to halt all threads. 
+Under in-process `SECCOMP_RET_USER_NOTIF`, the supervisor thread must synchronously decide to allow or block a syscall.
+*   **The Trap:** If a Garbage Collection (GC) safepoint or a Thread Dump is triggered by the JVM while a worker thread is blocked in the kernel waiting for a seccomp decision, the JVM attempts to halt all threads.
 *   **The Deadlock:** If the supervisor thread itself is paused by the JVM safepoint handler, it can never read the seccomp file descriptor. Meanwhile, the worker thread remains blocked in the kernel, unable to poll for the JVM safepoint. The entire JVM process is deadlocked permanently.
 
 ### The Emulation Failure (Why Native `SIGSYS` Mocking Failed)
@@ -36,7 +36,7 @@ Attempting to dynamically bypass blocked syscalls using a C-level signal handler
 3.  **Buffer-Writing Syscalls (`stat`/`clock_gettime`/`read`):** Returning success without copying correct memory values into the pointer arguments exposes uninitialized stack/heap garbage to HotSpot, causing silent corruption.
 
 ### Loom Virtual Thread Carrier Poisoning
-Seccomp filters apply strictly to the underlying Linux OS thread (LWP). If the profiler or test suite executes seccomp loading from within a Virtual Thread, the filter permanently binds to the underlying `ForkJoinPool` carrier thread. Subsequent virtual threads mapped to this carrier will inherit the restricted context and crash. 
+Seccomp filters apply strictly to the underlying Linux OS thread (LWP). If the profiler or test suite executes seccomp loading from within a Virtual Thread, the filter permanently binds to the underlying `ForkJoinPool` carrier thread. Subsequent virtual threads mapped to this carrier will inherit the restricted context and crash.
 
 **Architectural Guard:** The profiling test harness and the underlying library must detect Virtual Threads (`Thread.currentThread().isVirtual()`) and fail-closed with an `IllegalStateException` to prevent stacking on carrier threads unless specifically configuring a restricted carrier pool.
 
@@ -114,10 +114,10 @@ The profiling session is run synchronously inside a dedicated OS platform thread
 The Unix domain socket protocol includes a round-trip acknowledgment. The supervisor daemon blocks the worker thread in-kernel using seccomp, sends the `TraceEvent` to the parent JVM, and waits for an ACK byte. While the worker thread is blocked in-kernel, the trace listener in the parent JVM safely and stably captures the worker's Java stack trace via `Thread.stackTrace` on a best-effort basis, before sending the ACK. Once acknowledged, the daemon sends `FLAG_CONTINUE` to resume worker execution. This eliminates race conditions during stack profiling.
 
 **The `io_uring` Blind Spot & The Landlock Audit Catch-22:**
-Seccomp-BPF is blind to operations submitted via `io_uring` rings. 
+Seccomp-BPF is blind to operations submitted via `io_uring` rings.
 
 > [!CAUTION]
-> **PHYSICS-LEVEL CONSTRAINT:** Early design iterations suggested using **Landlock Audit** (Type 1423) for transparent `io_uring` profiling. **This is physically impossible.** 
+> **PHYSICS-LEVEL CONSTRAINT:** Early design iterations suggested using **Landlock Audit** (Type 1423) for transparent `io_uring` profiling. **This is physically impossible.**
 >
 > Landlock does not have a "permissive" or "log-only" mode. It only emits an audit log when it **denies** access. If you apply a restrictive Landlock policy during profiling to force audit logs, Landlock will return `EACCES` to the application. This causes the JVM to crash with `FileNotFoundException` or `IOException`, breaking the profiling session.
 
@@ -144,7 +144,7 @@ When profiling an application that supports `io_uring`, the choice of profiling 
 
 ### The Hybrid Profiling Shortcut (Recommended for io_uring)
 
-Because `mazewall`'s "Perfect Union" design uses **Landlock** to enforce the actual filesystem boundaries, Seccomp's only job is to authorize the *mechanism* of I/O, while Landlock authorizes the *destination*. 
+Because `mazewall`'s complementary sandboxing design uses **Landlock** to enforce the actual filesystem boundaries, Seccomp's only job is to authorize the *mechanism* of I/O, while Landlock authorizes the *destination*.
 
 This enables a highly efficient developer workflow that avoids the need for root (Tier P) or slow iterative retries (Tier A):
 
@@ -192,7 +192,7 @@ Handling containment errors inside a managed, multithreaded platform like the Ho
 ```
 
 ### The JVM Error Translation Strategy
-Java's standard library does not expose raw OS `errno` values. For instance, when `openat` fails with `EPERM`, Java throws a generic `java.io.IOException` with a localized message. 
+Java's standard library does not expose raw OS `errno` values. For instance, when `openat` fails with `EPERM`, Java throws a generic `java.io.IOException` with a localized message.
 
 To prevent locale-fragile string matching, `mazewall` uses a **multi-layered exception translation strategy**:
 
@@ -218,13 +218,13 @@ private fun isDirectContainmentViolation(t: Throwable): Boolean {
     if (msg.contains("Permission denied") || msg.contains("Operation not permitted")) {
         return true
     }
-    
+
     return false
 }
 ```
 
 ### Safepoint Safeguard and JVM Coordination Trap
-Some syscalls are strictly forbidden from being blocked because they handle HotSpot thread coordination. If blocked, the JVM will fail to run garbage collection or safely allocate structures, causing the process to abort immediately. 
+Some syscalls are strictly forbidden from being blocked because they handle HotSpot thread coordination. If blocked, the JVM will fail to run garbage collection or safely allocate structures, causing the process to abort immediately.
 
 To protect the container environment from JVM lockups, the `mazewall` policy builder will **enforce compile-time assertions** preventing developers from blocking these foundational operations:
 
@@ -258,8 +258,8 @@ val policy = Policy.builder()
     .base(Policy.PURE_COMPUTE)
     // Syscall whitelists compiled from trace events:
     .unblock(
-        Syscall.READ, 
-        Syscall.WRITE, 
+        Syscall.READ,
+        Syscall.WRITE,
         Syscall.EPOLL_WAIT,
         Syscall.EVENTFD2
     )
@@ -274,9 +274,9 @@ val policy = Policy.builder()
 ## 5. Operational Hazards & Kernel Constraints
 
 ### Yama LSM & Grandchild Inheritance
-Under Linux Yama LSM (`/proc/sys/kernel/yama/ptrace_scope` >= 1), a process must explicitly grant ptrace permissions to its tracer using `prctl(PR_SET_PTRACER, tracer_pid)`. 
-*   **The Hazard:** This permission is **not inherited across `fork()`**. 
-*   **The Impact:** If the profiled JVM process forks a child (e.g., via `ProcessBuilder`), the child inherits the seccomp filter (and thus traps to the daemon) but does **not** inherit the ptrace permission. 
+Under Linux Yama LSM (`/proc/sys/kernel/yama/ptrace_scope` >= 1), a process must explicitly grant ptrace permissions to its tracer using `prctl(PR_SET_PTRACER, tracer_pid)`.
+*   **The Hazard:** This permission is **not inherited across `fork()`**.
+*   **The Impact:** If the profiled JVM process forks a child (e.g., via `ProcessBuilder`), the child inherits the seccomp filter (and thus traps to the daemon) but does **not** inherit the ptrace permission.
 *   **The Mitigation:** The `ProfilerDaemon` must gracefully handle `-EPERM` when attempting to read a grandchild's memory via `process_vm_readv`. In such cases, the daemon logs the syscall without absolute path resolution.
 
 ### Seccomp Listener `-ENOSYS` JVM Crash
@@ -287,7 +287,7 @@ When a seccomp `USER_NOTIF` listener file descriptor is closed while tracee thre
 
 ### Landlock Audit Versioning
 Landlock Audit logging (`LANDLOCK_ACCESS` records) is a kernel-specific telemetry feature.
-*   **The Hazard:** `AUDIT_LANDLOCK_ACCESS` was introduced in **Linux 6.13** (Landlock ABI 7). 
+*   **The Hazard:** `AUDIT_LANDLOCK_ACCESS` was introduced in **Linux 6.13** (Landlock ABI 7).
 *   **The Impact:** On kernels older than 6.13 (including standard LTS versions like 5.15), applying a restrictive Landlock "Audit" policy will silently block operations with `EACCES` without emitting any audit logs, causing the profiler to miss dependencies and the application to crash.
 *   **The Mitigation:** Transparent profiling of `io_uring` via Landlock Audit is physically impossible due to the lack of a permissive mode. `mazewall` requires either **Tier P (Privileged eBPF)** for transparent capture or **Tier A (Iterative Profiler)** to handle the non-transparent `EACCES` denials via retries.
 

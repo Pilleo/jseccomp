@@ -16,7 +16,7 @@ For years, industry leaders like **Elasticsearch** have successfully used a mini
 ### Thread-Level Mitigation & The "ACE Shared-Memory Pivot" Threat Model
 Thread-level containment (e.g., wrapping an `ExecutorService` with restrictive policies like `PURE_COMPUTE`) is a powerful tool to minimize the blast radius of un-trusted library execution. However, **thread-scoped seccomp is not an absolute security boundary against an attacker who achieves Arbitrary Code Execution (ACE) on that thread.**
 
-Because the JVM runs within a single Linux process, **all JVM threads share the same physical address space, virtual memory maps, and heap.** 
+Because the JVM runs within a single Linux process, **all JVM threads share the same physical address space, virtual memory maps, and heap.**
 
 If an attacker achieves native code execution (e.g., via a buffer overflow in a native JNI dependency or using raw Java FFM/`Unsafe` pointer manipulation) inside a sandboxed worker thread, they cannot make blocked system calls *on that thread*. However, they can compromise the rest of the JVM process by:
 1. **Memory Corruption:** Corrupting the stacks or memory blocks of unrestricted parent or sister threads running in the same process space.
@@ -59,7 +59,7 @@ To build accurate policies for `io_uring` applications, `mazewall` requires one 
 **The Landlock Audit Constraint:**
 Early design iterations suggested using **Landlock Audit** (Type 1423) for transparent profiling. However, Landlock does not possess a "permissive" or "log-only" mode; it only emits an audit log when it **denies** an action. Applying a restrictive Landlock policy for profiling causes fatal `EACCES` crashes in the JVM, breaking the transparency guarantee. Landlock Audit is therefore strictly a **detection and enforcement** tool, not a transparent profiling sensor.
 
-**The "Perfect Union" Enforcement (Why Tier H Works):**
+**The Complementary Seccomp-Landlock Enforcement (Why Tier H Works):**
 When a thread is restricted by both Seccomp and Landlock in production:
 *   Seccomp whitelists `io_uring_setup`.
 *   Standard seccomp cannot inspect the async queue contents.
@@ -76,8 +76,8 @@ If an attacker cannot spawn a process, they will attempt to inject raw machine c
 *   **Mitigation:** As detailed in the "Argument Inspection" section, `mazewall` monitors the `PROT_EXEC` bit. It allows the JVM to manage its memory but physically prevents any thread under a policy from making a memory region executable.
 
 ### ROP/JOP & Existing Memory
-It is critical to understand that Seccomp monitors **system calls**, not internal CPU instruction flow. While `mazewall` effectively blocks the introduction of *new* executable memory (shellcode), it cannot prevent an attacker from reusing **existing** executable code already mapped in the JVM's memory (e.g., from the JVM itself or its dependencies). 
-By chaining together existing snippets of code (gadgets), an attacker can perform **Return-Oriented Programming (ROP)** or **Jump-Oriented Programming (JOP)** to execute arbitrary logic without ever calling `mprotect` or `mmap`. 
+It is critical to understand that Seccomp monitors **system calls**, not internal CPU instruction flow. While `mazewall` effectively blocks the introduction of *new* executable memory (shellcode), it cannot prevent an attacker from reusing **existing** executable code already mapped in the JVM's memory (e.g., from the JVM itself or its dependencies).
+By chaining together existing snippets of code (gadgets), an attacker can perform **Return-Oriented Programming (ROP)** or **Jump-Oriented Programming (JOP)** to execute arbitrary logic without ever calling `mprotect` or `mmap`.
 *   **Mitigation:** Protection against ROP/JOP relies on complementary OS and compiler-level features such as **ASLR (Address Space Layout Randomization)**, **Stack Canaries**, and **Control Flow Integrity (CFI)**. Seccomp provides a hard barrier against environment-altering actions (spawn shell, network access), but it is not a complete solution for all memory corruption exploitation techniques.
 
 
@@ -92,7 +92,7 @@ To load a seccomp filter without root privileges (`CAP_SYS_ADMIN`), the Linux ke
 LinuxNative.prctl(LinuxNative.PR_SET_NO_NEW_PRIVS, 1L, 0L, 0L, 0L)
 ```
 
-This flag tells the kernel: *"From this moment on, this process and all of its descendants can never transition to a higher privilege level via `execve()`."* 
+This flag tells the kernel: *"From this moment on, this process and all of its descendants can never transition to a higher privilege level via `execve()`."*
 
 While technically an operational constraint, it functions as an incredibly powerful **automatic security shield** that permanently neutralizes three major kernel-level escalation pathways:
 
@@ -129,7 +129,7 @@ However, the necessity of this OCI-level block can be evaluated against kernel-l
 2.  **Filter Monotonicity:** Seccomp filters can only restrict the current syscall capabilities; they cannot be removed, bypassed, or relaxed by subsequent nested filters.
 3.  **Kernel Limits:** Modern kernels cap seccomp filter depth and BPF program complexity, preventing simple kernel memory exhaustion vectors.
 
-Given these kernel-level invariants, blocking unprivileged seccomp filter installation inside containers does not prevent privilege escalation, since the kernel already enforces an immutable boundary. The primary risk re-introduced by whitelisting `seccomp` and `prctl(PR_SET_SECCOMP)` is a minor increase in BPF verifier exposure. 
+Given these kernel-level invariants, blocking unprivileged seccomp filter installation inside containers does not prevent privilege escalation, since the kernel already enforces an immutable boundary. The primary risk re-introduced by whitelisting `seccomp` and `prctl(PR_SET_SECCOMP)` is a minor increase in BPF verifier exposure.
 
 A potential architectural alternative for OCI specifications would be to permit nested filter installation by default whenever the container is configured with `allowPrivilegeEscalation: false` (which pre-emptively enforces `PR_SET_NO_NEW_PRIVS`). This would allow secure, application-level sandboxing (such as thread-scoped containment) to be deployed natively within standardized container environments without requiring custom profiles.
 
@@ -141,7 +141,7 @@ Linux 7.0 (ABI 8) introduces `LANDLOCK_RESTRICT_SELF_TSYNC`, which allows applyi
 
 While highly secure for production baselines, it introduces significant technical debt in JVM environments:
 
-*   **Sibling Thread Transparency:** The JVM is a massive, multi-threaded engine. Sibling threads (like Gradle workers, background GC threads, or JIT threads) may need to perform operations (like managing `build/tmp`) that the sandboxed worker thread is restricted from. 
+*   **Sibling Thread Transparency:** The JVM is a massive, multi-threaded engine. Sibling threads (like Gradle workers, background GC threads, or JIT threads) may need to perform operations (like managing `build/tmp`) that the sandboxed worker thread is restricted from.
 *   **Test Suite Collisions:** Standard JVM test runners assume they have full control over the process memory space. Applying TSYNC inside a test will sandbox the entire runner process, leading to `AccessDeniedException` and `Permission Denied` crashes on completely unrelated sibling threads.
 *   **Architecture Decision:** For these reasons, `mazewall` keeps TSYNC **disabled by default**. It is reserved for Tier 1 (Process-Wide) startup lockdowns where the entire JVM life-cycle is intended to be constrained.
 
@@ -181,7 +181,7 @@ val PURE_COMPUTE = Policy.builder()
 ```
 
 #### Strategy 2: BPF Argument Inspection (Fine-Grained Whitelisting)
-For policies where thread-level stack-nesting is still required (allowing worker threads to establish their own child sandboxes), standard `prctl` can be permitted but strictly constrained via BPF argument inspection. 
+For policies where thread-level stack-nesting is still required (allowing worker threads to establish their own child sandboxes), standard `prctl` can be permitted but strictly constrained via BPF argument inspection.
 
 Instead of blocking the system call outright, the seccomp-BPF filter inspects the first argument (`option`, which maps to `args[0]` in `seccomp_data`):
 *   **Allow** if `args[0]` matches `PR_SET_NO_NEW_PRIVS` (`38`), `PR_GET_NO_NEW_PRIVS` (`39`), or `PR_GET_SECCOMP` (`21`).
@@ -238,7 +238,7 @@ We inspect the `flags` argument of `clone`. We allow `clone` only if it includes
 
 ## 9. HotSpot JVM Whitelist Risks (Safepoints & GC Deadlocks)
 
-A critical technical risk of thread-scoped seccomp sandboxing in the JVM is **Safepoint and GC deadlock**. 
+A critical technical risk of thread-scoped seccomp sandboxing in the JVM is **Safepoint and GC deadlock**.
 
 JVM application threads are not fully isolated; they must periodically synchronize during safepoints (e.g. for dynamic compilation, deoptimization, thread dumps, or garbage collection). During these periods, application threads execute JVM runtime paths which invoke systems-level synchronization and scheduling operations:
 * `futex`: Used extensively by the JVM for thread park/unpark and monitor synchronization.
@@ -304,7 +304,7 @@ Seccomp-BPF and Landlock are Linux-only features. The library safely performs an
 ### Known Inconsistencies
 
 #### Landlock Path Combination (Union vs. Intersection)
-The `Policy.combine()` method currently uses a **union** of all allowed filesystem paths from the input policies. However, when the Linux kernel stacks multiple Landlock rulesets on a thread (e.g., via nested `ContainedExecutors` or stacking multiple policies), the resulting filesystem view is an **intersection**—the thread is restricted to paths that are allowed by *every* ruleset in the stack. 
+The `Policy.combine()` method currently uses a **union** of all allowed filesystem paths from the input policies. However, when the Linux kernel stacks multiple Landlock rulesets on a thread (e.g., via nested `ContainedExecutors` or stacking multiple policies), the resulting filesystem view is an **intersection**—the thread is restricted to paths that are allowed by *every* ruleset in the stack.
 
 While `ContainedExecutors` prevents permission expansion during stacking (throwing `IllegalStateException` if a new layer attempts to add paths not allowed by the previous one), the behavior of `Policy.combine(p1, p2)` may produce a policy that appears broader than what would result from sequentially applying `p1` and then `p2`. Always verify that your combined policy matches your intended security contract at the kernel level.
 
@@ -312,7 +312,7 @@ While `ContainedExecutors` prevents permission expansion during stacking (throwi
 
 ## 12. Information Leaks (Side Channels)
 
-Seccomp restricts **actions** (syscalls), but it does not provide **data isolation**. 
+Seccomp restricts **actions** (syscalls), but it does not provide **data isolation**.
 *   A contained thread can still read any static variable or heap object it can reference.
 *   It can use side channels (CPU timing, cache contention) to leak data to another thread.
 
@@ -330,7 +330,7 @@ Seccomp restricts **actions** (syscalls), but it does not provide **data isolati
 
 ## 13. Kubernetes (K8s) Production Deployment Pattern
 
-To run a containerized JVM using `mazewall` securely inside a Kubernetes cluster, you must avoid running pods with privileged security contexts (e.g. `privileged: true` or running unconfined). 
+To run a containerized JVM using `mazewall` securely inside a Kubernetes cluster, you must avoid running pods with privileged security contexts (e.g. `privileged: true` or running unconfined).
 
 Instead, configure Kubernetes to use the **Localhost custom seccomp profile** pattern.
 
@@ -375,24 +375,24 @@ You must place a copy of `podman-seccomp.json` into a subdirectory on each host 
     ```
 
 ### Step 2: Apply the Seccomp Profile in the Pod Manifest
-In your application’s Pod or Deployment manifest, specify the custom profile within the container or pod `securityContext`. 
+In your application’s Pod or Deployment manifest, specify the custom profile within the container or pod `securityContext`.
 
 Additionally, you **must** configure `allowPrivilegeEscalation: false`. This ensures the container sets `PR_SET_NO_NEW_PRIVS`, which is a kernel requirement for unprivileged threads to load/stack their own nested seccomp filters.
 
 > [!WARNING]
 > **The `allowPrivilegeEscalation` (NoNewPrivs) Trap:**
 > While `allowPrivilegeEscalation: false` is required for unprivileged seccomp stacking, it completely disables `setuid`/`setgid` bits and Linux File Capabilities during execution. Because this breaks legacy tools, vanilla OCI runtimes **do not** enable this by default (for backward compatibility). However, modern hardening frameworks (like K8s "Restricted" Pod Security Standards or OpenShift `restricted-v2` SCC) **do** enforce it.
-> 
+>
 > **What breaks when this is enabled?**
 > 1. **`sudo`, `su`, `doas`:** Scripts attempting to elevate privileges using `sudo` from a non-root user will fail (`sudo: effective uid is not 0`).
 > 2. **File Capabilities:** Non-root binaries that rely on `setcap` (e.g., a web server using `cap_net_bind_service=+ep` to bind port 80) will get `Permission denied`.
 > 3. **Legacy Networking Tools:** `ping`, `traceroute`, or `tcpdump` run by non-root users will fail (`socket: Operation not permitted`) because they rely on `setuid` or file capabilities to open raw sockets.
-> 
+>
 > **How to audit your container image:**
 > Before enabling `allowPrivilegeEscalation: false`, run these commands inside your image to identify potential landmines:
 > *   `find / -type f \( -perm -4000 -o -perm -2000 \) 2>/dev/null` (Finds binaries that rely on `setuid`/`setgid`)
 > *   `getcap -r / 2>/dev/null` (Finds binaries relying on file capabilities)
-> 
+>
 > If your application relies on executing any of the returned binaries, turning on this security context will crash those specific workflows.
 
 

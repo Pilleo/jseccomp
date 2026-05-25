@@ -74,6 +74,13 @@ This is relevant to:
 > [!WARNING]
 > The attestation covers **syscall-level behavior only**. It cannot prevent in-process memory reads by other threads sharing the same JVM heap (see *Shared-Memory ACE Bypass* below). For absolute isolation, combine with process-wide `NO_EXEC` (Tier 1) and, where the strongest guarantees are required, a hardware TEE.
 
+## Project Module Architecture
+
+`mazewall` is split into two specialized subprojects to keep production deployments clean, lightweight and secure:
+
+*   **`:enforcer`**: The core runtime enforcement engine. It performs the Foreign Function & Memory (FFM) system call bindings, compiles `Policy` records into raw Seccomp BPF programs, handles Landlock path containment, and manages thread coordination safety. It has **zero runtime dependencies** beyond Kotlin and standard JVM libraries, making it highly secure and production-safe.
+*   **`:profiler`**: The diagnostic and trace profiling module. It implements active monitoring techniques like out-of-process BPF `USER_NOTIF` listener daemons, iterative progressive path testing, and `strace`-based descendant process log analysis. This module compiles trace data into structured Bills of Behavior (SBoBs) and is designed **strictly for testing and developer environments**.
+
 ---
 
 ## Features & Roadmap
@@ -108,7 +115,7 @@ podman compose exec mazewall ./gradlew test
 
 > [!IMPORTANT]
 > **Podman Native Integration:** This project is optimized for **rootless Podman**.
-> 
+>
 > Standard `security_opt: seccomp=...` triggers a bug in some orchestrators where the full JSON profile is passed as a string over the socket, causing a "file name too long" (`ENAMETOOLONG`) error. We bypass this using the Podman-native annotation `io.podman.annotations.seccomp` in `compose.yml`.
 
 > **Note on Container Security:** Rather than running completely unconfined (which is insecure), `mazewall` includes a custom [podman-seccomp.json](podman-seccomp.json) profile that is automatically configured in [compose.yml](compose.yml). This profile whitelists `seccomp(2)` filter stacking, enabling the JVM inside the container to apply nested thread-level policies while keeping the container fully isolated from the host.
@@ -133,7 +140,7 @@ executor.submit {
     // This will succeed:
     val data = File("/data/incoming/task1.json").readText()
     File("/data/processed/result.json").writeText(data)
-    
+
     // This will throw AccessDeniedException:
     File("/etc/passwd").readText()
 }

@@ -23,7 +23,7 @@ fun runProfileAndEnforce() {
     println("==========================================================\u001b[0m")
     println("Goal: Profile a high-performance workload doing both standard")
     println("      I/O and async io_uring operations, generate the policy,")
-    println("      and strictly enforce the Seccomp/Landlock perfect union.")
+    println("      and strictly enforce the complementary Seccomp-Landlock sandbox.")
     println()
 
     // 1. Setup paths and mock server
@@ -120,7 +120,7 @@ fun runProfileAndEnforce() {
     println("\n\u001b[33;1m[PHASE 3] Compiling and Enforcing Policy...\u001b[0m")
     // Compile the observed profile into a Landlock & Seccomp enforced Policy.
     // We explicitly unblock io_uring_setup to showcase how developers customize/stack policies
-    // and to verify the perfect union even when container seccomp profiles block it.
+    // and to verify the complementary sandboxing even when container seccomp profiles block it.
     val compiledPolicy =
         Policy
             .builder()
@@ -173,12 +173,12 @@ fun runProfileAndEnforce() {
     }
 
     // ------------------------------------------------------------
-    // PHASE 5: Simulating Asynchronous Evasion via io_uring (The Perfect Union)
+    // PHASE 5: Simulating Asynchronous Evasion via io_uring (Complementary Sandboxing)
     // ------------------------------------------------------------
     println("\n\u001b[33;1m[PHASE 5] Simulating Breach: Asynchronous Evasion via io_uring...\u001b[0m")
     println("To bypass thread-scoped Seccomp filters, the attacker leverages the allowed")
     println("io_uring queue to submit an asynchronous read of '/etc/hosts'.")
-    println("This is the ultimate test of the 'Perfect Union' of Landlock and Seccomp:")
+    println("This is the ultimate test of the complementary Seccomp-Landlock sandboxing:")
     println("  1. Seccomp whitelists io_uring_setup for normal workload operations.")
     println("  2. Standard Seccomp cannot inspect async operations submitted inside the queue.")
     println("  3. However, Landlock operates at the VFS LSM hook layer. The kernel's async workers")
@@ -218,7 +218,7 @@ fun runProfileAndEnforce() {
     } catch (e: ExecutionException) {
         val cause = e.cause ?: e
         if (cause is ContainmentViolationException) {
-            println("\u001b[32;1m[BOUNCER SUCCESS] The Perfect Union succeeded! Landlock blocked the io_uring async file read!\u001b[0m")
+            println("\u001b[32;1m[BOUNCER SUCCESS] Complementary sandboxing succeeded! Landlock blocked the io_uring async file read!\u001b[0m")
             println("  Java Exception caught: \u001b[31m${cause.javaClass.name}: ${cause.message}\u001b[0m")
             println("  Original Cause: \u001b[33m${cause.cause?.javaClass?.name}: ${cause.cause?.message}\u001b[0m")
         } else {
