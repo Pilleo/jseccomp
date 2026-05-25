@@ -26,6 +26,7 @@ import java.util.logging.Logger
  * **Mitigation:** Ensure critical classes and native libraries are loaded during application
  * startup before containment is applied.
  */
+@Suppress("TooManyFunctions")
 object ContainedExecutors {
     private val warmedUp = AtomicBoolean(false)
 
@@ -109,7 +110,7 @@ object ContainedExecutors {
             Platform.isSupported()
             try {
                 Arch.current()
-            } catch (e: Exception) {
+            } catch (ignored: Exception) {
                 // Ignore unsupported architecture; will be handled by platform check
             }
         }
@@ -135,13 +136,11 @@ object ContainedExecutors {
         val appliedReads = ContainerStateRegistry.THREAD_LANDLOCK_APPLIED_READS.get()
         val appliedWrites = ContainerStateRegistry.THREAD_LANDLOCK_APPLIED_WRITES.get()
 
-        if (appliedReads != null || appliedWrites != null) {
-            val prevReads = appliedReads ?: emptySet()
-            val prevWrites = appliedWrites ?: emptySet()
-
-            val hasNewReads = !isPathSubset(prevReads, policy.allowedFsReadPaths)
-            val hasNewWrites = !isPathSubset(prevWrites, policy.allowedFsWritePaths)
-            if (hasNewReads || hasNewWrites) {
+        if (appliedReads != null && appliedWrites != null) {
+            // Assert that we are not trying to expand Landlock filesystem permissions on nested containment
+            val readsSubset = isPathSubset(appliedReads, policy.allowedFsReadPaths)
+            val writesSubset = isPathSubset(appliedWrites, policy.allowedFsWritePaths)
+            if (!readsSubset || !writesSubset) {
                 throw IllegalStateException("Cannot expand Landlock filesystem permissions on an already restricted thread.")
             }
         }
@@ -158,14 +157,14 @@ object ContainedExecutors {
         childPaths: Set<String>,
     ): Boolean {
         if (childPaths.isEmpty()) return true
-        if (parentPaths.isEmpty()) return false
         val parents = parentPaths.map {
             java.nio.file.Paths
-            .get(it)
-            .toAbsolutePath()
-            .normalize()
+                .get(it)
+                .toAbsolutePath()
+                .normalize()
         }
-        return childPaths.all { childStr ->
+        return parents.isNotEmpty() &&
+            childPaths.all { childStr ->
             val child = java.nio.file.Paths
                 .get(childStr)
                 .toAbsolutePath()

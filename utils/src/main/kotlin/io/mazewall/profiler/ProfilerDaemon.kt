@@ -365,22 +365,20 @@ object ProfilerDaemon {
             remoteIov.set(ValueLayout.ADDRESS, 0L, MemorySegment.ofAddress(remoteAddress))
             remoteIov.set(ValueLayout.JAVA_LONG, IOV_LEN_OFF, maxLen.toLong())
             val res = LinuxNative.processVmReadv(pid, localIov, 1, remoteIov, 1, 0)
-            if (res.returnValue < 0) {
-                if (res.errno == 1) { // EPERM
-                    System.err.println("[DAEMON] WARN: Permission denied reading memory from PID $pid. (Yama ptrace_scope?)")
+            var result: String? = null
+            if (res.returnValue >= 0) {
+                val bytesRead = res.returnValue.toInt()
+                var len = 0
+                while (len < bytesRead && localBuf.get(ValueLayout.JAVA_BYTE, len.toLong()) != 0.toByte()) len++
+
+                // Bounding Check: If no null terminator was found within the read buffer, reject the string
+                if (len < bytesRead) {
+                    result = localBuf.copyToString(len)
                 }
-                return null
+            } else if (res.errno == 1) { // EPERM
+                System.err.println("[DAEMON] WARN: Permission denied reading memory from PID $pid. (Yama ptrace_scope?)")
             }
-            val bytesRead = res.returnValue.toInt()
-            var len = 0
-            while (len < bytesRead && localBuf.get(ValueLayout.JAVA_BYTE, len.toLong()) != 0.toByte()) len++
-
-            // Bounding Check: If no null terminator was found within the read buffer, reject the string
-            if (len == bytesRead) {
-                return null
-            }
-
-            return localBuf.copyToString(len)
+            return result
         }
     }
 

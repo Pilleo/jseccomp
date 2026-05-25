@@ -248,26 +248,26 @@ val policy = Policy.builder()
 
     @Test
     fun `test OPEN with different args sizes and flags`() {
-        val O_RDONLY = 0L
-        val O_WRONLY = 1L
-        val O_RDWR = 2L
-        val O_CREAT = 64L
-        val O_TRUNC = 512L
+        val oRdonly = 0L
+        val oWronly = 1L
+        val oRdwr = 2L
+        val oCreat = 64L
+        val oTrunc = 512L
 
         val events = listOf(
             // Missing flags arg (size <= 1), treated as read-only (0)
             TraceEvent(pid = 1, syscallName = "OPEN", args = longArrayOf(), paths = listOf("/path/missing")),
             TraceEvent(pid = 1, syscallName = "OPEN", args = longArrayOf(10), paths = listOf("/path/missing2")),
             // Read-only
-            TraceEvent(pid = 1, syscallName = "OPEN", args = longArrayOf(10, O_RDONLY), paths = listOf("/path/readonly")),
+            TraceEvent(pid = 1, syscallName = "OPEN", args = longArrayOf(10, oRdonly), paths = listOf("/path/readonly")),
             // Write-only
-            TraceEvent(pid = 1, syscallName = "OPEN", args = longArrayOf(10, O_WRONLY), paths = listOf("/path/writeonly")),
+            TraceEvent(pid = 1, syscallName = "OPEN", args = longArrayOf(10, oWronly), paths = listOf("/path/writeonly")),
             // Read-write
-            TraceEvent(pid = 1, syscallName = "OPEN", args = longArrayOf(10, O_RDWR), paths = listOf("/path/readwrite")),
+            TraceEvent(pid = 1, syscallName = "OPEN", args = longArrayOf(10, oRdwr), paths = listOf("/path/readwrite")),
             // Create
-            TraceEvent(pid = 1, syscallName = "OPEN", args = longArrayOf(10, O_CREAT), paths = listOf("/path/create")),
+            TraceEvent(pid = 1, syscallName = "OPEN", args = longArrayOf(10, oCreat), paths = listOf("/path/create")),
             // Truncate
-            TraceEvent(pid = 1, syscallName = "OPEN", args = longArrayOf(10, O_TRUNC), paths = listOf("/path/truncate")),
+            TraceEvent(pid = 1, syscallName = "OPEN", args = longArrayOf(10, oTrunc), paths = listOf("/path/truncate")),
         )
 
         val bob = BobCompiler.compile(events)
@@ -284,11 +284,11 @@ val policy = Policy.builder()
 
     @Test
     fun `test OPENAT with different args sizes and flags`() {
-        val O_RDONLY = 0L
-        val O_WRONLY = 1L
-        val O_RDWR = 2L
-        val O_CREAT = 64L
-        val O_TRUNC = 512L
+        val oRdonly = 0L
+        val oWronly = 1L
+        val oRdwr = 2L
+        val oCreat = 64L
+        val oTrunc = 512L
 
         val events = listOf(
             // Missing flags arg (size <= 2), treated as read-only (0)
@@ -296,15 +296,15 @@ val policy = Policy.builder()
             TraceEvent(pid = 1, syscallName = "OPENAT", args = longArrayOf(10), paths = listOf("/path/missing2")),
             TraceEvent(pid = 1, syscallName = "OPENAT", args = longArrayOf(10, 20), paths = listOf("/path/missing3")),
             // Read-only
-            TraceEvent(pid = 1, syscallName = "OPENAT", args = longArrayOf(10, 20, O_RDONLY), paths = listOf("/path/readonly")),
+            TraceEvent(pid = 1, syscallName = "OPENAT", args = longArrayOf(10, 20, oRdonly), paths = listOf("/path/readonly")),
             // Write-only
-            TraceEvent(pid = 1, syscallName = "OPENAT", args = longArrayOf(10, 20, O_WRONLY), paths = listOf("/path/writeonly")),
+            TraceEvent(pid = 1, syscallName = "OPENAT", args = longArrayOf(10, 20, oWronly), paths = listOf("/path/writeonly")),
             // Read-write
-            TraceEvent(pid = 1, syscallName = "OPENAT", args = longArrayOf(10, 20, O_RDWR), paths = listOf("/path/readwrite")),
+            TraceEvent(pid = 1, syscallName = "OPENAT", args = longArrayOf(10, 20, oRdwr), paths = listOf("/path/readwrite")),
             // Create
-            TraceEvent(pid = 1, syscallName = "OPENAT", args = longArrayOf(10, 20, O_CREAT), paths = listOf("/path/create")),
+            TraceEvent(pid = 1, syscallName = "OPENAT", args = longArrayOf(10, 20, oCreat), paths = listOf("/path/create")),
             // Truncate
-            TraceEvent(pid = 1, syscallName = "OPENAT", args = longArrayOf(10, 20, O_TRUNC), paths = listOf("/path/truncate")),
+            TraceEvent(pid = 1, syscallName = "OPENAT", args = longArrayOf(10, 20, oTrunc), paths = listOf("/path/truncate")),
         )
 
         val bob = BobCompiler.compile(events)

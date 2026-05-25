@@ -61,15 +61,48 @@ To bypass these constraints, we designed a **Tiered Profiling System** that prov
 +------------------+           +------------------+            +------------------+
 ```
 
-### Tier P: Privileged eBPF / Trace Profiler (Recommended for Performance)
-In environments where `root` access is acceptable during the profiling phase (e.g. local development or dedicated CI runners), Tier P provides **absolute transparency**.
+### Tier P: Privileged / Trace Profiler (Strace Subprocess Descendant Tracing)
+In local development environments and CI/CD runners where host-level root-privileged eBPF is blocked or unavailable, Tier P utilizes a high-fidelity **`strace` subprocess descendant tracing** architecture (`StraceProfiler`).
 
-*   **Mechanism:** The JVM spawns a root-privileged daemon (using `sudo` or capabilities) that attaches eBPF probes to kernel tracepoints (`sys_enter`, `sys_exit`) or uses the `perf` subsystem.
-*   **Benefits:** 
-    *   **Zero-Blocking:** It observes syscalls and VFS paths without ever blocking or denying them. 
-    *   **Async Visibility:** It has perfect visibility into `io_uring` operations as it hooks the kernel directly.
-    *   **Transparency:** The application runs at near-native speed with zero risk of `EACCES` crashes.
-*   **Output:** Generates a complete `BillOfBehavior` including "Fast Path" `io_uring` operations.
+#### The Unprivileged Container Yama Ptrace Scope Constraint
+Inside rootless, unprivileged containers (e.g., standard Podman/Docker developer environments), attempting to attach `strace` to a running JVM process using `strace -p <PID>` fails with `EPERM` ("Operation not permitted"). This occurs because:
+1. The host kernel's default Yama Linux Security Module (LSM) configuration is set to `kernel.yama.ptrace_scope = 1`, which strictly restricts tracing to parent-child descendant relationships (a process can only trace its own descendants).
+2. The user namespace boundaries of rootless OCI runtimes prevent namespaced processes from easily calling `prctl(PR_SET_PTRACER, ...)` across JVM thread contexts without elevated capabilities.
+
+#### The Subprocess Descendant Architecture
+To achieve unprivileged, 100% container-compatible tracing, the profiler spawns a new child JVM process executed **directly under `strace -f`**. Under standard Linux kernel security boundaries, any process is fully permitted to trace its own spawned child descendants.
+
+```
++-----------------------------+
+|        StraceProfiler       |
++-----------------------------+
+               │
+               ▼ (ProcessBuilder)
+    "strace -f -yy -e trace=file,network java ..."
+               │
+               ▼
++-----------------------------+
+|     StraceWorkloadRunner    |  (Traced Child JVM)
++-----------------------------+
+               │
+               ▼ (Reflection)
++-----------------------------+
+|      TraceableWorkload      |  (User Workload)
++-----------------------------+
+```
+
+1. **The Contract (`TraceableWorkload`):** The target workload implements the `TraceableWorkload` interface containing a single `run()` method.
+2. **The Execution Helper (`StraceWorkloadRunner`):** Spawns a lightweight entrypoint inside a separate child JVM process. It receives the workload class name, loads it dynamically via reflection, and runs it.
+3. **The Orchestration (`StraceProfiler`):** Executes `strace -f -yy -e trace=file,network` to trace all spawned threads and capture filesystem/network calls, sending trace output to a temporary log file.
+
+#### High-Fidelity JVM Bootstrap Noise Filtering
+A standard JVM boot triggers hundreds of system calls to locate class files, locate system properties, discover locales, and load native JDK library modules (e.g., `libzip.so`, `libnio.so`, timezone files). Scraping this raw log produces highly bloated, over-privileged security policies.
+To guarantee a minimal, pristine `BillOfBehavior` profile, the log parser (`parseLine`) automatically filters out:
+* **JDK System Folders:** Path patterns like `/lib`, `/usr/lib`, `/lib64`, and files loaded from the active `$JAVA_HOME`.
+* **JVM Internals:** Common glibc resolver/loader caches like `/etc/ld.so.cache`, `/etc/nsswitch.conf`, `/etc/resolv.conf`, `/etc/hosts`.
+* **Classpath Jars:** Any directories and `.jar` archives declared in the active `java.class.path` system property.
+
+This ensures that only actual, dynamic application-level read/write paths and network targets are whitelisted in the final security policy.
 
 ### Tier S: Out-of-Process `USER_NOTIF` Supervisor (The Unprivileged Default)
 Placing the supervisor thread inside the *same* JVM leads to fatal safepoint deadlocks. Relying on `strace` leads to noisy, process-wide telemetry and brittle text scraping. Instead, we use `SECCOMP_RET_USER_NOTIF` backed by a lightweight sidecar process communicating via Unix Domain Sockets using a structured binary protocol to prevent log injection.

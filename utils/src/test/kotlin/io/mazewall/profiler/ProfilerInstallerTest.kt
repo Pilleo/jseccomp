@@ -28,7 +28,7 @@ class ProfilerInstallerTest {
                     pathCache = pathCache,
                     workerThreadProvider = { currentThread },
                     connectWithRetry = { _ ->
-                        throw RuntimeException("Simulated connection retry failure")
+                        throw IllegalStateException("Simulated connection retry failure")
                     },
                     startTraceListener = { _, _, _, _, _ -> },
                 )

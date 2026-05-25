@@ -80,6 +80,7 @@ subprojects {
                         "io.mazewall.profiler.Profiler*",
                         "io.mazewall.Arch*",
                         "io.mazewall.landlock.Landlock*",
+                        "io.mazewall.profiler.StraceWorkloadRunner*",
                     )
                 limit {
                     counter = "INSTRUCTION"

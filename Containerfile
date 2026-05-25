@@ -7,6 +7,7 @@ WORKDIR /workspace
 RUN apt-get update && apt-get install -y \
     curl \
     git \
+    strace \
     unzip \
     zsh \
     && rm -rf /var/lib/apt/lists/*
