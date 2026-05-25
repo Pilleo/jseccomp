@@ -46,7 +46,7 @@ object Platform {
         return passed
     }
 
-    private fun isArchitectureSupported(): Boolean =
+    internal fun isArchitectureSupported(): Boolean =
         try {
             Arch.current()
             true
