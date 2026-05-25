@@ -23,7 +23,6 @@ object IterativeProfiler {
 
         for (i in 0 until maxRetries) {
             val t = executeTask(currentPolicy, task) ?: return currentPolicy
-
             val path = extractViolationPath(t)
             if (path != null) {
                 currentPolicy = updatePolicyForViolation(currentPolicy, path)
@@ -61,30 +60,15 @@ object IterativeProfiler {
         path: String,
     ): Policy {
         val builder = Policy.builder().base(currentPolicy)
-        // Heuristic-based access discovery.
-        // AccessDeniedException from Landlock does not explicitly carry the access mode that was denied.
-        // To avoid over-granting write access, we check if the path is already readable by the current
-        // process (ignoring Landlock). If it is already readable but we still got a violation, it was
-        // likely a Write attempt.
-        val file = java.io.File(path)
-        val isReadableOutsideSandbox = file.exists() && file.canRead()
         val isCurrentlyReadAllowed = currentPolicy.allowedFsReadPaths.any { path.startsWith(it) }
 
-        if (isReadableOutsideSandbox && isCurrentlyReadAllowed) {
-            // It was already readable, so it's probably a write denial
+        if (isCurrentlyReadAllowed) {
+            // If read is already allowed but we still got denied, it's a write attempt.
             builder.allowFsWrite(path)
         } else {
-            // TODO(Security): Landlock missing file fallback over-permission.
-            // If the application attempts to read a missing file (e.g. `/app/data/missing.txt`),
-            // the kernel returns EACCES. This fallback conservatively grants BOTH Read and Write access
-            // to `/app/data/missing.txt`. When this policy is passed to Landlock.applyRuleset, Landlock detects
-            // the file is missing and falls back to applying the rule to the parent `/app/data`.
-            // As a result, a failed read of a missing file causes the profiler to grant full Write access to the parent directory.
-            // Conservative fallback: grant both to guarantee convergence.
-            // This covers cases where the file doesn't exist (Write needed for creation)
-            // or where Read itself was the reason for denial.
+            // First attempt: grant read access only.
+            // If it was a write attempt, the next run will hit the `isCurrentlyReadAllowed` branch and add write.
             builder.allowFsRead(path)
-            builder.allowFsWrite(path)
         }
         return builder.build()
     }

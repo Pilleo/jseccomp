@@ -48,11 +48,11 @@
 **Context:** In `ProfilerDaemon.kt`, `readStringFromProcess` copies memory from a target process. If a malicious or corrupted pointer lacked a null terminator within the buffer window (`maxLen = 4096`), it copied the entire buffer as a string, processing garbage data.
 **Fix:** Added a bounding check in `readStringFromProcess` (`if (len == bytesRead) { return null }`) to safely reject any strings that are not null-terminated within the read boundary. Covered with comprehensive unit tests in `ProfilerDaemonTest` using self-PID FFM memory allocations.
 
-## Remaining Issues
+### ✅ FIXED: Landlock Path Fallback Over-Permission
+**Context:** In `IterativeProfiler.kt`, reading a missing file inside a restricted directory triggers an `EACCES` denial. Previously, the profiler conservatively granted both Read and Write access, which caused Landlock to fall back to the parent directory and grant full write permissions on the parent directory for a simple missing file read.
+**Fix:** Refactored `IterativeProfiler` to use an adaptive permission discovery strategy. On the first violation of a path, only `Read` access is granted. If a subsequent run still triggers a violation on that path, it is identified as a `Write` attempt and `Write` access is granted. This ensures that missing file reads never elevate to write permissions on the parent directory, while guaranteeing convergence within exactly one extra iteration.
 
-### 🔴 High: Landlock Path Fallback Over-Permission
-**Context:** In `IterativeProfiler.kt`, reading a missing file inside a restricted directory triggers an `EACCES` denial. The profiler conservatively grants both Read and Write access. When `Landlock.kt` processes this rule, it falls back to applying the rule to the parent directory, resulting in full write access to the parent.
-**Needed:** Re-evaluate the `IterativeProfiler` fallback strategy or explicitly handle missing files before passing them to Landlock.
+## Remaining Issues
 
 ### 🔴 High: Implement Tier P (Privileged Profiler)
 **Context:** High-performance `io_uring` profiling currently requires either the slow `IterativeProfiler` or a performance-degrading fallback to standard I/O.

@@ -83,7 +83,39 @@ class IterativeProfilerTest {
             // Second attempt succeeds
         }
         assertTrue(compiledPolicy.allowedFsReadPaths.contains(targetPath))
-        assertTrue(compiledPolicy.allowedFsWritePaths.contains(targetPath))
+        assertTrue(!compiledPolicy.allowedFsWritePaths.contains(targetPath), "Should not grant write permission by default")
+    }
+
+    @Test
+    @EnabledIfLinuxAndSupported
+    fun `test iterative profiling of existing file read grants read and not write permission`() {
+        val parentDir = File("/tmp/iterative_existing_read").absoluteFile
+        parentDir.mkdirs()
+        val existingFile = File(parentDir, "exists.txt")
+        existingFile.writeText("some content")
+
+        try {
+            val basePolicy =
+                Policy
+                    .builder()
+                    .unblock(
+                        Syscall.OPEN,
+                        Syscall.OPENAT,
+                        Syscall.OPENAT2,
+                    ).build()
+
+            val compiledPolicy =
+                IterativeProfiler.profile(basePolicy) {
+                    existingFile.readText()
+                }
+            println("COMPILED POLICY READS: ${compiledPolicy.allowedFsReadPaths}")
+            println("COMPILED POLICY WRITES: ${compiledPolicy.allowedFsWritePaths}")
+            // We should have read permission, but absolutely NO write permission!
+            assertTrue(compiledPolicy.allowedFsReadPaths.contains(existingFile.absolutePath))
+            assertTrue(!compiledPolicy.allowedFsWritePaths.contains(existingFile.absolutePath), "Should not grant write permission for existing file read")
+        } finally {
+            parentDir.deleteRecursively()
+        }
     }
 
     @Test
