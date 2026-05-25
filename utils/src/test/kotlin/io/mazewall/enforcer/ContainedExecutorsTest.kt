@@ -192,16 +192,18 @@ class ContainedExecutorsTest {
     fun `test hierarchical Landlock stacking success`() {
         val executor = Executors.newSingleThreadExecutor()
         try {
-            val future = executor.submit(java.util.concurrent.Callable {
+            val future = executor.submit(
+                java.util.concurrent.Callable {
                 // 1. Install base policy allowing /tmp
                 val basePolicy = Policy.builder().allowFsRead("/tmp").build()
                 ContainedExecutors.installOnCurrentThread(basePolicy)
-                
+
                 // 2. Install nested policy allowing /tmp/foo (valid subset)
                 val nestedPolicy = Policy.builder().allowFsRead("/tmp/foo").build()
                 ContainedExecutors.installOnCurrentThread(nestedPolicy)
                 "success"
-            })
+            },
+            )
             assertEquals("success", future.get())
         } finally {
             executor.shutdown()
@@ -217,12 +219,12 @@ class ContainedExecutorsTest {
                 // 1. Install base policy allowing /tmp
                 val basePolicy = Policy.builder().allowFsRead("/tmp").build()
                 ContainedExecutors.installOnCurrentThread(basePolicy)
-                
+
                 // 2. Install nested policy allowing /etc (illegal expansion)
                 val nestedPolicy = Policy.builder().allowFsRead("/etc").build()
                 ContainedExecutors.installOnCurrentThread(nestedPolicy)
             }
-            
+
             val ex = assertFailsWith<ExecutionException> {
                 future.get()
             }
@@ -242,12 +244,12 @@ class ContainedExecutorsTest {
                 // 1. Install base policy allowing /tmp
                 val basePolicy = Policy.builder().allowFsRead("/tmp").build()
                 ContainedExecutors.installOnCurrentThread(basePolicy)
-                
+
                 // 2. Install nested policy allowing /tmp-foo (incorrect component boundary)
                 val nestedPolicy = Policy.builder().allowFsRead("/tmp-foo").build()
                 ContainedExecutors.installOnCurrentThread(nestedPolicy)
             }
-            
+
             val ex = assertFailsWith<ExecutionException> {
                 future.get()
             }
@@ -263,18 +265,19 @@ class ContainedExecutorsTest {
     fun `test hierarchical Landlock stacking identical paths`() {
         val executor = Executors.newSingleThreadExecutor()
         try {
-            val future = executor.submit(java.util.concurrent.Callable {
+            val future = executor.submit(
+                java.util.concurrent.Callable {
                 val basePolicy = Policy.builder().allowFsRead("/tmp").build()
                 ContainedExecutors.installOnCurrentThread(basePolicy)
-                
+
                 // Nesting the identical policy should succeed
                 ContainedExecutors.installOnCurrentThread(basePolicy)
                 "success"
-            })
+            },
+            )
             assertEquals("success", future.get())
         } finally {
             executor.shutdown()
         }
     }
 }
-

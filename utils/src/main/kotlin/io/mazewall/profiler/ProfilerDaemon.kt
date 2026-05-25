@@ -4,7 +4,6 @@ import io.mazewall.Arch
 import io.mazewall.LinuxNative
 import io.mazewall.Syscall
 import java.io.DataOutputStream
-import java.io.File
 import java.io.IOException
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
@@ -117,7 +116,10 @@ object ProfilerDaemon {
         return bindRes.returnValue.toInt()
     }
 
-    private fun prepareSocketAddr(arena: Arena, socketPath: String): MemorySegment {
+    private fun prepareSocketAddr(
+        arena: Arena,
+        socketPath: String,
+    ): MemorySegment {
         val addr = arena.allocate(LinuxNative.SOCKADDR_UN_LAYOUT)
         addr.fill(0)
         addr.set(ValueLayout.JAVA_SHORT, 0L, 1.toShort()) // AF_UNIX = 1
@@ -128,7 +130,10 @@ object ProfilerDaemon {
         return addr
     }
 
-    private fun bindAndListen(serverFd: Int, addr: MemorySegment) {
+    private fun bindAndListen(
+        serverFd: Int,
+        addr: MemorySegment,
+    ) {
         if (LinuxNative.bind(serverFd, addr, ADDR_UN_SIZE).returnValue < 0) {
             throw IllegalStateException("Failed to bind")
         }
@@ -137,7 +142,10 @@ object ProfilerDaemon {
         }
     }
 
-    private fun acceptConnections(serverFd: Int, arena: Arena) {
+    private fun acceptConnections(
+        serverFd: Int,
+        arena: Arena,
+    ) {
         val addr = arena.allocate(LinuxNative.SOCKADDR_UN_LAYOUT)
         val addrLen = arena.allocate(ValueLayout.JAVA_INT)
         addrLen.set(ValueLayout.JAVA_INT, 0L, ADDR_UN_SIZE)
@@ -397,7 +405,7 @@ object ProfilerDaemon {
             "RENAMEAT", "RENAMEAT2", "LINKAT", "SYMLINKAT" ->
                 listOfNotNull(
                     tryRead(pid, args[ARG_OLD_PATH], args[ARG_OLD_DIR_FD]),
-                    tryRead(pid, args[ARG_NEW_PATH], args[ARG_NEW_DIR_FD])
+                    tryRead(pid, args[ARG_NEW_PATH], args[ARG_NEW_DIR_FD]),
                 )
 
             else -> emptyList()
@@ -424,8 +432,7 @@ object ProfilerDaemon {
         }
     }
 
-    private fun isAtFdcwd(fd: Long): Boolean =
-        fd == AT_FDCWD_VAL || fd == AT_FDCWD_UNSIGNED_VAL || fd.toInt() == AT_FDCWD_INT_VAL
+    private fun isAtFdcwd(fd: Long): Boolean = fd == AT_FDCWD_VAL || fd == AT_FDCWD_UNSIGNED_VAL || fd.toInt() == AT_FDCWD_INT_VAL
 
     private fun tryRead(
         pid: Int,

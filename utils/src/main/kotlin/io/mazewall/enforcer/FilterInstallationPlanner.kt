@@ -17,16 +17,19 @@ internal object FilterInstallationPlanner {
         val currentlyAllowsMmapExec: Boolean,
         val currentlyAllowsNonThreadClone: Boolean,
         val currentlyAllowsUnsafePrctl: Boolean,
-        val currentDepth: Int
+        val currentDepth: Int,
     )
 
     data class FilterPlan(
         val needsNewFilter: Boolean,
         val toInstall: Policy,
-        val newBlocks: Set<Syscall>
+        val newBlocks: Set<Syscall>,
     )
 
-    fun calculateNewFilter(policy: Policy, state: ContainerState): FilterPlan {
+    fun calculateNewFilter(
+        policy: Policy,
+        state: ContainerState,
+    ): FilterPlan {
         val newBlocks = if (policy.mode == Policy.Mode.DENY_LIST) {
             policy.syscalls - state.currentlyBlocked
         } else {
@@ -38,7 +41,10 @@ internal object FilterInstallationPlanner {
         val needsPrctlProtection = !policy.allowUnsafePrctl && state.currentlyAllowsUnsafePrctl
 
         val needsNewFilter = policy.mode == Policy.Mode.ALLOW_LIST ||
-            newBlocks.isNotEmpty() || needsMmapProtection || needsCloneProtection || needsPrctlProtection
+            newBlocks.isNotEmpty() ||
+            needsMmapProtection ||
+            needsCloneProtection ||
+            needsPrctlProtection
 
         val toInstall = if (policy.mode == Policy.Mode.ALLOW_LIST) {
             policy

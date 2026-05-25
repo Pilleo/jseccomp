@@ -3,14 +3,13 @@ package io.mazewall.profiler
 import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.Policy
 import org.junit.jupiter.api.Test
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.assertTrue
 
 @EnabledIfLinuxAndSupported
 class ProfilerInstallerTest {
-
     @Test
     fun `test coordinator thread handles connection retry failure`() {
         val accumulatedLogs = CopyOnWriteArrayList<TraceEvent>()
@@ -31,7 +30,7 @@ class ProfilerInstallerTest {
                     connectWithRetry = { _ ->
                         throw RuntimeException("Simulated connection retry failure")
                     },
-                    startTraceListener = { _, _, _, _, _ -> }
+                    startTraceListener = { _, _, _, _, _ -> },
                 )
                 // Trigger an intercepted syscall to force blocking in seccomp
                 java.io.FileInputStream("/etc/hostname").use {}
@@ -70,7 +69,7 @@ class ProfilerInstallerTest {
                         // Return a dummy FD that will fail sendDescriptor
                         999
                     },
-                    startTraceListener = { _, _, _, _, _ -> }
+                    startTraceListener = { _, _, _, _, _ -> },
                 )
                 // Trigger an intercepted syscall to force blocking in seccomp
                 java.io.FileInputStream("/etc/hostname").use {}

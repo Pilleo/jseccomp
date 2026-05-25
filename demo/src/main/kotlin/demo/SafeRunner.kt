@@ -17,7 +17,9 @@ object SafeRunner {
                     VulnerableLogger.log(payload)
                 }
             future.get()
-        } catch (@Suppress("SwallowedException") e: ExecutionException) {
+        } catch (
+            @Suppress("SwallowedException") e: ExecutionException,
+        ) {
             // We intentionally unwrap the ExecutionException to expose the underlying
             // ContainmentViolationException to the caller for clearer demo output.
             if (e.cause is ContainmentViolationException) {

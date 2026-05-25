@@ -15,7 +15,6 @@ import java.util.concurrent.atomic.AtomicReference
  * Internal helper for installing seccomp profiling filters.
  */
 internal object ProfilerInstaller {
-
     fun installProfilingFilterForThread(
         socketPath: String,
         policy: Policy,
@@ -24,7 +23,7 @@ internal object ProfilerInstaller {
         pathCache: MutableMap<String, Long>,
         workerThreadProvider: () -> Thread?,
         connectWithRetry: (String) -> Int,
-        startTraceListener: (Int, MutableList<TraceEvent>, MutableMap<TraceEvent, MutableList<Array<StackTraceElement>>>?, MutableMap<String, Long>, () -> Thread?) -> Unit
+        startTraceListener: (Int, MutableList<TraceEvent>, MutableMap<TraceEvent, MutableList<Array<StackTraceElement>>>?, MutableMap<String, Long>, () -> Thread?) -> Unit,
     ) {
         val installLatch = CountDownLatch(1)
         val proceedLatch = CountDownLatch(1)
@@ -43,7 +42,7 @@ internal object ProfilerInstaller {
                     pathCache,
                     workerThreadProvider,
                     connectWithRetry,
-                    startTraceListener
+                    startTraceListener,
                 )
             }.apply {
                 isDaemon = true
@@ -83,7 +82,7 @@ internal object ProfilerInstaller {
         pathCache: MutableMap<String, Long>,
         workerThreadProvider: () -> Thread?,
         connectWithRetry: (String) -> Int,
-        startTraceListener: (Int, MutableList<TraceEvent>, MutableMap<TraceEvent, MutableList<Array<StackTraceElement>>>?, MutableMap<String, Long>, () -> Thread?) -> Unit
+        startTraceListener: (Int, MutableList<TraceEvent>, MutableMap<TraceEvent, MutableList<Array<StackTraceElement>>>?, MutableMap<String, Long>, () -> Thread?) -> Unit,
     ) {
         installLatch.await()
         val fd = listenerFd.get()

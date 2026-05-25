@@ -4,11 +4,9 @@ import io.mazewall.LinuxNative
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import java.lang.foreign.Arena
-import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout
 
 class DescriptorPassingTest {
-
     @Test
     fun `test setupScmRightsMsgHdr correctly initializes msghdr and iovec`() {
         Arena.ofConfined().use { arena ->

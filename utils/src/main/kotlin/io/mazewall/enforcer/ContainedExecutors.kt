@@ -6,7 +6,6 @@ import io.mazewall.Policy
 import io.mazewall.Syscall
 import io.mazewall.landlock.Landlock
 import io.mazewall.seccomp.PureJavaBpfEngine
-import java.io.IOException
 import java.util.concurrent.*
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.logging.Logger
@@ -116,7 +115,10 @@ object ContainedExecutors {
         }
     }
 
-    private fun applyLandlockIfNecessary(processWide: Boolean, policy: Policy) {
+    private fun applyLandlockIfNecessary(
+        processWide: Boolean,
+        policy: Policy,
+    ) {
         val needsLandlock = policy.allowedFsReadPaths.isNotEmpty() ||
                 policy.allowedFsWritePaths.isNotEmpty() ||
                 policy.isSyscallAllowed(Syscall.IO_URING_SETUP)
@@ -151,12 +153,23 @@ object ContainedExecutors {
         }
     }
 
-    private fun isPathSubset(parentPaths: Set<String>, childPaths: Set<String>): Boolean {
+    private fun isPathSubset(
+        parentPaths: Set<String>,
+        childPaths: Set<String>,
+    ): Boolean {
         if (childPaths.isEmpty()) return true
         if (parentPaths.isEmpty()) return false
-        val parents = parentPaths.map { java.nio.file.Paths.get(it).toAbsolutePath().normalize() }
+        val parents = parentPaths.map {
+            java.nio.file.Paths
+            .get(it)
+            .toAbsolutePath()
+            .normalize()
+        }
         return childPaths.all { childStr ->
-            val child = java.nio.file.Paths.get(childStr).toAbsolutePath().normalize()
+            val child = java.nio.file.Paths
+                .get(childStr)
+                .toAbsolutePath()
+                .normalize()
             parents.any { parent -> child.startsWith(parent) }
         }
     }
@@ -180,7 +193,7 @@ object ContainedExecutors {
             currentlyAllowsMmapExec = ContainerStateRegistry.THREAD_ALLOWS_MMAP_EXEC.get() && ContainerStateRegistry.PROCESS_ALLOWS_MMAP_EXEC.get(),
             currentlyAllowsNonThreadClone = ContainerStateRegistry.THREAD_ALLOWS_NON_THREAD_CLONE.get() && ContainerStateRegistry.PROCESS_ALLOWS_NON_THREAD_CLONE.get(),
             currentlyAllowsUnsafePrctl = ContainerStateRegistry.THREAD_ALLOWS_UNSAFE_PRCTL.get() && ContainerStateRegistry.PROCESS_ALLOWS_UNSAFE_PRCTL.get(),
-            currentDepth = ContainerStateRegistry.FILTER_DEPTH.get() + ContainerStateRegistry.PROCESS_FILTER_DEPTH.get()
+            currentDepth = ContainerStateRegistry.FILTER_DEPTH.get() + ContainerStateRegistry.PROCESS_FILTER_DEPTH.get(),
         )
 
     private fun applyBpfFilter(
@@ -289,8 +302,7 @@ object ContainedExecutors {
 
         override fun submit(task: Runnable): Future<*> = delegate.submit(wrapRunnable(task))
 
-        override fun <T> invokeAll(tasks: Collection<Callable<T>>): List<Future<T>> =
-            delegate.invokeAll(tasks.map { wrapCallable(it) })
+        override fun <T> invokeAll(tasks: Collection<Callable<T>>): List<Future<T>> = delegate.invokeAll(tasks.map { wrapCallable(it) })
 
         override fun <T> invokeAll(
             tasks: Collection<Callable<T>>,
@@ -298,8 +310,7 @@ object ContainedExecutors {
             unit: TimeUnit,
         ): List<Future<T>> = delegate.invokeAll(tasks.map { wrapCallable(it) }, timeout, unit)
 
-        override fun <T> invokeAny(tasks: Collection<Callable<T>>): T =
-            delegate.invokeAny(tasks.map { wrapCallable(it) })
+        override fun <T> invokeAny(tasks: Collection<Callable<T>>): T = delegate.invokeAny(tasks.map { wrapCallable(it) })
 
         override fun <T> invokeAny(
             tasks: Collection<Callable<T>>,

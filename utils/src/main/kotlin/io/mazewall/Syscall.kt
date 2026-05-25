@@ -122,23 +122,27 @@ internal object SyscallMapper {
     ): Int =
         when (syscall) {
             Syscall.FORK, Syscall.VFORK, Syscall.CLONE, Syscall.CLONE3, Syscall.EXECVE, Syscall.EXECVEAT, Syscall.EXIT, Syscall.EXIT_GROUP,
-            Syscall.GETTID, Syscall.GETPID, Syscall.GETPPID, Syscall.GETUID, Syscall.GETEUID, Syscall.GETGID, Syscall.GETEGID, Syscall.PTRACE ->
+            Syscall.GETTID, Syscall.GETPID, Syscall.GETPPID, Syscall.GETUID, Syscall.GETEUID, Syscall.GETGID, Syscall.GETEGID, Syscall.PTRACE,
+            ->
                 ProcessSyscallMapper.numberFor(syscall, arch)
 
             Syscall.CONNECT, Syscall.BIND, Syscall.LISTEN, Syscall.ACCEPT, Syscall.ACCEPT4, Syscall.SENDTO, Syscall.SENDMSG, Syscall.SOCKET ->
                 NetworkSyscallMapper.numberFor(syscall, arch)
 
             Syscall.OPEN, Syscall.OPENAT, Syscall.OPENAT2, Syscall.READ, Syscall.WRITE, Syscall.CLOSE, Syscall.FSTAT, Syscall.LSEEK,
-            Syscall.PREAD64, Syscall.PWRITE64, Syscall.FCNTL, Syscall.FSYNC, Syscall.FDATASYNC ->
+            Syscall.PREAD64, Syscall.PWRITE64, Syscall.FCNTL, Syscall.FSYNC, Syscall.FDATASYNC,
+            ->
                 FsSyscallMapper.numberForBasic(syscall, arch)
 
             Syscall.TRUNCATE, Syscall.FTRUNCATE, Syscall.GETCWD, Syscall.UMASK, Syscall.CHOWN, Syscall.LCHOWN, Syscall.FCHOWN, Syscall.FCHOWNAT,
-            Syscall.UTIME, Syscall.UTIMES, Syscall.UTIMENSAT, Syscall.MKDIR, Syscall.MKDIRAT, Syscall.RMDIR ->
+            Syscall.UTIME, Syscall.UTIMES, Syscall.UTIMENSAT, Syscall.MKDIR, Syscall.MKDIRAT, Syscall.RMDIR,
+            ->
                 FsSyscallMapper.numberForAttr(syscall, arch)
 
             Syscall.RENAME, Syscall.RENAMEAT, Syscall.RENAMEAT2, Syscall.LINK, Syscall.LINKAT, Syscall.UNLINK, Syscall.UNLINKAT,
             Syscall.SYMLINK, Syscall.SYMLINKAT, Syscall.READLINK, Syscall.READLINKAT, Syscall.CHMOD, Syscall.FCHMOD, Syscall.FCHMODAT,
-            Syscall.FSTATAT, Syscall.STATX ->
+            Syscall.FSTATAT, Syscall.STATX,
+            ->
                 FsSyscallMapper.numberForOps(syscall, arch)
 
             Syscall.MMAP, Syscall.MPROTECT, Syscall.MADVISE, Syscall.MEMFD_CREATE, Syscall.MUNMAP, Syscall.BRK ->
@@ -314,7 +318,7 @@ internal object FsSyscallMapper {
         when (syscall) {
             Syscall.RENAME, Syscall.RENAMEAT, Syscall.RENAMEAT2, Syscall.LINK, Syscall.LINKAT, Syscall.UNLINK, Syscall.UNLINKAT -> numberForPath(
                 syscall,
-                arch
+                arch,
             )
 
             else -> numberForMetadata(syscall, arch)
@@ -378,7 +382,7 @@ internal object OtherSyscallMapper {
             Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER, Syscall.BPF -> numberForAdvancedIO(syscall, arch)
             Syscall.PROCESS_VM_WRITEV, Syscall.PROCESS_VM_READV, Syscall.USERFAULTFD -> numberForInterProcess(
                 syscall,
-                arch
+                arch,
             )
 
             else -> numberForSystem(syscall, arch)

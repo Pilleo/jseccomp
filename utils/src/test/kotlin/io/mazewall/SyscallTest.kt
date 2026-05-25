@@ -30,7 +30,8 @@ class SyscallTest {
         }
     }
 
-    private fun getProcessMappings(arch: Arch) = mapOf(
+    private fun getProcessMappings(arch: Arch) =
+        mapOf(
         Syscall.FORK to arch.fork,
         Syscall.VFORK to arch.vfork,
         Syscall.CLONE to arch.clone,
@@ -49,7 +50,8 @@ class SyscallTest {
         Syscall.PTRACE to arch.ptrace,
     )
 
-    private fun getNetworkMappings(arch: Arch) = mapOf(
+    private fun getNetworkMappings(arch: Arch) =
+        mapOf(
         Syscall.CONNECT to arch.connect,
         Syscall.BIND to arch.bind,
         Syscall.LISTEN to arch.listen,
@@ -60,7 +62,8 @@ class SyscallTest {
         Syscall.SOCKET to arch.socket,
     )
 
-    private fun getFsBasicMappings(arch: Arch) = mapOf(
+    private fun getFsBasicMappings(arch: Arch) =
+        mapOf(
         Syscall.OPEN to arch.open,
         Syscall.OPENAT to arch.openat,
         Syscall.OPENAT2 to arch.openat2,
@@ -76,7 +79,8 @@ class SyscallTest {
         Syscall.FDATASYNC to arch.fdatasync,
     )
 
-    private fun getFsAttrMappings(arch: Arch) = mapOf(
+    private fun getFsAttrMappings(arch: Arch) =
+        mapOf(
         Syscall.TRUNCATE to arch.truncate,
         Syscall.FTRUNCATE to arch.ftruncate,
         Syscall.GETCWD to arch.getcwd,
@@ -93,7 +97,8 @@ class SyscallTest {
         Syscall.RMDIR to arch.rmdir,
     )
 
-    private fun getFsOpsMappings(arch: Arch) = mapOf(
+    private fun getFsOpsMappings(arch: Arch) =
+        mapOf(
         Syscall.RENAME to arch.rename,
         Syscall.RENAMEAT to arch.renameat,
         Syscall.RENAMEAT2 to arch.renameat2,
@@ -112,7 +117,8 @@ class SyscallTest {
         Syscall.STATX to arch.statx,
     )
 
-    private fun getMemoryMappings(arch: Arch) = mapOf(
+    private fun getMemoryMappings(arch: Arch) =
+        mapOf(
         Syscall.MMAP to arch.mmap,
         Syscall.MPROTECT to arch.mprotect,
         Syscall.MADVISE to arch.madvise,
@@ -121,7 +127,8 @@ class SyscallTest {
         Syscall.MEMFD_CREATE to arch.memfdCreate,
     )
 
-    private fun getOtherMappings(arch: Arch) = mapOf(
+    private fun getOtherMappings(arch: Arch) =
+        mapOf(
         Syscall.IO_URING_SETUP to arch.ioUringSetup,
         Syscall.IO_URING_ENTER to arch.ioUringEnter,
         Syscall.BPF to arch.bpf,

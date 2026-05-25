@@ -16,7 +16,8 @@ internal object ContainerStateRegistry {
     val THREAD_LANDLOCK_APPLIED_READS = ThreadLocal.withInitial<Set<String>?> { null }
     val THREAD_LANDLOCK_APPLIED_WRITES = ThreadLocal.withInitial<Set<String>?> { null }
 
-    val PROCESS_BLOCKED: MutableSet<Syscall> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    val PROCESS_BLOCKED: MutableSet<Syscall> = java.util.concurrent.ConcurrentHashMap
+        .newKeySet()
     val PROCESS_ALLOWS_MMAP_EXEC = AtomicBoolean(true)
     val PROCESS_ALLOWS_NON_THREAD_CLONE = AtomicBoolean(true)
     val PROCESS_ALLOWS_UNSAFE_PRCTL = AtomicBoolean(true)

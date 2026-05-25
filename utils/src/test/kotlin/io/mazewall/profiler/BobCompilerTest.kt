@@ -165,7 +165,6 @@ val policy = Policy.builder()
         assertTrue(bob.opens.isEmpty(), "No paths should be categorized as simple opens in this test")
     }
 
-
     @Test
     fun `test compile with empty list edge cases`() {
         val bob = BobCompiler.compile(emptyList())
@@ -180,7 +179,7 @@ val policy = Policy.builder()
         val events = listOf(
             TraceEvent(pid = 1, syscallName = "UNKNOWN_SYSCALL_123", args = longArrayOf(), paths = listOf("/path/unknown")),
             TraceEvent(pid = 1, syscallName = "", args = longArrayOf(), paths = listOf("/path/empty")),
-            TraceEvent(pid = 1, syscallName = "NOT_A_SYSCALL", args = longArrayOf(), paths = listOf("/path/invalid"))
+            TraceEvent(pid = 1, syscallName = "NOT_A_SYSCALL", args = longArrayOf(), paths = listOf("/path/invalid")),
         )
         val bob = BobCompiler.compile(events)
 
@@ -195,7 +194,7 @@ val policy = Policy.builder()
     fun `test execve and execveat`() {
         val events = listOf(
             TraceEvent(pid = 1, syscallName = "EXECVE", args = longArrayOf(), paths = listOf("/bin/sh")),
-            TraceEvent(pid = 1, syscallName = "EXECVEAT", args = longArrayOf(), paths = listOf("/bin/bash"))
+            TraceEvent(pid = 1, syscallName = "EXECVEAT", args = longArrayOf(), paths = listOf("/bin/bash")),
         )
         val bob = BobCompiler.compile(events)
 
@@ -208,10 +207,23 @@ val policy = Policy.builder()
     @Test
     fun `test file system mutation syscalls complete`() {
         val mutations = setOf(
-            "MKDIR", "MKDIRAT", "RMDIR", "UNLINK", "UNLINKAT",
-            "RENAME", "RENAMEAT", "RENAMEAT2", "LINK", "LINKAT",
-            "SYMLINK", "SYMLINKAT", "CHMOD", "FCHMODAT", "CHOWN",
-            "LCHOWN", "FCHOWNAT"
+            "MKDIR",
+            "MKDIRAT",
+            "RMDIR",
+            "UNLINK",
+            "UNLINKAT",
+            "RENAME",
+            "RENAMEAT",
+            "RENAMEAT2",
+            "LINK",
+            "LINKAT",
+            "SYMLINK",
+            "SYMLINKAT",
+            "CHMOD",
+            "FCHMODAT",
+            "CHOWN",
+            "LCHOWN",
+            "FCHOWNAT",
         )
 
         val events = mutations.map {
@@ -227,7 +239,8 @@ val policy = Policy.builder()
         assertTrue(bob.opens.isEmpty())
 
         // Syscalls that are known should be in syscalls
-        val expectedSyscalls = mutations.mapNotNull {
+        val expectedSyscalls = mutations
+            .mapNotNull {
             runCatching { Syscall.valueOf(it) }.getOrNull()
         }.toSet()
         assertEquals(expectedSyscalls, bob.syscalls)
@@ -254,18 +267,18 @@ val policy = Policy.builder()
             // Create
             TraceEvent(pid = 1, syscallName = "OPEN", args = longArrayOf(10, O_CREAT), paths = listOf("/path/create")),
             // Truncate
-            TraceEvent(pid = 1, syscallName = "OPEN", args = longArrayOf(10, O_TRUNC), paths = listOf("/path/truncate"))
+            TraceEvent(pid = 1, syscallName = "OPEN", args = longArrayOf(10, O_TRUNC), paths = listOf("/path/truncate")),
         )
 
         val bob = BobCompiler.compile(events)
 
         assertEquals(
             setOf("/path/writeonly", "/path/readwrite", "/path/create", "/path/truncate"),
-            bob.fsWritePaths
+            bob.fsWritePaths,
         )
         assertEquals(
             setOf("/path/missing", "/path/missing2", "/path/readonly"),
-            bob.opens
+            bob.opens,
         )
     }
 
@@ -291,18 +304,18 @@ val policy = Policy.builder()
             // Create
             TraceEvent(pid = 1, syscallName = "OPENAT", args = longArrayOf(10, 20, O_CREAT), paths = listOf("/path/create")),
             // Truncate
-            TraceEvent(pid = 1, syscallName = "OPENAT", args = longArrayOf(10, 20, O_TRUNC), paths = listOf("/path/truncate"))
+            TraceEvent(pid = 1, syscallName = "OPENAT", args = longArrayOf(10, 20, O_TRUNC), paths = listOf("/path/truncate")),
         )
 
         val bob = BobCompiler.compile(events)
 
         assertEquals(
             setOf("/path/writeonly", "/path/readwrite", "/path/create", "/path/truncate"),
-            bob.fsWritePaths
+            bob.fsWritePaths,
         )
         assertEquals(
             setOf("/path/missing", "/path/missing2", "/path/missing3", "/path/readonly"),
-            bob.opens
+            bob.opens,
         )
     }
 
@@ -311,7 +324,7 @@ val policy = Policy.builder()
         // A path is opened for reading, then opened for writing
         val events = listOf(
             TraceEvent(pid = 1, syscallName = "OPEN", args = longArrayOf(10, 0L), paths = listOf("/shared/path")), // Read-only
-            TraceEvent(pid = 1, syscallName = "OPEN", args = longArrayOf(10, 1L), paths = listOf("/shared/path"))  // Write-only
+            TraceEvent(pid = 1, syscallName = "OPEN", args = longArrayOf(10, 1L), paths = listOf("/shared/path")), // Write-only
         )
 
         val bob = BobCompiler.compile(events)
@@ -324,7 +337,7 @@ val policy = Policy.builder()
     @Test
     fun `test unknown syscall with arguments behaves as default`() {
         val events = listOf(
-            TraceEvent(pid = 1, syscallName = "UNKNOWN", args = longArrayOf(10, 1L, 64L), paths = listOf("/path/unknown"))
+            TraceEvent(pid = 1, syscallName = "UNKNOWN", args = longArrayOf(10, 1L, 64L), paths = listOf("/path/unknown")),
         )
 
         val bob = BobCompiler.compile(events)

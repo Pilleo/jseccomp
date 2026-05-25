@@ -96,7 +96,10 @@ object IterativeProfiler {
             if (idx != -1) idx else null
         } ?: -1
 
-    private fun findPathEnd(msg: String, phraseIdx: Int): Int {
+    private fun findPathEnd(
+        msg: String,
+        phraseIdx: Int,
+    ): Int {
         var end = phraseIdx - 1
         while (end >= 0 && (msg[end].isWhitespace() || msg[end] == '(')) end--
         return end

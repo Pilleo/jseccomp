@@ -1,12 +1,9 @@
 package io.mazewall.profiler
 
-import io.mazewall.Arch
-import io.mazewall.BpfFilter
 import io.mazewall.LinuxNative
 import io.mazewall.Policy
 import java.io.BufferedInputStream
 import java.io.DataInputStream
-import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.lang.foreign.Arena
@@ -16,8 +13,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
 import java.util.concurrent.*
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicReference
 import java.util.logging.Logger
 
 /**
@@ -136,7 +131,7 @@ object Profiler {
             logger.log(
                 java.util.logging.Level.WARNING,
                 "Failed to delete secure socket directory at ${context.socketDir}",
-                e
+                e,
             )
         }
     }
@@ -245,12 +240,14 @@ object Profiler {
             pathCache,
             workerThreadProvider,
             { path -> connectWithRetry(path) },
-            { fd, logs, traces, cache, provider -> startTraceListener(fd, logs, traces, cache, provider) }
+            { fd, logs, traces, cache, provider -> startTraceListener(fd, logs, traces, cache, provider) },
         )
     }
 
-    internal fun sendDescriptorInternal(socketFd: Int, fdToSend: Int): Boolean =
-        sendDescriptor(socketFd, fdToSend)
+    internal fun sendDescriptorInternal(
+        socketFd: Int,
+        fdToSend: Int,
+    ): Boolean = sendDescriptor(socketFd, fdToSend)
 
     private fun startTraceListener(
         socketFd: Int,
@@ -493,7 +490,9 @@ object Profiler {
         val javaBin = System.getProperty("java.home") + "/bin/java"
         val classpath = System.getProperty("java.class.path")
 
-        val jvmArgs = java.lang.management.ManagementFactory.getRuntimeMXBean().inputArguments
+        val jvmArgs = java.lang.management.ManagementFactory
+            .getRuntimeMXBean()
+            .inputArguments
         val jacocoAgent = jvmArgs.find { it.startsWith("-javaagent:") && it.contains("jacoco") }
 
         val pbArgs = mutableListOf<String>()

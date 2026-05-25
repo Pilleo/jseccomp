@@ -45,7 +45,9 @@ fun runProfileAndEnforce() {
                     client.getOutputStream().write("Welcome to the secure endpoint!\n".toByteArray())
                     client.close()
                 }
-            } catch (@Suppress("SwallowedException") e: IOException) {
+            } catch (
+                @Suppress("SwallowedException") e: IOException,
+            ) {
                 // Expected when server socket is closed during shutdown
             }
         }

@@ -9,7 +9,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class ProfilerDaemonTest {
-
     @Test
     @EnabledIfLinuxAndSupported
     fun `test readStringFromProcess successfully reads valid null-terminated string`() {

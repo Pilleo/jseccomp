@@ -2,7 +2,7 @@ plugins {
     kotlin("jvm") version "2.3.21" apply false
     id("jacoco")
     id("dev.detekt") version "2.0.0-alpha.3"
-    //id("org.jlleitschuh.gradle.ktlint") version "14.2.0"
+    id("org.jlleitschuh.gradle.ktlint") version "14.2.0"
     id("com.github.spotbugs") version "6.5.5"
     id("org.owasp.dependencycheck") version "10.0.4"
 }
@@ -20,21 +20,20 @@ detekt {
     baseline = file("detekt-baseline.xml")
 }
 
-//ktlint {
-//    // version.set("1.8.0")
-//    verbose.set(true)
-//    outputToConsole.set(true)
-//    coloredOutput.set(true)
-//    reporters {
-//        reporter(org.jlleitschuh.gradle.ktlint.reporter.ReporterType.PLAIN)
-//        reporter(org.jlleitschuh.gradle.ktlint.reporter.ReporterType.HTML)
-//    }
-//}
+ktlint {
+    verbose.set(true)
+    outputToConsole.set(true)
+    coloredOutput.set(true)
+    reporters {
+        reporter(org.jlleitschuh.gradle.ktlint.reporter.ReporterType.PLAIN)
+        reporter(org.jlleitschuh.gradle.ktlint.reporter.ReporterType.HTML)
+    }
+}
 
 subprojects {
     apply(plugin = "jacoco")
     apply(plugin = "dev.detekt")
-//    apply(plugin = "org.jlleitschuh.gradle.ktlint")
+    apply(plugin = "org.jlleitschuh.gradle.ktlint")
     apply(plugin = "com.github.spotbugs")
 
     spotbugs {

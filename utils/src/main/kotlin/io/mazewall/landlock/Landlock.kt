@@ -559,7 +559,10 @@ object Landlock {
      * Enforces security errors for syscalls that cannot be restricted by the current ABI.
      */
     @Suppress("ThrowsCount")
-    private fun getAccessMask(abi: Int, policy: Policy): Long {
+    private fun getAccessMask(
+        abi: Int,
+        policy: Policy,
+    ): Long {
         val allFsRead = LANDLOCK_ACCESS_FS_READ_FILE or LANDLOCK_ACCESS_FS_READ_DIR
 
         // Fix #2: Handle ALL access categories the ABI supports.

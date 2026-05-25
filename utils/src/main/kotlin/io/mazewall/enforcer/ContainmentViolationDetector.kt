@@ -23,10 +23,16 @@ internal object ContainmentViolationDetector {
             isViolationInSuppressed(t.suppressedExceptions)
 
     fun findViolationCause(t: Throwable): Throwable? =
-        if (isDirectContainmentViolation(t)) t
-        else findInCauseChain(t.cause, t) ?: findInSuppressed(t.suppressedExceptions)
+        if (isDirectContainmentViolation(t)) {
+            t
+        } else {
+            findInCauseChain(t.cause, t) ?: findInSuppressed(t.suppressedExceptions)
+        }
 
-    private fun isViolationInCauseChain(cause: Throwable?, original: Throwable): Boolean {
+    private fun isViolationInCauseChain(
+        cause: Throwable?,
+        original: Throwable,
+    ): Boolean {
         var current = cause
         while (current != null && current !== original) {
             if (isDirectContainmentViolation(current)) return true
@@ -35,10 +41,12 @@ internal object ContainmentViolationDetector {
         return false
     }
 
-    private fun isViolationInSuppressed(suppressed: List<Throwable>): Boolean =
-        suppressed.any { isDirectContainmentViolation(it) }
+    private fun isViolationInSuppressed(suppressed: List<Throwable>): Boolean = suppressed.any { isDirectContainmentViolation(it) }
 
-    private fun findInCauseChain(cause: Throwable?, original: Throwable): Throwable? {
+    private fun findInCauseChain(
+        cause: Throwable?,
+        original: Throwable,
+    ): Throwable? {
         var current = cause
         while (current != null && current !== original) {
             if (isDirectContainmentViolation(current)) return current
@@ -47,8 +55,7 @@ internal object ContainmentViolationDetector {
         return null
     }
 
-    private fun findInSuppressed(suppressed: List<Throwable>): Throwable? =
-        suppressed.find { isDirectContainmentViolation(it) }
+    private fun findInSuppressed(suppressed: List<Throwable>): Throwable? = suppressed.find { isDirectContainmentViolation(it) }
 
     private fun isDirectContainmentViolation(t: Throwable): Boolean {
         val msg = t.message ?: return false
@@ -61,6 +68,5 @@ internal object ContainmentViolationDetector {
         return isViolation
     }
 
-    private fun containsDeniedPhrase(msg: String): Boolean =
-        DENIED_PHRASES.any { msg.contains(it, ignoreCase = true) }
+    private fun containsDeniedPhrase(msg: String): Boolean = DENIED_PHRASES.any { msg.contains(it, ignoreCase = true) }
 }

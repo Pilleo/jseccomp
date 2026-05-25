@@ -28,8 +28,7 @@ object Platform {
             isSeccompSanityCheckPassing() &&
             isArchitectureSupported()
 
-    private fun hasKernelSeccompSupport(): Boolean =
-        LinuxNative.prctl(LinuxNative.PR_GET_SECCOMP, 0, 0, 0, 0).returnValue >= 0
+    private fun hasKernelSeccompSupport(): Boolean = LinuxNative.prctl(LinuxNative.PR_GET_SECCOMP, 0, 0, 0, 0).returnValue >= 0
 
     private fun isSeccompSanityCheckPassing(): Boolean {
         // Bogus Sanity Check: Ensure the kernel actively enforces seccomp.
