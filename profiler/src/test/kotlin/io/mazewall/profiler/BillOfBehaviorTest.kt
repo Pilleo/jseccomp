@@ -3,6 +3,7 @@ package io.mazewall.profiler
 import io.mazewall.Syscall
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class BillOfBehaviorTest {
@@ -111,5 +112,38 @@ class BillOfBehaviorTest {
         val dslAllow = bob.toDsl("Policy.builder().mode(Mode.ALLOW_LIST).build()", allowBase)
         assertTrue(dslAllow.contains(".allow("))
         assertTrue(dslAllow.contains("Syscall.OPEN"))
+    }
+
+    @Test
+    fun `test path pruning resolves redundant directories`() {
+        val bob =
+            BillOfBehavior(
+                opens = setOf(
+                    "/home",
+                    "/home/leanid",
+                    "/home/leanid/.sdkman",
+                    "/tmp/config.json",
+                    "/tmp",
+                ),
+                fsWritePaths = setOf(
+                    "/var/log",
+                    "/var/log/app.log",
+                ),
+            )
+
+        val policy = bob.toPolicy(io.mazewall.Policy.PURE_COMPUTE)
+
+        // Verifying the compiled policy allowed paths are pruned to keep the most specific child (least privilege)!
+        assertEquals(setOf("/home/leanid/.sdkman", "/tmp/config.json"), policy.allowedFsReadPaths)
+        assertEquals(setOf("/var/log/app.log"), policy.allowedFsWritePaths)
+
+        // Verifying the generated DSL is also pruned!
+        val dsl = bob.toDsl()
+        assertTrue(dsl.contains(".allowFsRead(\"/home/leanid/.sdkman\")"))
+        assertTrue(dsl.contains(".allowFsRead(\"/tmp/config.json\")"))
+        assertFalse(dsl.contains(".allowFsRead(\"/home\")"))
+        assertFalse(dsl.contains(".allowFsRead(\"/tmp\")"))
+        assertTrue(dsl.contains(".allowFsWrite(\"/var/log/app.log\")"))
+        assertFalse(dsl.contains(".allowFsWrite(\"/var/log\")"))
     }
 }

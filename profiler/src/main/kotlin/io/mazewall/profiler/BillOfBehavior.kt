@@ -2,6 +2,8 @@ package io.mazewall.profiler
 
 import io.mazewall.Policy
 import io.mazewall.Syscall
+import java.nio.file.Path
+import java.nio.file.Paths
 
 /**
  * An immutable record of what kernel-level operations were observed during a
@@ -93,8 +95,10 @@ data class BillOfBehavior(
         } else {
             builder.allow(*syscalls.toTypedArray())
         }
-        for (path in opens) builder.allowFsRead(path)
-        for (path in fsWritePaths) builder.allowFsWrite(path)
+        val prunedOpens = pruneSubpaths(opens)
+        val prunedWrites = pruneSubpaths(fsWritePaths)
+        for (path in prunedOpens) builder.allowFsRead(path)
+        for (path in prunedWrites) builder.allowFsWrite(path)
         return builder.build()
     }
 
@@ -122,10 +126,29 @@ data class BillOfBehavior(
             sb.append(list.joinToString(",\n") { "        Syscall.${it.name}" })
             sb.append("\n    )\n")
         }
-        for (path in opens.sorted()) sb.append("    .allowFsRead(\"$path\")\n")
-        for (path in fsWritePaths.sorted()) sb.append("    .allowFsWrite(\"$path\")\n")
+        val prunedOpens = pruneSubpaths(opens)
+        val prunedWrites = pruneSubpaths(fsWritePaths)
+        for (path in prunedOpens.sorted()) sb.append("    .allowFsRead(\"$path\")\n")
+        for (path in prunedWrites.sorted()) sb.append("    .allowFsWrite(\"$path\")\n")
         sb.append("    .build()")
         return sb.toString()
+    }
+
+    private fun pruneSubpaths(paths: Set<String>): Set<String> {
+        if (paths.size <= 1) return paths
+
+        val parsedPaths = paths.map { Paths.get(it).toAbsolutePath().normalize() }
+        val result = mutableListOf<Path>()
+
+        for (path in parsedPaths) {
+            val hasChild = parsedPaths.any { other ->
+                other != path && other.startsWith(path)
+            }
+            if (!hasChild) {
+                result.add(path)
+            }
+        }
+        return result.map { it.toString().replace('\\', '/') }.toSet()
     }
 
     /**
