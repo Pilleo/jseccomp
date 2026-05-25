@@ -49,7 +49,7 @@ data class BillOfBehavior(
      * Maps to SBoB §4.6 `opens` with write-mode flags.
      *
      * ## Design decision: conservative write-path discovery
-     * When [IterativeProfiler] catches an AccessDeniedException from Landlock, the
+     * When [io.mazewall.profiler.iterative.IterativeProfiler] catches an AccessDeniedException from Landlock, the
      * exception does not reliably carry the access mode that was denied. Rather than
      * guessing, the profiler conservatively adds the denied path to BOTH [opens] and
      * [fsWritePaths]. This guarantees convergence at the cost of slightly over-permissive

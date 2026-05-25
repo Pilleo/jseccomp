@@ -127,9 +127,9 @@ Thread-scoped seccomp is **not** an absolute security boundary against an attack
 
 Before modifying components, read the relevant design document:
 
-| Document | Covers |
-|---|---|
-| [containment_design.md](file:///home/leanid/Documents/code/java/jseccomp/docs/internals/containment_design.md) | BPF scan loops, argument inspections, Landlock ordering, FFM layouts. |
-| [profiler_design.md](file:///home/leanid/Documents/code/java/jseccomp/docs/internals/profiler_design.md) | USER_NOTIF architecture, socket SCM_RIGHTS, ACK loop protocol. |
+| Document                                                                                                                 | Covers                                                                   |
+|--------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------|
+| [containment_design.md](file:///home/leanid/Documents/code/java/jseccomp/docs/internals/containment_design.md)           | BPF scan loops, argument inspections, Landlock ordering, FFM layouts.    |
+| [profiler_design.md](file:///home/leanid/Documents/code/java/jseccomp/docs/internals/profiler_design.md)                 | USER_NOTIF architecture, socket SCM_RIGHTS, ACK loop protocol.           |
 | [SECURITY_CONSIDERATIONS.md](file:///home/leanid/Documents/code/java/jseccomp/docs/internals/SECURITY_CONSIDERATIONS.md) | Full threat model, ACE escape caveats, K8s custom profiles, Yama scopes. |
 

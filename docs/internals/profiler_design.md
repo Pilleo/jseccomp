@@ -163,12 +163,12 @@ This enables a highly efficient developer workflow that avoids the need for root
 
 This hybrid approach leverages the ease of synchronous Tier S profiling while maintaining full asynchronous performance and perfect security in production.
 
-| Profiling Strategy | Resulting Policy | Enforcement Behavior |
-|--------------------|------------------|----------------------|
-| **Hybrid (Tier S + Manual Add)**| Paths captured sync, async manually whitelisted | Application runs on the **Fast Path**. |
-| **Tier P (Root)** | Paths and async captured natively | Application runs on the **Fast Path**. |
-| **Tier A (Iterative)**| Paths and async learned via `EACCES` | Application runs on the **Fast Path**. |
-| **Tier S (w/o manual add)** | Standard I/O only | Application is **Functionally Identical** but runs on the **Slow Path** (Seccomp blocks `io_uring_setup`, forcing app fallback). |
+| Profiling Strategy               | Resulting Policy                                | Enforcement Behavior                                                                                                             |
+|----------------------------------|-------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
+| **Hybrid (Tier S + Manual Add)** | Paths captured sync, async manually whitelisted | Application runs on the **Fast Path**.                                                                                           |
+| **Tier P (Root)**                | Paths and async captured natively               | Application runs on the **Fast Path**.                                                                                           |
+| **Tier A (Iterative)**           | Paths and async learned via `EACCES`            | Application runs on the **Fast Path**.                                                                                           |
+| **Tier S (w/o manual add)**      | Standard I/O only                               | Application is **Functionally Identical** but runs on the **Slow Path** (Seccomp blocks `io_uring_setup`, forcing app fallback). |
 
 
 
