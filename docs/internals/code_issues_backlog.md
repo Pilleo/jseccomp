@@ -44,15 +44,15 @@
 **Context:** In `ContainedExecutors.kt`, the check to prevent expanding existing Landlock permissions was using exact string matching (`containsAll`). This incorrectly threw an exception if a nested task requested a valid sub-path (e.g., `/tmp/foo` when `/tmp` was already allowed).
 **Fix:** Replaced exact string matching with a robust `java.nio.file.Path`-based subset path evaluation using component-level startsWith. Added extensive unit testing to cover identical stacking, sub-path nesting, component boundaries, and expansion detection.
 
+### ✅ FIXED: Profiler Daemon Missing Null-Terminator Bounding
+**Context:** In `ProfilerDaemon.kt`, `readStringFromProcess` copies memory from a target process. If a malicious or corrupted pointer lacked a null terminator within the buffer window (`maxLen = 4096`), it copied the entire buffer as a string, processing garbage data.
+**Fix:** Added a bounding check in `readStringFromProcess` (`if (len == bytesRead) { return null }`) to safely reject any strings that are not null-terminated within the read boundary. Covered with comprehensive unit tests in `ProfilerDaemonTest` using self-PID FFM memory allocations.
+
 ## Remaining Issues
 
 ### 🔴 High: Landlock Path Fallback Over-Permission
 **Context:** In `IterativeProfiler.kt`, reading a missing file inside a restricted directory triggers an `EACCES` denial. The profiler conservatively grants both Read and Write access. When `Landlock.kt` processes this rule, it falls back to applying the rule to the parent directory, resulting in full write access to the parent.
 **Needed:** Re-evaluate the `IterativeProfiler` fallback strategy or explicitly handle missing files before passing them to Landlock.
-
-### 🟡 Medium: Profiler Daemon Missing Null-Terminator Bounding
-**Context:** In `ProfilerDaemon.kt`, `readStringFromProcess` copies up to 4096 bytes. If a malicious pointer lacks a null terminator within that window, the daemon copies the entire block as a string, processing garbage data.
-**Needed:** Add a check to safely truncate or reject strings if the maximum length is reached without encountering a null byte.
 
 ### 🔴 High: Implement Tier P (Privileged Profiler)
 **Context:** High-performance `io_uring` profiling currently requires either the slow `IterativeProfiler` or a performance-degrading fallback to standard I/O.

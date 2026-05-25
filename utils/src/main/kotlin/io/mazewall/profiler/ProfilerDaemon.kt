@@ -342,7 +342,7 @@ object ProfilerDaemon {
         }
     }
 
-    private fun readStringFromProcess(
+    internal fun readStringFromProcess(
         pid: Int,
         remoteAddress: Long,
         maxLen: Int = 4096,
@@ -367,11 +367,11 @@ object ProfilerDaemon {
             var len = 0
             while (len < bytesRead && localBuf.get(ValueLayout.JAVA_BYTE, len.toLong()) != 0.toByte()) len++
 
-            // TODO(Bug): Missing Null-Terminator Bounding
-            // If the target memory block does not contain a null terminator within `maxLen`,
-            // `len` will reach `bytesRead` and the daemon will copy a non-null-terminated block
-            // of memory as a string. A check should be added to reject or safely truncate strings
-            // if `len == maxLen` and no null byte was encountered.
+            // Bounding Check: If no null terminator was found within the read buffer, reject the string
+            if (len == bytesRead) {
+                return null
+            }
+
             return localBuf.copyToString(len)
         }
     }
