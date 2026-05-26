@@ -26,14 +26,14 @@ echo -e "${GREEN}[INFO] Using container engine:${RESET} $COMPOSE_CMD"
 
 # 2. Build the application bootJar
 echo -e "${CYAN}[STEP 1/5] Building the Vulnerable Spring Boot Application...${RESET}"
-./gradlew :demo:vulnerable-app:bootJar
+../gradlew :demo:vulnerable-app:bootJar
 
 # Create output directory on host to persist all results, SBoB files, and stack traces
-mkdir -p demo/output
+mkdir -p ../demo/output
 
 # 3. Boot up the unprotected and protected instances
 echo -e "\n${CYAN}[STEP 2/5] Launching containerized environment...${RESET}"
-COMPOSE_FILE="demo/vulnerable-app/compose.yml"
+COMPOSE_FILE="../demo/vulnerable-app/compose.yml"
 $COMPOSE_CMD -f "$COMPOSE_FILE" down --remove-orphans &>/dev/null || true
 $COMPOSE_CMD -f "$COMPOSE_FILE" up -d --build
 
@@ -64,19 +64,19 @@ echo -e " [${GREEN}Ready${RESET}]"
 
 # 5. Run the 11 exploit vectors
 echo -e "\n${CYAN}[STEP 4/5] Executing automated CVE exploitation suite...${RESET}"
-UNPROT_JSON="demo/output/unprotected_results.json"
-PROT_JSON="demo/output/protected_results.json"
-REPORT_MD="demo/output/report.md"
+UNPROT_JSON="../demo/output/unprotected_results.json"
+PROT_JSON="../demo/output/protected_results.json"
+REPORT_MD="../demo/output/report.md"
 
 echo -e "🔥 Running exploits against ${RED}Unprotected Service${RESET}..."
-python3 exploits/run_all.py http://localhost:8082 > "$UNPROT_JSON"
+python3 ../tests/exploits/run_all.py http://localhost:8082 > "$UNPROT_JSON"
 
 echo -e "🛡️ Running exploits against ${GREEN}Protected Service${RESET} (Mazewall Guarded)..."
-python3 exploits/run_all.py http://localhost:8081 > "$PROT_JSON"
+python3 ../tests/exploits/run_all.py http://localhost:8081 > "$PROT_JSON"
 
 # 6. Generate the Markdown comparison report
 echo -e "\n${CYAN}[STEP 5/5] Generating verification report...${RESET}"
-python3 exploits/verify_results.py "$UNPROT_JSON" "$PROT_JSON" "$REPORT_MD"
+python3 ../tests/exploits/verify_results.py "$UNPROT_JSON" "$PROT_JSON" "$REPORT_MD"
 
 # 7. Print a premium ASCII color-coded outcome table
 python3 - "$UNPROT_JSON" "$PROT_JSON" "$REPORT_MD" << 'EOF'

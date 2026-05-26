@@ -111,16 +111,16 @@ To run the integration suite in a contained environment with nested seccomp supp
 
 ```bash
 # Start the container under the custom seccomp profile
-podman compose up -d
-podman compose exec mazewall ./gradlew test
+podman compose -f infra/dev/compose.yml up -d
+podman compose -f infra/dev/compose.yml exec mazewall ./gradlew test
 ```
 
 > [!IMPORTANT]
 > **Podman Native Integration:** This project is optimized for **rootless Podman**.
 >
-> Standard `security_opt: seccomp=...` triggers a bug in some orchestrators where the full JSON profile is passed as a string over the socket, causing a "file name too long" (`ENAMETOOLONG`) error. We bypass this using the Podman-native annotation `io.podman.annotations.seccomp` in `compose.yml`.
+> Standard `security_opt: seccomp=...` triggers a bug in some orchestrators where the full JSON profile is passed as a string over the socket, causing a "file name too long" (`ENAMETOOLONG`) error. We bypass this using the Podman-native annotation `io.podman.annotations.seccomp` in `infra/dev/compose.yml`.
 
-> **Note on Container Security:** Rather than running completely unconfined (which is insecure), `mazewall` includes a custom [podman-seccomp.json](podman-seccomp.json) profile that is automatically configured in [compose.yml](compose.yml). This profile whitelists `seccomp(2)` filter stacking, enabling the JVM inside the container to apply nested thread-level policies while keeping the container fully isolated from the host.
+> **Note on Container Security:** Rather than running completely unconfined (which is insecure), `mazewall` includes a custom [podman-seccomp.json](infra/dev/podman-seccomp.json) profile that is automatically configured in [infra/dev/compose.yml](infra/dev/compose.yml). This profile whitelists `seccomp(2)` filter stacking, enabling the JVM inside the container to apply nested thread-level policies while keeping the container fully isolated from the host.
 
 ### 2. Configure a Path-Restricted Thread Pool (Landlock)
 
@@ -153,7 +153,7 @@ executor.submit {
 ## Demos
 
 ### 🛡️ [Real-World CVE Exploitation Demo](demo/vulnerable-app/README.md)
-A comprehensive Spring Boot 3.x integration showing how `mazewall` blocks real-world exploits (Log4Shell, SSRF, XXE, etc.). The demo includes a fully-automated orchestration script [run_vulnerable_app_demo.sh](run_vulnerable_app_demo.sh) that executes all 11 exploit vectors and compiles a comparative report.
+A comprehensive Spring Boot 3.x integration showing how `mazewall` blocks real-world exploits (Log4Shell, SSRF, XXE, etc.). The demo includes a fully-automated orchestration script [scripts/run_vulnerable_app_demo.sh](scripts/run_vulnerable_app_demo.sh) that executes all 11 exploit vectors and compiles a comparative report.
 
 ### 🧩 [Interactive Core Showcase](demo/README.md)
 The interactive showcase demonstrating:
