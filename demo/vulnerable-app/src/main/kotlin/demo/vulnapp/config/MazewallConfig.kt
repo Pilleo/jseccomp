@@ -21,6 +21,7 @@ import java.nio.file.Paths
 @ConditionalOnProperty(name = ["mazewall.enabled"], havingValue = "true")
 class MazewallConfig {
     private val logger = Logger.getLogger(MazewallConfig::class.java.name)
+    private val executors = java.util.concurrent.CopyOnWriteArrayList<ExecutorService>()
 
     @EventListener(ApplicationReadyEvent::class)
     fun onApplicationReady() {
@@ -37,6 +38,7 @@ class MazewallConfig {
     }
 
     private fun wrapExecutor(delegate: ExecutorService, basePolicy: Policy): ExecutorService {
+        executors.add(delegate)
         val sbobPath = System.getProperty("mazewall.sbob.path") ?: "/app/sbob.json"
         val bobFile = Paths.get(sbobPath)
         val finalPolicy = if (Files.exists(bobFile)) {
@@ -47,6 +49,18 @@ class MazewallConfig {
             basePolicy
         }
         return ContainedExecutors.wrap(delegate, finalPolicy)
+    }
+
+    @jakarta.annotation.PreDestroy
+    fun onDestroy() {
+        logger.info("Spring context shutting down. Terminating Mazewall protected executors...")
+        for (executor in executors) {
+            try {
+                executor.shutdown()
+            } catch (e: Exception) {
+                // Suppress shutdown exception to avoid interrupting other PreDestroy hooks
+            }
+        }
     }
 
     @Bean

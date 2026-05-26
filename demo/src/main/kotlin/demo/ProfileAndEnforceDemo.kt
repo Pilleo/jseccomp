@@ -114,6 +114,20 @@ fun runProfileAndEnforce() {
         println("\n\u001b[33;1m[PHASE 2] Generated Bill of Behavior (BoB) DSL:\u001b[0m")
         val dsl = bob.toDsl("Policy.PURE_COMPUTE", Policy.PURE_COMPUTE)
         println("\u001b[34m$dsl\u001b[0m")
+
+        // Always save the compiled Bill of Behavior (SBoB) JSON containing captured stack traces
+        var rootDir = File(".").absoluteFile
+        while (rootDir.parentFile != null && !File(rootDir, "settings.gradle.kts").exists()) {
+            rootDir = rootDir.parentFile
+        }
+        val outputDir = File(rootDir, "demo/output")
+        if (!outputDir.exists()) {
+            outputDir.mkdirs()
+        }
+        val sbobFile = File(outputDir, "sbob.json")
+        sbobFile.writeText(bob.toJson())
+        println("\u001b[32m[INFO] Persisted compiled SBoB with stack traces to: ${sbobFile.absolutePath}\u001b[0m")
+
         println("\u001b[35m[INFO] Note: If io_uring_setup is blocked by the outer container runtime (like standard Podman/Docker),")
         println("       it returns ENOSYS or EPERM before reaching our nested filter, so it won't be recorded in the profiling logs.")
         println("       We will manually whitelist it in enforcement to demonstrate the union behavior.\u001b[0m")

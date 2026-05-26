@@ -200,6 +200,29 @@ data class BillOfBehavior(
         sb.append("  \"execs\": [\n")
         val sortedExecs = execs.sorted()
         sb.append(sortedExecs.joinToString(",\n") { "    \"${escapeJson(it)}\"" })
+        sb.append("\n  ],\n")
+
+        sb.append("  \"stackProfile\": [\n")
+        val stackEntries = stackProfile.entries.sortedBy { it.key.syscallName }
+        val serializedTraces = stackEntries.flatMap { (event, tracesList) ->
+            tracesList.map { frames ->
+                val entrySb = java.lang.StringBuilder()
+                entrySb.append("    {\n")
+                entrySb.append("      \"syscall\": \"${event.syscallName}\",\n")
+                entrySb.append("      \"paths\": [\n")
+                val pathsEscaped = event.paths.map { "        \"${escapeJson(it)}\"" }
+                entrySb.append(pathsEscaped.joinToString(",\n"))
+                entrySb.append("\n      ],\n")
+                entrySb.append("      \"args\": [${event.args.joinToString(", ")}],\n")
+                entrySb.append("      \"stackTrace\": [\n")
+                val tracesEscaped = frames.map { "        \"${escapeJson(it.toString())}\"" }
+                entrySb.append(tracesEscaped.joinToString(",\n"))
+                entrySb.append("\n      ]\n")
+                entrySb.append("    }")
+                entrySb.toString()
+            }
+        }
+        sb.append(serializedTraces.joinToString(",\n"))
         sb.append("\n  ]\n")
 
         sb.append("}")
@@ -208,6 +231,36 @@ data class BillOfBehavior(
 
     private fun escapeJson(str: String): String {
         return str.replace("\\", "\\\\").replace("\"", "\\\"")
+    }
+
+    /**
+     * Serializes only the stackTrace data into a beautifully formatted JSON array.
+     */
+    fun toStackTracesJson(): String {
+        val sb = java.lang.StringBuilder()
+        sb.append("[\n")
+        val stackEntries = stackProfile.entries.sortedBy { it.key.syscallName }
+        val serializedTraces = stackEntries.flatMap { (event, tracesList) ->
+            tracesList.map { frames ->
+                val eventSb = java.lang.StringBuilder()
+                eventSb.append("  {\n")
+                eventSb.append("    \"syscall\": \"${event.syscallName}\",\n")
+                eventSb.append("    \"paths\": [\n")
+                val pathsEscaped = event.paths.map { "      \"${escapeJson(it)}\"" }
+                eventSb.append(pathsEscaped.joinToString(",\n"))
+                eventSb.append("\n    ],\n")
+                eventSb.append("    \"args\": [${event.args.joinToString(", ")}],\n")
+                eventSb.append("    \"stackTrace\": [\n")
+                val tracesEscaped = frames.map { "      \"${escapeJson(it.toString())}\"" }
+                eventSb.append(tracesEscaped.joinToString(",\n"))
+                eventSb.append("\n    ]\n")
+                eventSb.append("  }")
+                eventSb.toString()
+            }
+        }
+        sb.append(serializedTraces.joinToString(",\n"))
+        sb.append("\n]")
+        return sb.toString()
     }
 
     companion object {

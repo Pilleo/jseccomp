@@ -18,8 +18,9 @@ services:
             - MAZEWALL_ENABLED=true
             - MAZEWALL_PROFILE=true
             - SERVER_PORT=8081
+            - JAVA_TOOL_OPTIONS=-Dmazewall.sbob.path=/app/output/sbob.json
         volumes:
-            - ../../sbob.json:/app/sbob.json:ro
+            - ../../demo/output:/app/output:rw
         annotations:
             io.podman.annotations.seccomp: ${PWD}/../../podman-seccomp.json
         cap_add:

@@ -39,7 +39,7 @@ future.get() // Throws ExecutionException { cause: ContainmentViolationException
 
 ## How It Works
 
-`mazewall` uses **Linux Seccomp-BPF** and **Landlock LSM** to install unprivileged security filters. The implementation is 100% pure Java, utilizing the **Foreign Function & Memory (FFM) API** (JDK 22+) to interface directly with the kernel without the need for native C dependencies.
+`mazewall` uses **Linux Seccomp-BPF** and **Landlock LSM** to install unprivileged security filters. The implementation is 100% pure Kotlin for the JVM, utilizing the **Foreign Function & Memory (FFM) API** (JDK 22+) to interface directly with the kernel without the need for native C dependencies.
 
 Prohibited syscalls trigger a `SECCOMP_RET_ERRNO` with `EPERM` (or Landlock file permissions return `EACCES`), causing standard Java I/O or JNI calls to fail. The executor wrapper catches these failures, matches them, and throws a `ContainmentViolationException`.
 
@@ -76,10 +76,12 @@ This is relevant to:
 
 ## Project Module Architecture
 
-`mazewall` is split into two specialized subprojects to keep production deployments clean, lightweight and secure:
+`mazewall` is split into specialized subprojects to keep production deployments clean, lightweight and secure:
 
-*   **`:enforcer`**: The core runtime enforcement engine. It performs the Foreign Function & Memory (FFM) system call bindings, compiles `Policy` records into raw Seccomp BPF programs, handles Landlock path containment, and manages thread coordination safety. It has **zero runtime dependencies** beyond Kotlin and standard JVM libraries, making it highly secure and production-safe.
+*   **`:enforcer`**: The core runtime enforcement engine. It performs the Foreign Function & Memory (FFM) system call bindings, compiles `Policy` records into raw Seccomp BPF programs, handles Landlock path containment, and manages thread coordination safety. It has **zero runtime dependencies** beyond Kotlin and standard JVM libraries.
 *   **`:profiler`**: The diagnostic and trace profiling module. It implements active monitoring techniques like out-of-process BPF `USER_NOTIF` listener daemons, iterative progressive path testing, and `strace`-based descendant process log analysis. This module compiles trace data into structured Bills of Behavior (SBoBs) and is designed **strictly for testing and developer environments**.
+*   **`:demo`**: The interactive core showcase demonstrating how `mazewall` blocks Arbitrary Code Execution (ACE) exploits at the kernel level and how Seccomp and Landlock form complementary protection layers to prevent modern asynchronous seccomp bypasses (`io_uring`).
+*   **`:demo:vulnerable-app`**: A comprehensive Spring Boot 3.x integration showing real-world CVE exploitation prevention (Log4Shell, SSRF, XXE, etc.) in a production-like environment.
 
 ---
 
@@ -151,24 +153,24 @@ executor.submit {
 ## Demos
 
 ### 🛡️ [Real-World CVE Exploitation Demo](demo/vulnerable-app/README.md)
-A comprehensive Spring Boot 3.x integration showing how `mazewall` blocks:
-- **Log4Shell** (JNDI RCE)
-- **SnakeYAML & XStream** Deserialization
-- **Thymeleaf** SSTI
-- **XXE** & **Zip Slip**
-- **SSRF** exfiltration
+A comprehensive Spring Boot 3.x integration showing how `mazewall` blocks real-world exploits (Log4Shell, SSRF, XXE, etc.). The demo includes a fully-automated orchestration script [run_vulnerable_app_demo.sh](run_vulnerable_app_demo.sh) that executes all 11 exploit vectors and compiles a comparative report.
 
-The demo includes an automated python exploit suite and generates a side-by-side protection report.
+### 🧩 [Interactive Core Showcase](demo/README.md)
+The interactive showcase demonstrating:
+- **`unsafe` vs `safe`:** Direct comparison of an exploit's impact with and without `mazewall` containment.
+- **`profile` & Enforce:** Automated `USER_NOTIF` profiling of a complex workload.
+- **Async Seccomp Bypass Mitigation:** How `mazewall` uses **Landlock LSM** to cage asynchronous `io_uring` file operations that typically bypass thread-scoped Seccomp filters.
 
 ---
 
 ## Built-In Policies
 
-| Policy                | Blocked Syscalls / Primitives                                                                                                                                                                                                                  | Best Use Case                                                        |
-|-----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------|
-| `Policy.NO_EXEC`      | `execve`, `execveat`, `fork`, `vfork`, `memfd_create`, `io_uring_setup`                                                                                                                                                                        | Process-wide startup lockdown baseline.                              |
-| `Policy.NO_NETWORK`   | All execution blocks + `connect`, `sendto`, `sendmsg`, `socket`, `bind`, `listen`, `accept`, `accept4`, `io_uring_setup`, `io_uring_enter`                                                                                                     | Data parsers that require local filesystem access but no internet.   |
-| `Policy.PURE_COMPUTE` | All network and execution blocks + `open`, `openat`, `ioctl`, `mount`, `io_uring_setup`; `mmap`/`mprotect` with `PROT_EXEC` and non-thread `clone` via BPF argument inspection; `prctl` restricted to safe options via BPF argument inspection | Algorithmic worker pools (image decoding, cryptographic operations). |
+| Policy                | Blocked Syscalls / Primitives                                                                                                                                                                                                                                                                                                                              | Best Use Case                                                        |
+|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------|
+| `Policy.NO_EXEC`      | `execve`, `execveat`, `fork`, `vfork`, `memfd_create`, `io_uring_setup`, `io_uring_enter`, `ptrace`, `init_module`, `finit_module`                                                                                                                                                                                                                         | Process-wide startup lockdown baseline.                              |
+| `Policy.NO_NETWORK`   | `connect`, `sendto`, `sendmsg`, `socket`, `bind`, `listen`, `accept`, `accept4`, `io_uring_setup`, `io_uring_enter`                                                                                                                                                                                                                                       | Data parsers that require local filesystem access but no internet.   |
+| `Policy.PURE_COMPUTE` | All network and execution blocks + `open`, `openat`, `openat2`, `rename`, `mkdir`, `chmod`, `chown`, `umask`, `truncate`, `process_vm_writev`, `userfaultfd`, `unshare`, `setns`, `mount`, `pivot_root`, `chroot`, `bpf`, `io_uring_enter`; `mmap`/`mprotect` with `PROT_EXEC` and non-thread `clone` via BPF; `prctl` restricted to safe options via BPF | Algorithmic worker pools (image decoding, cryptographic operations). |
+| `Policy.STRICT_SANDBOX` | Base: `PURE_COMPUTE` + allows JVM classpath read.                                                                                                                                                                                                                                                                                                         | High-security workers preventing lazy classloading deadlocks.        |
 
 ## System Call Reference
 

@@ -23,6 +23,21 @@ This subproject demonstrates `mazewall`'s kernel-level security guarantees by ru
 
 ## Quick Start
 
+The easiest way to execute the entire real-world CVE exploitation demo is to run our fully-automated orchestration script in the root directory:
+
+```bash
+# Execute the complete automated exploitation, report generation, and teardown
+./run_vulnerable_app_demo.sh
+```
+
+This single script will build the application, start the Podman/Docker Compose environment, wait for both services to be healthy and active, run all 11 exploits against both instances, generate the Markdown verification report (`demo/vulnerable-app/report.md`), output a beautiful color-coded console summary, and cleanly terminate the OCI containers on exit.
+
+---
+
+## Manual Execution (Step-by-Step)
+
+If you prefer to perform each step manually:
+
 ### 1. Build the Application
 ```bash
 ./gradlew :demo:vulnerable-app:bootJar
