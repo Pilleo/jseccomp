@@ -1,14 +1,10 @@
 # Thread-Scoped JVM Containment: The Mechanics
 
-> **Series overview:** This is Part 3 of a 5-part series on behavioral security for cloud-native applications. **What this part adds:** the mechanics of thread-scoped sandboxing inside a live JVM using **mazewall**—how to restrict threads unpriviliged, protect memory without breaking the JIT compiler, and navigate critical JVM safety constraints.
+> **Series overview:** This is Part 3 of a 5-part series on behavioral security for cloud-native applications. **What this part adds:** the mechanics of thread-scoped sandboxing inside a live JVM using **mazewall** — how to restrict threads unprivileged, protect memory without breaking the JIT compiler, and navigate critical JVM safety constraints. All code examples use the mazewall PoC library and are for local exploration only.
 
 ---
 
-In Part 2, we analyzed how to dynamically profile a worker thread to generate an enforced security `Policy`.
-
-Now, we look under the hood. The JVM is one of the most capability-rich, complex managed runtimes. Interfacing directly with the Linux kernel from within a running JVM—while ensuring absolute stability and high performance—requires navigating several systems-level constraints.
-
-Let's examine how **mazewall** achieves unprivileged thread-level sandboxing, and how it handles the JVM's JIT compiler, thread scheduler, and garbage collector.
+In Part 2, we profiled a worker thread to generate a `Policy`. Now we look under the hood: how does mazewall actually install Seccomp and Landlock on an individual JVM OS thread, and what constraints does the JVM impose on that process?
 
 ---
 
@@ -43,7 +39,7 @@ Seccomp and Landlock are **self-restriction primitives**. Once the `NoNewPrivile
 *   **Seccomp** provides unprivileged system call filtering.
 *   **Landlock** provides unprivileged, path-aware filesystem access control (operating at the inode level to avoid TOCTOU pointer races) as well as TCP socket restrictions (governing port binding and connections starting in ABI v4).
 
-`mazewall` requires zero external infrastructure or host agents. That architectural purity has a cost (we cannot inspect deep pointer contents in Seccomp), but it represents the ideal "shift-left" security model for developers.
+`mazewall` requires zero external infrastructure or host agents. That architectural choice has a cost (Seccomp cannot inspect deep pointer contents), but it enables a developer-driven security model with no external infrastructure dependency.
 
 ---
 
@@ -71,7 +67,7 @@ The standard approach to container sandboxing is a global seccomp profile applie
 ### Tier 1: Process-Wide Lockdown
 At application startup, `mazewall` applies a global process-wide restriction (`Policy.NO_EXEC`) via `ContainedExecutors.installOnProcess()`. This permanently disables shell spawning and command execution (`execve`, `execveat`, `fork`, `vfork`, `memfd_create`) for every thread, present and future.
 
-*(Note: This process-wide lockdown is a proven production-grade pattern; Elasticsearch has pioneered this exact practice for years in its bootstrap security checks, using native Seccomp-BPF filters to prevent the JVM from spawning child processes).* 
+*(Note: Process-wide `execve` blocking via Seccomp at startup is a production-proven pattern — Elasticsearch applies this in its bootstrap security checks to prevent the JVM process from ever spawning child processes.)* 
 
 ### Tier 2: Surgical Thread Containment
 For specific thread pools handling untrusted data (like JSON parsers or image processors), we apply stricter policies (like `Policy.PURE_COMPUTE` or custom Landlock paths). We wrap the target `ExecutorService` using `ContainedExecutors.wrap()`, which automatically binds the compiled policy to each worker thread before it executes its first task.
@@ -83,19 +79,17 @@ If an attacker achieves full native code execution on a contained thread, they c
 
 ---
 
-<details>
-<summary><b>🔍 Deep Dive: Protecting Memory Without Breaking the JIT</b></summary>
+### Protecting Memory Without Breaking the JIT
 
 The JVM's Just-In-Time (JIT) compiler is the most obvious obstacle to strict memory sandboxing. The JIT must periodically call `mmap` and `mprotect` with `PROT_EXEC` (executable permissions) to allocate memory segments and write compiled native machine code. A naive Seccomp filter that blocks all executable memory allocations will crash the JVM instantly.
 
 `mazewall` solves this by utilizing **Seccomp argument inspection**. The library compiles a Classic BPF (cBPF) filter that inspects the arguments of `mmap` and `mprotect` bit-by-bit:
 
-1. **Sycall Match:** It tests if the syscall number is `mmap` (9) or `mprotect` (10) on x86_64. If not, it allows unconditionally.
+1. **Syscall Match:** It tests if the syscall number is `mmap` (9) or `mprotect` (10) on x86_64. If not, it allows unconditionally.
 2. **Flag Loading:** It loads the 32-bit `prot` argument (representing the memory protection flags, passed in register `args[2]`).
-3. **PROT_EXEC Check:** It tests the `PROT_EXEC` bit (`0x4`). If the bit is set, Seccomp rejects the call, returning `EPERM`. If the bit is not set (e.g., standard read/write heap allocations), the call is allowed.
+3. **PROT_EXEC Check:** It tests the `PROT_EXEC` bit (`0x4`). If the bit is set, the filter rejects the call and returns `EPERM`. The memory region remains non-executable (W^X enforced). If the sandboxed thread subsequently attempts to jump to that memory region, the CPU raises `SIGSEGV` (Segmentation Fault), which the JVM surfaces as a fatal internal error on that thread.
 
 The JIT compiler dynamically allocates executable memory *only* on JIT compiler threads, which are separate OS threads that do not run sandboxed tasks. Worker threads processing untrusted data have no legitimate reason to allocate or pivot memory to executable state. The cBPF filter blocks precisely the operation that shellcode requires, while JIT threads on the same JVM continue compiling code completely unimpeded.
-</details>
 
 ---
 
@@ -122,10 +116,12 @@ Because of this, we must establish a **Golden Rule of JVM Safety**: **Never bloc
 
 If a custom `mazewall` policy aggressively blocks any of the following system calls, the worker thread will fail to coordinate with the JVM engine, causing the entire JVM to permanently freeze or crash:
 *   `futex` — required for thread synchronization and lock parking.
-*   `sched_yield` — required for relinquishing CPU slices during contention.
+*   `sched_yield` — required for relinquishing CPU slices during contention; blocking it causes severe performance degradation or livelock under lock contention.
 *   `rt_sigreturn` — required to return from JVM safepoint signal handlers.
 *   `rt_sigaction` / `sigaction` — required for JIT signal coordination.
 *   `close` — required for native file descriptor cleanup (blocking this leaks fds and destabilizes the runtime).
+
+Blocking `futex` or `rt_sigreturn` will cause the JVM to permanently freeze or crash. The other syscalls above produce severe degradation or instability if blocked.
 
 This is why `mazewall`'s base policies (like `Policy.PURE_COMPUTE`) pre-whitelist these system calls. When writing custom policies, these system calls must remain unblocked.
 

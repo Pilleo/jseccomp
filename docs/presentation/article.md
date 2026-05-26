@@ -1,4 +1,4 @@
-Do You Really Know What Your App Is Doing at Runtime?
+# Do You Really Know What Your App Is Doing at Runtime?
 ![maze_security_walls_new.png](maze_security_walls_new.png)
 > **Series overview:** This is Part 1 of a 5-part series on behavioral security for cloud-native applications.
  
@@ -17,8 +17,6 @@ And in many cases, the honest answer is uncomfortable: we don’t really know.
 An SBOM can tell you that a compression library is present. It cannot tell you that this same library has suddenly started interfering with authentication flows. It can tell you that a logging framework is installed. It cannot tell you that the logger is currently opening outbound network sockets. Composition transparency is valuable, but it is not behavioral transparency.
  
 That gap is exactly where a new, emerging concept starts to matter: **SBoB—the Software Bill of Behavior.**
- 
-*(A quick note on expectations: This article is not a tutorial for fixing your runtime security today. SBoB (often referred to simply as **BoB**) is still emerging, tooling is early, and standards are actively forming. What follows is a picture of where cloud-native security is heading—a direction that is becoming technically feasible and strategically hard to ignore.)*
 
 ## From Boundaries to Contracts
 
@@ -26,13 +24,15 @@ For the last decade, cloud-native security has relied on **boundaries**—wrappi
 
 But for developers, this boundary model has a fundamental blind spot: it treats the runtime like an **open field surrounded by a perimeter fence**. The internal "walls" (your code's modules and architecture) are structurally present, but provide zero physical enforcement. If an attacker achieves Arbitrary Code Execution (ACE) inside the application, they can wander freely within the fence, exfiltrate data, or execute payload code. 
 
-The shift to **contracts** (SBoB) turns the OS from a passive boundary fence into an **active runtime maze**. 
+The shift to **contracts** (SBoB) turns the OS from a passive boundary fence into an **active runtime maze**.
 
-Instead of letting an app roam an open field, we lay down rigid, kernel-enforced rails. Every legitimate path through your code represents a corridor in the maze; every system call, filesystem path, or socket access is a locked gate. Under this contract:
+Every legitimate path through your code becomes a corridor; every system call, filesystem path, or socket access is a locked gate. Under this contract:
 1. **The Sandbox is a Maze:** An attacker who compromises a worker thread cannot wander to forbidden system calls or sensitive files—they are physically blocked by the nearest wall (e.g., Seccomp or Landlock).
-2. **The OS Enforces the Logic:** The kernel actively verifies that execution strictly matches the application's expected topology at the instruction level.
+2. **The OS Enforces the Logic:** The kernel actively verifies that execution strictly matches the application's expected topology.
 
 We move from asking *"Is this container allowed to talk to the internet?"* to *"Is this specific library, at this specific millisecond, allowed to perform this specific system call?"*
+
+*(A quick note on scope: SBoB is still emerging, tooling is early, and standards are actively forming. What follows is a picture of where cloud-native security is heading — a direction that is becoming technically feasible and strategically hard to ignore.)*
 
 ## The Catalyst: Practical Runtime Observation with eBPF
  
@@ -42,22 +42,30 @@ If the SBoB is the clipboard, eBPF is the engine that makes the observation prac
  
 At a high level, eBPF gives modern Linux systems a safe, highly performant way to observe and react to what is happening at runtime. Syscalls, process executions, network behaviors, and file accesses become instantly visible and actionable.
 
-A common mental model for backend developers is this: **eBPF is to the Linux kernel what JavaScript is to the web browser** — a sandboxed, event-driven programmability layer. Unlike JavaScript, however, eBPF programs are **statically verified by the kernel before execution**: non-terminating loops and unsafe memory accesses are rejected at load time by the BPF verifier. It is an in-kernel virtual machine that executes secure bytecode at tracepoints, kprobes, and LSM hooks without compiling custom kernel modules. eBPF turned the OS from a rigid substrate into something security tools can dynamically extend.
+A common mental model for backend developers is this: **eBPF is to the Linux kernel what JavaScript is to the web browser** — a sandboxed, event-driven programmability layer. The critical disanalogy: eBPF programs are **statically verified by the kernel before execution** — non-terminating loops and unsafe memory accesses are rejected at load time. It attaches to kernel events (system calls, file opens, network activity) without requiring custom kernel modules. eBPF turned the OS from a rigid substrate into something security tools can dynamically extend.
 
 But it is important to distinguish between **observation** and **enforcement**. While eBPF provides the visibility needed to generate and enforce a Bill of Behavior, physical enforcement often relies on a different set of core Linux primitives. This distinction is critical because of a fundamental architectural trade-off: **Privilege.** 
 
 While eBPF-based enforcement (like BPF-LSM) is extremely powerful, it requires high system privileges (`CAP_SYS_ADMIN` or `CAP_BPF`). In contrast, Seccomp and Landlock are designed to be **unprivileged**, allowing a standard application to "self-restrict" its own capabilities (once `PR_SET_NO_NEW_PRIVS` is set) without needing root access or cluster-level agents. This makes them the ideal "fast path" for developer-driven security.
 
-## The Primitives: How BoB Is Enforced
+## This Isn't New—Server-Side Is Just Late
+ 
+If declaring upfront capabilities sounds like a radical shift, it isn't. In fact, this approach is already the standard in almost every other area of IT.
+ 
+Think about mobile apps. An Android `AndroidManifest.xml` or an iOS Entitlement explicitly declares what the application is allowed to do (access the camera, read contacts, use the network). Web browsers work the same way, explicitly asking for permission before a script can access your location or clipboard. WebAssembly (Wasm) takes this even further, running in a default-deny sandbox where modules cannot touch the network or file system without explicit host capabilities being granted.
+ 
+In this context, server-side Linux containers are the anomaly. SBoB is simply bringing capability-based security to the cloud-native server side.
 
-If BoB is the declaration of intent, the Linux kernel provides three primary mechanisms to turn that intent into a hard boundary:
+## The Primitives: How SBoB Is Enforced
+
+If SBoB is the declaration of intent, the Linux kernel provides three primary mechanisms to turn that intent into a hard boundary:
 
 ### 1. Seccomp (Secure Computing)
 Seccomp is the industry's "fast path" for blocking system calls. It is fast, unprivileged (via `NoNewPrivileges`), and extremely reliable. While Seccomp-BPF uses strictly constrained **Classic BPF (cBPF)** bytecode rather than the full eBPF instruction set, it remains the most widely deployed syscall filter in the world. However, it is "path-blind"—it sees the system call being made, but it cannot easily inspect the file paths or network addresses involved.
 *   **Where you use it today:** You are likely using it right now. Modern web browsers like **Chrome** and **Firefox** use Seccomp to sandbox their renderer processes, ensuring that a compromised tab cannot escape to the rest of your system. Podman/Docker also apply a default Seccomp profile to every container to block high-risk operations.
 
 ### 2. Landlock
-Landlock is a relatively new and revolutionary Linux Security Module (LSM) designed for unprivileged sandboxing. It provides the path-aware filesystem access control that Seccomp lacks. It operates at the inode level — after the kernel has fully resolved the path — which means it avoids the TOCTOU (time-of-check/time-of-use) race that makes pointer-based path inspection in Seccomp unreliable. An application can declare constraints dynamically (e.g., "This thread can only read from `/app/data`").
+Landlock is a Linux Security Module designed specifically for unprivileged sandboxing. It provides the path-aware filesystem access control that Seccomp lacks. It operates at the inode level — after the kernel has fully resolved the path — which means it avoids the TOCTOU (time-of-check/time-of-use) race that makes pointer-based path inspection in Seccomp unreliable. An application can declare constraints dynamically (e.g., "This thread can only read from `/app/data`").
 *  **Kernel & ABI Version Nuances:** Landlock degrades gracefully based on the kernel's supported ABI level (ABI v1-v3 for filesystem rules, ABI v4 for TCP limits). As of Linux Kernel 6.7, Landlock has begun expanding into networking, allowing threads to restrict themselves to specific **TCP ports** for `bind` and `connect` operations. While it currently lacks the deep IP-level or endpoint visibility of BPF-LSM, it provides a powerful, unprivileged "port-level" restrictor. However, for production systems, you must explicitly account for these kernel dependencies, as older LTS kernels (like 5.15 or 6.1) will silently ignore newer ABI features (like network filtering).
 
 ### 3. Linux Security Modules (LSM)
@@ -70,7 +78,7 @@ By combining these primitives, we move from blunt "allow/deny" container rules t
  
 This is no longer a speculative academic exercise. The building blocks are already in production.
  
-In the open ecosystem, projects like **Kubescape** are pushing strongly into runtime profiling for Kubernetes workloads. Using eBPF, Kubescape observes how workloads actually behave to build profiles around that behavior. This makes it a natural home for BoB-related ideas and standards, such as the emerging **[Bill of Behavior (BoB) specification](https://github.com/k8sstormcenter/bob)**.
+In the open ecosystem, projects like **Kubescape** are pushing strongly into runtime profiling for Kubernetes workloads. Using eBPF, Kubescape observes how workloads actually behave to build profiles around that behavior. This makes it a natural home for SBoB-related ideas and standards, such as the emerging **[Software Bill of Behavior specification](https://github.com/k8sstormcenter/bob)**.
  
 On the commercial side, companies like **Oligo Security** have proven that library-level and application-level runtime profiling is directly useful for security operations. By observing what libraries do inside running applications, their platform uses behavioral context to detect suspicious activity.
  
@@ -87,7 +95,7 @@ SBoB introduces a different model: the producer of the software should ship the 
 The vendor is the party that actually knows what the software is intended to do, what the test coverage looks like, and which behaviors are essential. Instead of forcing thousands of customers to reverse-engineer the same runtime policy from scratch, the software producer ships a reviewable baseline. This moves runtime security from a "guess" to a **verifiable attestation of intent.**
 
 ## The First Step: VEX (Vulnerability Exploitability eXchange)
-We are already seeing a "SBoB-lite" emerge in the form of **VEX**. While an SBOM tells you a vulnerable library exists on your disk, a VEX document—often generated by runtime tools like **Kubescape** using eBPF—tells you if that library is actually loaded and reachable at runtime. VEX is the industry's first standardized realization that composition is a poor proxy for risk; only behavior matters.
+We are already seeing a "SBoB-lite" emerge in the form of **VEX**. While an SBOM tells you a vulnerable library exists on your disk, a VEX document tells you if that library is actually loaded and reachable at runtime. VEX can be generated through multiple means — runtime observation (tools like Kubescape contribute behavioral evidence via eBPF), static analysis, or manual attestation. Regardless of how it is produced, VEX is the industry's first standardized realization that composition is a poor proxy for risk; only behavior matters.
 
 ## Beyond "Allow/Deny": Closing the Evasion Loopholes
  
@@ -99,7 +107,7 @@ Traditional security often focuses on blocking `execve` (spawning a shell). But 
  
 More advanced attackers use **`io_uring`**, a high-performance asynchronous I/O API. By submitting operations via shared memory rings rather than direct syscalls, they can often "blind" traditional security monitors.
  
-An SBoB allows us to express fine-grained intent that stops these techniques: *"This application is strictly forbidden from using `memfd_create`, `io_uring_setup`, or mapping executable memory."* We move from blunt "allow/deny" container rules to surgical, intent-based security.
+An SBoB allows us to express fine-grained intent that stops these techniques: *"This application is strictly forbidden from using `memfd_create`, `io_uring_setup`, or mapping executable memory."*
 
 ## The Concept of Scopes: When is a Behavior Expected?
  
@@ -122,14 +130,6 @@ Beyond lifecycle phases, we can theoretically define scopes at a much deeper lev
 *   **Stacktrace Scopes:** Using the calling context to decide if a syscall is valid (e.g., "Allow `socket()` only if called via the AWS SDK").
  
 While these granular scopes represent the "dream" of behavioral security, they often introduce high performance overhead or require deep integration with the language runtime. For now, Lifecycle Scopes remain the most viable path for widespread adoption.
-
-## This Isn’t New—Server-Side Is Just Late
- 
-If declaring upfront capabilities sounds like a radical shift, it isn’t. In fact, this approach is already the standard in almost every other area of IT.
- 
-Think about mobile apps. An Android `AndroidManifest.xml` or an iOS Entitlement explicitly declares what the application is allowed to do (access the camera, read contacts, use the network). Web browsers work the same way, explicitly asking for permission before a script can access your location or clipboard. WebAssembly (Wasm) takes this even further, running in a default-deny sandbox where modules cannot touch the network or file system without explicit host capabilities being granted.
- 
-In this context, server-side Linux containers are the anomaly. SBoB is simply bringing capability-based security to the cloud-native server side.
 
 ## What You Can Do Today
  

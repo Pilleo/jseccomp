@@ -91,7 +91,7 @@ But several common Java patterns break this assumption:
 
 **Dynamic configuration and hot reload:** Feature flags, runtime config pushes, and hot deploys break the steady-state assumption. If behavior can change arbitrarily without a restart, creating a restrictive static behavioral contract is nearly impossible.
 
-These are real constraints that require architectural discipline. **For the PoC work ahead, the answer is GraalVM** — it sidesteps most of these problems by making the binary static. Standard JIT-compiled applications are the harder next step.
+These are real constraints that require architectural discipline. **For anyone working on SBoB generation tooling today, GraalVM is the clearest starting point — because it eliminates the hardest sources of noise.**
 
 ---
 
@@ -111,9 +111,9 @@ In a hypothetical future tooling pipeline, GraalVM’s closed-world compilation 
 
 1. **Statically Traced Call-Graphs:** Since the compiler constructs a complete, explicit call graph, static analysis tools can trace exactly which library call sites are reachable from the application entry point.
 2. **Deterministic Pruning:** If your application depends on a large library (like the AWS SDK) but only initializes a DynamoDB client, the compiler's AOT analysis statically proves that the Kinesis and S3 clients are unreachable. 
-3. **Physical Capability Dropping:** The S3 code paths—and their associated syscall behaviors—are permanently deleted from the final binary. The associated capabilities (e.g. TCP connect permissions to S3 buckets) are mechanically dropped from the SBoB without requiring dynamic observation.
+3. **Physical Capability Dropping:** The S3 code paths—and their associated syscall behaviors— are permanently deleted from the final binary. The associated capabilities (e.g. TCP connect permissions to S3 buckets) are mechanically dropped from the SBoB without requiring dynamic observation.
 
-Instead of trying to deduce the application's actual behavior by running incomplete integration tests (which is reactive), GraalVM lets us **mathematically prove** the upper bound of the application's capabilities.
+By eliminating reflection and dynamic class loading, GraalVM provides the only current mechanism to **statically bound the upper limit** of what a Java application can do at the system call level.
 
 ### Leveraging Reachability Metadata
 

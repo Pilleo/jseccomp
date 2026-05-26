@@ -1,16 +1,14 @@
 # Dynamic Policy Profiling in Mazewall
 
-> **Series overview:** This is Part 2 of a 5-part series on behavioral security for cloud-native applications. **What this part adds:** the introduction of **mazewall**—a newly developed, experimental Proof-of-Concept JVM sandboxing library written in preparation of articles to make them more practical—and a developer-focused guide to profile your code.
+> **Series overview:** This is Part 2 of a 5-part series on behavioral security for cloud-native applications. **What this part adds:** a developer-focused walkthrough of **mazewall** — an experimental, research-grade Proof-of-Concept JVM sandboxing library. All code examples are for local exploration only; this is not a production-ready tool.
 
 ---
 
-In Part 1, we established that traditional container-level boundaries leave an open field for attackers once they achieve Arbitrary Code Execution (ACE) inside an application. We argued that the future of cloud-native security belongs to **contracts**—specifically, the **Software Bill of Behavior (SBoB)**—where the kernel restricts threads to a narrow, pre-declared set of capabilities.
-
-But this raises an immediate, practical engineering challenge: **how do you build the contract?**
+Part 1 established that thread-scoped SBoB enforcement requires first knowing the exact set of system calls and filesystem paths a workload legitimately needs. But **how do you build that contract?**
 
 Manually cataloging every system call and filesystem path an application uses introduces significant engineering friction. Furthermore, predicting required system calls in a complex runtime like the JVM is highly error-prone; under-specifying a policy by blocking a critical runtime operation can result in fatal JVM deadlocks.
 
-**mazewall** is a JVM library designed to enforce thread-scoped Seccomp-BPF and Landlock boundaries. To mitigate the misconfiguration risks inherent in manual rule declaration, mazewall relies on a **Discovery before Enforcement** model: instead of speculating on required capabilities, the library profiles the active code block under test to capture its exact system requirements.
+**mazewall** is an experimental JVM library that enforces thread-scoped Seccomp-BPF and Landlock boundaries. To mitigate the misconfiguration risks inherent in manual rule declaration, mazewall relies on a **Discovery before Enforcement** model: instead of speculating on required capabilities, the library profiles the active code block under test to capture its observed system call footprint.
 
 ---
 
@@ -24,11 +22,12 @@ However, cluster-wide dynamic profiling has a few critical limitations for appli
 1. **Lack of Application Context:** A cluster-level eBPF tracer sees the JVM process as a single black box. It cannot easily distinguish between a high-privilege administrative thread, a low-privilege JSON parser thread, or the JIT compiler thread. It profiles the *average process*, not individual logical tasks.
 2. **Slow Developer Feedback Loop:** Running a container in a staging cluster, generating traffic, compiling eBPF logs, and generating a security policy is a heavy, slow process. It cannot easily be integrated into a developer's local inner loop or CI pipeline.
 
-**mazewall** takes a different approach: **developer-scoped, thread-level profiling**. It offers three architectural tiers based on the required transparency and available environment privileges:
+**mazewall** takes a different approach: **developer-scoped, thread-level profiling**. It uses two complementary mechanisms:
 
-1.  **Tier P (Privileged):** Uses root access to attach eBPF probes directly to the kernel. This is the only way to achieve **100% transparent profiling**, capturing even asynchronous `io_uring` operations without any application impact.
-2.  **Tier S (Standard):** Uses unprivileged `USER_NOTIF`. Transparent for synchronous syscalls, but has a "blind spot" for `io_uring`.
-3.  **Tier A (Iterative):** Fully in-process and unprivileged. It "learns" the policy through trial-and-error by catching and resolving `AccessDeniedException`s.
+- **USER_NOTIF-based syscall tracing:** An unprivileged out-of-process daemon intercepts every system call made by the profiled thread. This is transparent for synchronous syscalls but has a structural blind spot: `io_uring` operations are submitted via a shared-memory ring buffer, bypassing the syscall layer entirely, so they are invisible to `USER_NOTIF` tracing without root-level eBPF attachment.
+- **Iterative Landlock path discovery:** Filesystem path requirements are learned through controlled denial — the workload runs under a restricted policy, each denied path is whitelisted, and the workload retries until it converges.
+
+Note on `io_uring` profiling: there is no clean unprivileged solution here. Privileged eBPF attachment can observe `io_uring` submissions, but this requires `CAP_SYS_ADMIN`. The iterative Landlock approach can verify that the *paths* accessed via `io_uring` are correctly whitelisted (because Landlock enforcement propagates to the kernel's async worker), but it cannot independently enumerate which `io_uring` syscalls are required. This is an open engineering challenge.
 
 ---
 
@@ -41,7 +40,7 @@ Let's look at a realistic workload. This task reads a local JSON configuration f
 ```kotlin
 val workload = {
     // 1. Read configuration from disk
-    val config = File("/tmp/mazewall_app_config.json").readText()
+    val config = File("/app/config.json").readText()
     
     // 2. Connect to local server and read a greeting
     val clientSocket = Socket("localhost", serverPort)
@@ -86,27 +85,19 @@ However, system call profiling on a live thread is never completely sterile. Dev
 *   **Thread Synchronization:** Lock contention or thread parking triggers coordination calls (`futex`, `sched_yield`) directly on the executing thread.
 *   **vDSO Fallbacks:** Calls to retrieve system time (`System.currentTimeMillis()`) normally run in userspace via vDSO, but can fall back to direct `clock_gettime` system calls under certain container virtualizations or older architectures.
 
-This transient noise presents a operational challenge: if a class is warmed up *before* profiling but loaded lazily in production, the production thread will crash due to a missing rule (under-specification). Conversely, whitelisting classloader paths that are only loaded once during test setup violates the principle of least privilege (over-specification). Mitigating this requires warming up the JVM before running the profiler, or relying on AOT compilation (as discussed in Part 5).
+This transient noise presents an operational challenge: if a class is warmed up *before* profiling but loaded lazily in production, the production thread will crash due to a missing rule (under-specification). Conversely, whitelisting classloader paths that are only loaded once during test setup violates the principle of least privilege (over-specification).
 
-## Policy Compilation & DSL Representation
+**Mitigation:** Warm up the JVM thoroughly — trigger all lazy class loads and connection pool initializations — *before* starting the profiling run. Part 5 covers why GraalVM Native Image sidesteps most of this noise by eliminating JIT-internal syscalls and converting class loading to ahead-of-time static linking.
 
-Once the profiling run completes, the profiler compiles its observations into an immutable record called a `BillOfBehavior` (BoB). 
+## Policy Output
 
-The `BillOfBehavior` compiles directly to a Kotlin Policy DSL representation via `bob.toDsl()`. This output is a type-safe definition ready for inclusion in the application configuration:
-
-```kotlin
-val bob = profilingResult.behavior
-val dsl = bob.toDsl("MyWorkerPolicy", Policy.PURE_COMPUTE)
-println(dsl)
-```
-
-The output is a structured Kotlin policy definition:
+Once profiling converges, the observations compile into an immutable `Policy` record. The resulting policy for our workload looks like this:
 
 ```kotlin
 val MyWorkerPolicy = Policy.builder()
     .base(Policy.PURE_COMPUTE)
     .unblock(Syscall.IO_URING_SETUP)
-    .allowFsRead("/tmp/mazewall_app_config.json")
+    .allowFsRead("/app/config.json")
     .build()
 ```
 
@@ -114,7 +105,7 @@ val MyWorkerPolicy = Policy.builder()
 This generated policy contains three elements:
 1. **`Policy.PURE_COMPUTE`:** This is a default-deny base policy. It blocks high-risk actions like process execution (`execve`), network socket creation (`socket`), and executable memory allocation.
 2. **`unblock(Syscall.IO_URING_SETUP)`:** The profiler detected that the thread requires setting up an `io_uring` queue, and whitelists only this specific system call.
-3. **`allowFsRead("/tmp/mazewall_app_config.json")`:** The profiler observed a file read. Instead of granting broad filesystem access, it whitelists only the specific configuration file path that was touched.
+3. **`allowFsRead("/app/config.json")`:** The profiler observed a file read. Instead of granting broad filesystem access, it whitelists only the specific configuration file path that was touched.
 
 ---
 
@@ -153,7 +144,7 @@ Upon convergence, the iterative execution yields the minimal set of verified pat
 
 While dynamic profiling automates rule generation, it introduces a systems-level operational risk: **Environment Drift**.
 
-Because the Profiler records the *exact* physical execution of the thread, the accuracy of your generated Bill of Behavior (BoB) relies on a perfect match between your profiling sandbox and your production execution environment. If any of the following variables differ, the actual system calls or filesystem paths required by your application may shift, resulting in immediate production crashes when your policy is enforced:
+Because the Profiler records the *exact* physical execution of the thread, the accuracy of your generated SBoB relies on a perfect match between your profiling sandbox and your production execution environment. If any of the following variables differ, the actual system calls or filesystem paths required by your application may shift, resulting in immediate production crashes when your policy is enforced:
 
 *   **CPU Architecture:** System call tables differ physically between hardware platforms (e.g., `x86_64` vs. `aarch64`/ARM64). While `mazewall` handles CPU architecture translation for syscall names under the hood, the underlying code paths generated by the JVM or native libraries (like Netty) can vary, executing completely different syscalls on different CPUs.
 *   **Operating System & Kernel Version:** System calls change, evolve, or are introduced across Linux kernel versions. Furthermore, Landlock features (like ABI levels) depend directly on the running host kernel. A policy profiled on a cutting-edge local kernel might crash on an older enterprise production kernel.

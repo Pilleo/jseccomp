@@ -1,12 +1,12 @@
 # Mazewall: The Attacks We Actually Stop
 
-> **Series overview:** This is Part 4 of a 5-part series on behavioral security for cloud-native applications. **What this part adds:** real exploit walkthroughs using the **mazewall** demo codebase—demonstrating how thread-scoped Seccomp and Landlock co-enforcement blocks command execution, fileless malware, JIT shellcode injection, and asynchronous `io_uring` evasion.
+> **Series overview:** This is Part 4 of a 5-part series on behavioral security for cloud-native applications. **What this part adds:** real exploit walkthroughs using the **mazewall** demo codebase — demonstrating how thread-scoped Seccomp and Landlock co-enforcement blocks command execution, fileless malware, JIT shellcode injection, and asynchronous `io_uring` evasion. All demonstrations use the mazewall PoC library.
 
 ---
 
 In Parts 2 and 3, we explored how **mazewall** dynamically profiles your code to generate a behavioral contract (SBoB) and how it enforces this contract at the Linux kernel level.
 
-But a security library is only as good as its defense against active exploitation. Today, we put mazewall to the test it against five real-worldish, high-severity cloud-native attacks.
+But a security library is only as good as its defense against active exploitation. Today, we put mazewall to the test against five representative attack scenarios — the attack classes these kernel primitives are designed to stop.
 
 We will walk through the exact mechanics of these attacks, see how they execute in an unprotected JVM, and watch the Linux kernel surgically block them under mazewall's containment.
 
@@ -50,7 +50,7 @@ An attacker achieves Remote Code Execution (RCE) via a dependency vulnerability 
 
 ### The Mechanics without Mazewall
 1. The vulnerable logger parses the malicious input and triggers Java's `ProcessBuilder.start()`.
-2. Under the hood, Java invokes the FFM or native OS bridge, which maps to the Linux `execve(2)` system call.
+2. Under the hood, Java's `ProcessBuilder` ultimately results in a process-spawning syscall (`execve` or `execveat`, depending on JDK version).
 3. The kernel executes the system call, spawning a new OS process. The attacker successfully compromises the environment.
 
 ### The Defense with Mazewall
@@ -114,7 +114,7 @@ As detailed in Part 3, mazewall uses Classic BPF (cBPF) argument-level inspectio
 2. Seccomp intercept matches the `mprotect` system call number.
 3. The filter inspects the third argument register (`args[2]`), loading the protection flag bits.
 4. It detects the `PROT_EXEC` bit (`0x4`).
-5. The filter rejects the call and returns `EPERM`. The memory remains non-executable (W^X violation), and the shellcode causes a harmless JVM `NullPointerException` or `AccessDeniedException` if executed.
+5. The filter rejects the call and returns `EPERM`. The memory region remains non-executable (W^X enforced). If the sandboxed thread subsequently attempts to jump to that memory region, the CPU raises `SIGSEGV` (Segmentation Fault), which the JVM surfaces as a fatal internal error on that thread.
 
 ```
        Worker Thread (Sandboxed)                  Linux Kernel
@@ -149,9 +149,8 @@ Under the generated policy from our dynamic profiling run (Part 2), filesystem a
 
 ## Attack 5: Asynchronous Evasion via `io_uring`
 
-This scenario represents a complex systems-level security validation.
-
 ### The Threat
+
 High-performance workloads (such as Netty-based network loops) require modern Linux asynchronous engines like **`io_uring`**. 
 
 To allow this workload, Seccomp must whitelist the initial `io_uring_setup(2)` and `io_uring_enter(2)` system calls. However, Seccomp is fundamentally **blind** to the contents of `io_uring` queues. 
@@ -178,7 +177,7 @@ Mazewall neutralizes this bypass through the **complementary co-enforcement of S
 1. **Seccomp** whitelists `io_uring_setup` so the application can initialize its high-performance ring buffer.
 2. The attacker uses `io_uring` to submit an asynchronous read command targeting `/etc/hosts`.
 3. The kernel's asynchronous workqueue worker (`io-wq`) picks up the command from the shared-memory queue.
-4. **The Critical Kernel Invariant:** Before executing the command, the Linux kernel automatically **copies the credentials** of the submitting thread—including its active **Landlock LSM ruleset**—to the asynchronous worker thread.
+4. **The Critical Kernel Invariant:** Before executing the command, the Linux kernel automatically **copies the credentials** of the submitting thread — including its active **Landlock LSM ruleset** — to the asynchronous worker thread. This behavior is established in `io_uring`'s design: `io-wq` workers inherit the submitter's credentials via `io_uring_get_fixed_file()` and the credential-copy path in `io_wq_submit_work()` (introduced with `io_uring` in kernel 5.1 and Landlock integration in 5.13). See `fs/io_uring.c` and `kernel/cred.c` in the kernel source.
 5. When the worker thread attempts to execute the read on `/etc/hosts`, the kernel's Landlock hook intercepts the call at the VFS layer.
 6. The read is blocked and returns `EACCES` (Permission denied).
 
@@ -206,13 +205,13 @@ This illustrates the structural advantage of complementary co-enforcement. Secco
 |-------------------------|-----------------------------|----------------------------|----------|-----------------------------------|
 | **Shell Spawn**         | `execve`                    | Seccomp (`Policy.NO_EXEC`) | `EPERM`  | `IOException: Cannot run program` |
 | **Fileless Payload**    | `memfd_create` / `execveat` | Seccomp (`Policy.NO_EXEC`) | `EPERM`  | `ContainmentViolationException`   |
-| **Shellcode Injection** | `mprotect(PROT_EXEC)`       | Seccomp (cBPF inspect)     | `EPERM`  | `AccessDeniedException`           |
+| **Shellcode Injection** | `mprotect(PROT_EXEC)`       | Seccomp (cBPF inspect)     | `EPERM`  | `SIGSEGV` → JVM fatal error       |
 | **Path Traversal**      | `openat("/etc/hosts")`      | Landlock (Path filter)     | `EACCES` | `ContainmentViolationException`   |
 | **io_uring Evasion**    | `io_uring` submission       | Landlock (Credential copy) | `EACCES` | `ContainmentViolationException`   |
 
 ---
 
-We have verified that Mazewall enforces the Software Bill of Behavior against advanced native exploitation vectors, including asynchronous evasion.
+These demonstrations show that the Linux kernel primitives (Seccomp and Landlock) enforce the behavioral contract against these attack classes when correctly applied. The defense is implemented in the kernel, not in application-level code that an attacker could bypass.
 
 But how does this work in large-scale production? How do we handle massive, dynamic JVM frameworks (like Spring or Micronaut) where reflection, dynamic proxy generation, and massive dependency graphs make runtime profiling complex?
 
@@ -220,4 +219,4 @@ In **Part 5**, we will explore how to scale SBoB generation to production using 
 
 ---
 
-*Next Up: [Part 5: Generating an SBoB for Java: Production & AOT](article5-graalvm.md)*
+*Next Up: [Part 5: Generating an SBoB for Java: Where We Are and What's Missing](article5-graalvm.md)*

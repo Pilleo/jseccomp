@@ -33,7 +33,7 @@ val safe = ContainedExecutors.wrap(
 val future = safe.submit { vulnerableLogger.log(maliciousInput) }
 
 // ...but the kernel intercepts execve() and returns EPERM.
-// The reverse shell never spawns. The attack is completely neutralized.
+// The shell process is never spawned. The attack's execution vector is blocked.
 future.get() // Throws ExecutionException { cause: ContainmentViolationException }
 ```
 
@@ -167,7 +167,7 @@ The demo includes an automated python exploit suite and generates a side-by-side
 | Policy                | Blocked Syscalls / Primitives                                                                                                                                                                                                                  | Best Use Case                                                        |
 |-----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------|
 | `Policy.NO_EXEC`      | `execve`, `execveat`, `fork`, `vfork`, `memfd_create`, `io_uring_setup`                                                                                                                                                                        | Process-wide startup lockdown baseline.                              |
-| `Policy.NO_NETWORK`   | All execution blocks + `connect`, `socket`, `bind`, `accept`                                                                                                                                                                                   | Data parsers that require local filesystem access but no internet.   |
+| `Policy.NO_NETWORK`   | All execution blocks + `connect`, `sendto`, `sendmsg`, `socket`, `bind`, `listen`, `accept`, `accept4`, `io_uring_setup`, `io_uring_enter`                                                                                                     | Data parsers that require local filesystem access but no internet.   |
 | `Policy.PURE_COMPUTE` | All network and execution blocks + `open`, `openat`, `ioctl`, `mount`, `io_uring_setup`; `mmap`/`mprotect` with `PROT_EXEC` and non-thread `clone` via BPF argument inspection; `prctl` restricted to safe options via BPF argument inspection | Algorithmic worker pools (image decoding, cryptographic operations). |
 
 ## System Call Reference
