@@ -15,6 +15,7 @@ tasks.test {
 
 dependencies {
     implementation(project(":enforcer"))
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.1")
     testImplementation(kotlin("test"))
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.2")
     testImplementation("org.junit.jupiter:junit-jupiter-params:5.10.2")

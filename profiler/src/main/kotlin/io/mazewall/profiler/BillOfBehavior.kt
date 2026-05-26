@@ -1,5 +1,6 @@
 package io.mazewall.profiler
 
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import io.mazewall.Policy
 import io.mazewall.Syscall
 import io.mazewall.profiler.engine.TraceEvent
@@ -8,6 +9,23 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+
+private val mapper = jacksonObjectMapper()
+
+private class BillOfBehaviorDto(
+    val opens: Set<String> = emptySet(),
+    val fsWritePaths: Set<String> = emptySet(),
+    val syscalls: Set<String> = emptySet(),
+    val execs: Set<String> = emptySet(),
+    val stackProfile: List<StackProfileEntryDto> = emptyList(),
+)
+
+private class StackProfileEntryDto(
+    val syscall: String,
+    val paths: List<String> = emptyList(),
+    val args: List<Long> = emptyList(),
+    val stackTrace: List<String> = emptyList(),
+)
 
 /**
  * An immutable record of what kernel-level operations were observed during a
@@ -141,7 +159,7 @@ data class BillOfBehavior(
     private fun pruneSubpaths(paths: Set<String>): Set<String> {
         if (paths.size <= 1) return paths
 
-        val parsedPaths = paths.map { Paths.get(it).toAbsolutePath().normalize() }
+        val parsedPaths = paths.map { Paths.get(it).toAbsolutePath().normalize() }.distinct()
         val result = mutableListOf<Path>()
 
         for (path in parsedPaths) {
@@ -163,7 +181,9 @@ data class BillOfBehavior(
     operator fun plus(other: BillOfBehavior): BillOfBehavior {
         val mergedStackProfile = stackProfile.toMutableMap()
         for ((event, traces) in other.stackProfile) {
-            mergedStackProfile[event] = (mergedStackProfile[event] ?: emptyList()) + traces
+            val existing = mergedStackProfile[event] ?: emptyList()
+            val mergedTraces = (existing + traces).distinctBy { it.toList() }
+            mergedStackProfile[event] = mergedTraces
         }
 
         return BillOfBehavior(
@@ -179,88 +199,50 @@ data class BillOfBehavior(
      * Serializes this Bill of Behavior into a clean SBoB JSON string.
      */
     fun toJson(): String {
-        val sb = java.lang.StringBuilder()
-        sb.append("{\n")
+        val prunedOpens = pruneSubpaths(opens).sorted().toSet()
+        val prunedWrites = pruneSubpaths(fsWritePaths).sorted().toSet()
+        val sortedSyscalls = syscalls.sortedBy { it.name }.map { it.name }.toSet()
+        val sortedExecs = execs.sorted().toSet()
 
-        sb.append("  \"opens\": [\n")
-        val prunedOpens = pruneSubpaths(opens).sorted()
-        sb.append(prunedOpens.joinToString(",\n") { "    \"${escapeJson(it)}\"" })
-        sb.append("\n  ],\n")
-
-        sb.append("  \"fsWritePaths\": [\n")
-        val prunedWrites = pruneSubpaths(fsWritePaths).sorted()
-        sb.append(prunedWrites.joinToString(",\n") { "    \"${escapeJson(it)}\"" })
-        sb.append("\n  ],\n")
-
-        sb.append("  \"syscalls\": [\n")
-        val sortedSyscalls = syscalls.sortedBy { it.name }
-        sb.append(sortedSyscalls.joinToString(",\n") { "    \"${it.name}\"" })
-        sb.append("\n  ],\n")
-
-        sb.append("  \"execs\": [\n")
-        val sortedExecs = execs.sorted()
-        sb.append(sortedExecs.joinToString(",\n") { "    \"${escapeJson(it)}\"" })
-        sb.append("\n  ],\n")
-
-        sb.append("  \"stackProfile\": [\n")
         val stackEntries = stackProfile.entries.sortedBy { it.key.syscallName }
-        val serializedTraces = stackEntries.flatMap { (event, tracesList) ->
+        val stackProfileDtos = stackEntries.flatMap { (event, tracesList) ->
             tracesList.map { frames ->
-                val entrySb = java.lang.StringBuilder()
-                entrySb.append("    {\n")
-                entrySb.append("      \"syscall\": \"${event.syscallName}\",\n")
-                entrySb.append("      \"paths\": [\n")
-                val pathsEscaped = event.paths.map { "        \"${escapeJson(it)}\"" }
-                entrySb.append(pathsEscaped.joinToString(",\n"))
-                entrySb.append("\n      ],\n")
-                entrySb.append("      \"args\": [${event.args.joinToString(", ")}],\n")
-                entrySb.append("      \"stackTrace\": [\n")
-                val tracesEscaped = frames.map { "        \"${escapeJson(it.toString())}\"" }
-                entrySb.append(tracesEscaped.joinToString(",\n"))
-                entrySb.append("\n      ]\n")
-                entrySb.append("    }")
-                entrySb.toString()
+                StackProfileEntryDto(
+                    syscall = event.syscallName,
+                    paths = event.paths,
+                    args = event.args.toList(),
+                    stackTrace = frames.map { it.toString() }
+                )
             }
         }
-        sb.append(serializedTraces.joinToString(",\n"))
-        sb.append("\n  ]\n")
 
-        sb.append("}")
-        return sb.toString()
-    }
+        val dto = BillOfBehaviorDto(
+            opens = prunedOpens,
+            fsWritePaths = prunedWrites,
+            syscalls = sortedSyscalls,
+            execs = sortedExecs,
+            stackProfile = stackProfileDtos
+        )
 
-    private fun escapeJson(str: String): String {
-        return str.replace("\\", "\\\\").replace("\"", "\\\"")
+        return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(dto)
     }
 
     /**
      * Serializes only the stackTrace data into a beautifully formatted JSON array.
      */
     fun toStackTracesJson(): String {
-        val sb = java.lang.StringBuilder()
-        sb.append("[\n")
         val stackEntries = stackProfile.entries.sortedBy { it.key.syscallName }
-        val serializedTraces = stackEntries.flatMap { (event, tracesList) ->
+        val stackProfileDtos = stackEntries.flatMap { (event, tracesList) ->
             tracesList.map { frames ->
-                val eventSb = java.lang.StringBuilder()
-                eventSb.append("  {\n")
-                eventSb.append("    \"syscall\": \"${event.syscallName}\",\n")
-                eventSb.append("    \"paths\": [\n")
-                val pathsEscaped = event.paths.map { "      \"${escapeJson(it)}\"" }
-                eventSb.append(pathsEscaped.joinToString(",\n"))
-                eventSb.append("\n    ],\n")
-                eventSb.append("    \"args\": [${event.args.joinToString(", ")}],\n")
-                eventSb.append("    \"stackTrace\": [\n")
-                val tracesEscaped = frames.map { "      \"${escapeJson(it.toString())}\"" }
-                eventSb.append(tracesEscaped.joinToString(",\n"))
-                eventSb.append("\n    ]\n")
-                eventSb.append("  }")
-                eventSb.toString()
+                StackProfileEntryDto(
+                    syscall = event.syscallName,
+                    paths = event.paths,
+                    args = event.args.toList(),
+                    stackTrace = frames.map { it.toString() }
+                )
             }
         }
-        sb.append(serializedTraces.joinToString(",\n"))
-        sb.append("\n]")
-        return sb.toString()
+        return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(stackProfileDtos)
     }
 
     companion object {
@@ -283,55 +265,106 @@ data class BillOfBehavior(
          * Parses a Bill of Behavior from an SBoB JSON string.
          */
         fun fromJson(json: String): BillOfBehavior {
-            val opens = parseJsonStringArray(json, "opens")
-            val fsWritePaths = parseJsonStringArray(json, "fsWritePaths")
-            val syscallNames = parseJsonStringArray(json, "syscalls")
-            val execs = parseJsonStringArray(json, "execs")
+            val dto = mapper.readValue(json, BillOfBehaviorDto::class.java)
 
-            val mappedSyscalls = syscallNames.mapNotNull { name ->
+            val mappedSyscalls = dto.syscalls.mapNotNull { name ->
                 try {
                     Syscall.valueOf(name.uppercase())
                 } catch (ignored: Exception) {
                     null
                 }
+            }.toSet()
+
+            val stackProfile = mutableMapOf<TraceEvent, MutableList<Array<StackTraceElement>>>()
+            for (entry in dto.stackProfile) {
+                val event = TraceEvent(
+                    pid = 0,
+                    syscallName = entry.syscall,
+                    args = entry.args.map { it }.toLongArray(),
+                    paths = entry.paths
+                )
+                val frames = entry.stackTrace.map { parseStackTraceElement(it) }.toTypedArray()
+                stackProfile.getOrPut(event) { mutableListOf() }.add(frames)
             }
-            val syscalls = mappedSyscalls.toSet()
 
             return BillOfBehavior(
-                opens = opens,
-                fsWritePaths = fsWritePaths,
-                syscalls = syscalls,
-                execs = execs,
+                opens = dto.opens,
+                fsWritePaths = dto.fsWritePaths,
+                syscalls = mappedSyscalls,
+                execs = dto.execs,
+                stackProfile = stackProfile
             )
         }
 
-        private fun parseJsonStringArray(
-            json: String,
-            key: String,
-        ): Set<String> {
-            val index = json.indexOf("\"$key\"")
-            val openBracket = if (index != -1) json.indexOf("[", index) else -1
-            val closeBracket = if (openBracket != -1) json.indexOf("]", openBracket) else -1
+        private fun parseStackTraceElement(str: String): StackTraceElement {
+            val openParen = str.indexOf('(')
+            val closeParen = str.lastIndexOf(')')
+            if (openParen == -1 || closeParen == -1 || closeParen < openParen) {
+                return StackTraceElement("Unknown", "unknown", null, -1)
+            }
 
-            if (closeBracket != -1) {
-                val arrayContent = json.substring(openBracket + 1, closeBracket)
-                if (arrayContent.isNotBlank()) {
-                    return parseStringArrayContent(arrayContent)
+            val beforeParen = str.substring(0, openParen)
+            val insideParen = str.substring(openParen + 1, closeParen)
+
+            val lastDot = beforeParen.lastIndexOf('.')
+            if (lastDot == -1) {
+                return StackTraceElement("Unknown", beforeParen, null, -1)
+            }
+            val methodName = beforeParen.substring(lastDot + 1)
+            val remaining = beforeParen.substring(0, lastDot)
+
+            val slashes = remaining.split('/')
+            val className = slashes.last()
+
+            val (classLoaderName, moduleName, moduleVersion) = when {
+                slashes.size > 2 -> {
+                    val cl = slashes[0]
+                    val mod = slashes[1]
+                    val atIdx = mod.indexOf('@')
+                    if (atIdx != -1) {
+                        Triple(cl, mod.substring(0, atIdx), mod.substring(atIdx + 1))
+                    } else {
+                        Triple(cl, mod, null)
+                    }
+                }
+                slashes.size == 2 -> {
+                    val first = slashes[0]
+                    val atIdx = first.indexOf('@')
+                    if (atIdx != -1) {
+                        Triple(null, first.substring(0, atIdx), first.substring(atIdx + 1))
+                    } else {
+                        if (first.startsWith("java.") || first.startsWith("jdk.")) {
+                            Triple(null, first, null)
+                        } else {
+                            Triple(first, null, null)
+                        }
+                    }
+                }
+                else -> Triple(null, null, null)
+            }
+
+            val (fileName, lineNumber) = when (insideParen) {
+                "Native Method" -> null to -2
+                "Unknown Source" -> null to -1
+                else -> {
+                    val colon = insideParen.lastIndexOf(':')
+                    if (colon != -1) {
+                        insideParen.substring(0, colon) to insideParen.substring(colon + 1).toIntOrNull()
+                    } else {
+                        insideParen to -1
+                    }
                 }
             }
-            return emptySet()
-        }
 
-        private fun parseStringArrayContent(arrayContent: String): Set<String> {
-            val result = mutableSetOf<String>()
-            val regex = "\"([^\"\\\\]|\\\\.)*\"".toRegex()
-            for (match in regex.findAll(arrayContent)) {
-                val value = match.value
-                val contentOnly = value.substring(1, value.length - 1)
-                val unescaped = contentOnly.replace("\\\"", "\"").replace("\\\\", "\\")
-                result.add(unescaped)
-            }
-            return result
+            return StackTraceElement(
+                classLoaderName,
+                moduleName,
+                moduleVersion,
+                className,
+                methodName,
+                fileName,
+                lineNumber ?: -1
+            )
         }
     }
 }

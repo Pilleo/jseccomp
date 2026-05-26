@@ -225,4 +225,73 @@ class BillOfBehaviorTest {
             Files.deleteIfExists(tempFile)
         }
     }
+
+    @Test
+    fun `test JSON serialization and deserialization roundtrip preserves stackProfile`() {
+        val event1 = TraceEvent(0, "OPEN", longArrayOf(1, 2), listOf("/test1"))
+        val event2 = TraceEvent(0, "CLOSE", longArrayOf(3), listOf("/test2"))
+
+        val stack1 = arrayOf(
+            StackTraceElement("java.base", "java.io.FileInputStream", "open0", "FileInputStream.java", 123),
+            StackTraceElement("demo.vulnapp", "demo.vulnapp.Service", "doWork", "Service.kt", 12)
+        )
+        val stack2 = arrayOf(
+            StackTraceElement("Class2", "method2", "File2.kt", 2)
+        )
+
+        val bob = BillOfBehavior(
+            opens = setOf("/test1", "/test2"),
+            syscalls = setOf(Syscall.OPEN, Syscall.CLOSE),
+            stackProfile = mapOf(
+                event1 to listOf(stack1),
+                event2 to listOf(stack2)
+            )
+        )
+
+        val json = bob.toJson()
+        val parsed = BillOfBehavior.fromJson(json)
+
+        assertEquals(bob.opens, parsed.opens)
+        assertEquals(bob.syscalls, parsed.syscalls)
+
+        // Assert stack profile exists and event keys match
+        assertEquals(bob.stackProfile.size, parsed.stackProfile.size)
+
+        val parsedEvent1 = parsed.stackProfile.keys.find { it.syscallName == "OPEN" }
+        assertTrue(parsedEvent1 != null)
+        assertEquals(event1.paths, parsedEvent1.paths)
+        assertTrue(event1.args.contentEquals(parsedEvent1.args))
+
+        val parsedTraces1 = parsed.stackProfile[parsedEvent1]!!
+        assertEquals(1, parsedTraces1.size)
+        assertEquals(stack1.size, parsedTraces1[0].size)
+        assertEquals("java.io.FileInputStream", parsedTraces1[0][0].className)
+        assertEquals("open0", parsedTraces1[0][0].methodName)
+        assertEquals("FileInputStream.java", parsedTraces1[0][0].fileName)
+        assertEquals(123, parsedTraces1[0][0].lineNumber)
+        assertEquals("java.base", parsedTraces1[0][0].moduleName)
+    }
+
+    @Test
+    fun `test plus operator deduplicates identical stack traces`() {
+        val event = TraceEvent(0, "OPEN", longArrayOf(1), listOf("/test"))
+
+        val stack1 = arrayOf(StackTraceElement("Class1", "method1", "File1.kt", 1))
+        val stack2 = arrayOf(StackTraceElement("Class1", "method1", "File1.kt", 1)) // Identical contents
+        val stack3 = arrayOf(StackTraceElement("Class2", "method2", "File2.kt", 2)) // Different contents
+
+        val bob1 = BillOfBehavior(
+            stackProfile = mapOf(event to listOf(stack1))
+        )
+        val bob2 = BillOfBehavior(
+            stackProfile = mapOf(event to listOf(stack2, stack3))
+        )
+
+        val merged = bob1 + bob2
+        val traces = merged.stackProfile[event]!!
+
+        assertEquals(2, traces.size) // Only stack1 and stack3 should remain, stack2 is a duplicate of stack1
+        assertEquals("Class1", traces[0][0].className)
+        assertEquals("Class2", traces[1][0].className)
+    }
 }
