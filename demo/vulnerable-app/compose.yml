@@ -16,11 +16,15 @@ services:
             dockerfile: demo/vulnerable-app/Containerfile
         environment:
             - MAZEWALL_ENABLED=true
+            - MAZEWALL_PROFILE=true
             - SERVER_PORT=8081
+        volumes:
+            - ../../sbob.json:/app/sbob.json:ro
         annotations:
             io.podman.annotations.seccomp: ${PWD}/../../podman-seccomp.json
         cap_add:
             - SYS_ADMIN
             - AUDIT_READ
+            - SYS_PTRACE
         network_mode: host
         userns_mode: host

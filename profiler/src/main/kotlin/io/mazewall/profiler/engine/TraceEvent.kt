@@ -5,6 +5,7 @@ data class TraceEvent(
     val syscallName: String,
     val args: LongArray,
     val paths: List<String>,
+    val stackTrace: List<String>? = null,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

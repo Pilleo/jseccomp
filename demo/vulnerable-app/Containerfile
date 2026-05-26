@@ -8,8 +8,11 @@ RUN apt-get update && apt-get install -y curl strace && rm -rf /var/lib/apt/list
 # Copy the pre-built jar from the host
 COPY demo/vulnerable-app/build/libs/vulnerable-app.jar /app/vulnerable-app.jar
 
+# Unpack the jar to support exploded classpath resolution for profiler daemon subprocesses
+RUN mkdir -p /app/unpacked && cd /app/unpacked && jar -xf ../vulnerable-app.jar
+
 # Expose ports
 EXPOSE 8080
 
-# Default command: run the jar
-CMD ["java", "-jar", "/app/vulnerable-app.jar"]
+# Default command: run the exploded classpath
+CMD ["java", "-cp", "/app/unpacked/BOOT-INF/classes:/app/unpacked/BOOT-INF/lib/*", "demo.vulnapp.VulnAppApplicationKt"]

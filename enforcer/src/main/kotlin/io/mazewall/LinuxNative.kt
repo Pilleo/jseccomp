@@ -48,6 +48,7 @@ object LinuxNative {
     private val WRITE: MethodHandle
     private val RECV: MethodHandle
     private val FCNTL: MethodHandle
+    private val GETTID: MethodHandle
 
     val ERRNO_LAYOUT: StructLayout = Linker.Option.captureStateLayout()
     private val ERRNO_OFFSET: Long = ERRNO_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("errno"))
@@ -341,6 +342,12 @@ object LinuxNative {
                     ValueLayout.JAVA_INT,
                     ValueLayout.JAVA_LONG,
                 ),
+                Linker.Option.captureCallState("errno"),
+            )
+        GETTID =
+            downcall(
+                "gettid",
+                FunctionDescriptor.of(ValueLayout.JAVA_INT),
                 Linker.Option.captureCallState("errno"),
             )
     }
@@ -647,6 +654,14 @@ object LinuxNative {
             val ret = FCNTL.invokeExact(capturedState, fd, cmd, arg) as Int
             val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
             return SyscallResult(ret.toLong(), errno)
+        }
+    }
+
+    fun gettid(): Int {
+        Arena.ofConfined().use { arena ->
+            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val ret = GETTID.invokeExact(capturedState) as Int
+            return ret
         }
     }
 

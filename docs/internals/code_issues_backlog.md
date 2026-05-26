@@ -61,6 +61,14 @@
 **Fix:** Designed and implemented the Tier P privileged profiler (`StraceProfiler`) utilizing `strace -f` under subprocess descendant execution. The target workload (which implements the `TraceableWorkload` interface) is loaded and executed inside a child JVM spawned directly under `strace` via the `StraceWorkloadRunner` entrypoint, completely bypassing Yama `ptrace_scope` constraints. The resulting log is streamed and parsed using robust system call regex patterns to build a high-fidelity `BillOfBehavior`. JVM bootstrap and classpath discovery noise is dynamically filtered out to produce pristine, minimal policy profiles.
 **Verification:** Added a comprehensive OCI container integration test suite in `StraceProfilerTest` (covering file reads, file writes, network sockets, and missing files), confirming 100% test success under unprivileged container constraints. Additionally, updated `build.gradle.kts` to exclude the spawned `StraceWorkloadRunner` from the Jacoco coverage verification block to avoid sub-process coverage check errors.
 
+### ✅ FIXED: SBoB Decoupling (Production vs Test)
+**Context:** The `MazewallProfileManager` and related profiling logic were incorrectly placed in the production application classpath, introducing a heavy test-only dependency (`:profiler`) into the runtime environment.
+**Fix:** 
+1. Created `io.mazewall.SbobParser` in the `:enforcer` module. This is a lightweight JSON parser (no external dependencies) that allows production code to load profiling results and convert them to `Policy` objects.
+2. Moved `MazewallProfileManager` and related wrapping logic to `src/test/kotlin` in the vulnerable-app demo.
+3. Implemented `MazewallTestProfileConfig` using Spring's `@TestConfiguration` to transparently wrap beans with the `Profiler` during integration tests.
+4. Moved `:profiler` to a `testImplementation` dependency in the demo app.
+
 ## Remaining Issues
 
 *No remaining high-priority issues.*
@@ -83,3 +91,6 @@
 **Context:** Even after the application has fully started (e.g., after `ApplicationReadyEvent`), the JVM JIT compiler and native library loaders (like Tomcat native) continue to require `mmap` with `PROT_EXEC`. Applying the strict `NO_EXEC` preset process-wide results in a fatal JVM crash (`os::commit_memory failed; error='Operation not permitted' (errno=1)`) when the JVM attempts to optimize code or link dynamic libraries during request processing.
 **Needed:** Recommend or default to a "Balanced Baseline" for Tier 1 process-wide protection that allows `mmap(PROT_EXEC)` while still blocking `execve`, `fork`, and other process-creation primitives. Update documentation to warn against strict `NO_EXEC` for process-wide lockdown.
 
+### 🔴 [Severity: Critical]: Unsafe heuristics in SBoB generation mask underlying system behavior
+**Context:** SBoB generation via strace inherently captures all JVM bootstrap and classpath resolution noise. A previous attempt to address this used hardcoded string matching (`/lib`, `/sys`, `java.home`) to silently filter these paths out of the final compiled policy.
+**Needed:** Hardcoded path filtering is an unsafe heuristic that creates silent bypasses or blocks legitimate paths. The profiler must remain transparent. We must document this limitation (SBoB will include JVM bootstrap noise) and handle refinement safely—perhaps by delegating it to the operator or providing explicit, opt-in baseline path sets, rather than silently hiding it in `BobCompiler`.

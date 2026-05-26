@@ -24,8 +24,12 @@ import java.util.logging.Logger
  */
 object Profiler {
     private val logger = Logger.getLogger(Profiler::class.java.name)
+    val threadRegistry = ConcurrentHashMap<Int, Thread>()
 
+    private const val AF_UNIX = 1
+    private const val SOCK_STREAM = 1
     private const val ADDR_UN_SIZE = 110
+    private const val SOCKADDR_UN_PATH_SIZE = 108
     private const val CMSG_LEN_VAL = 20L
     private const val CMSG_LEN_OFF = 0L
     private const val CMSG_LEVEL_OFF = 8L
@@ -34,6 +38,14 @@ object Profiler {
     private const val SOL_SOCKET_VAL = 1
     private const val SCM_RIGHTS_VAL = 1
     private const val DEDUPLICATION_WINDOW_MS = 500L
+    private const val PROTOCOL_ACK_BYTE = 0xAC.toByte()
+    private const val SHUTDOWN_COMMAND_BYTE = 0x53.toByte() // 'S'
+    private const val SHUTDOWN_WAIT_MS = 100L
+    private const val DAEMON_CONNECT_MAX_RETRIES = 30
+    private const val DAEMON_CONNECT_RETRY_DELAY_MS = 100L
+    private const val IO_BUFFER_SIZE = 8192
+    private const val BYTE_MASK = 0xFF
+    private const val SHUTDOWN_TIMEOUT_MINUTES = 1L
 
     /**
      * Profiles [block] on a dedicated OS platform thread under a seccomp
@@ -84,15 +96,21 @@ object Profiler {
             // Dedicated OS platform thread for block
             val thread =
                 Thread {
-                    installProfilingFilterForThread(
-                        context.socketPath,
-                        Policy.PURE_COMPUTE,
-                        localLogs,
-                        localStackProfile,
-                        localPathCache,
-                    ) { workerThread }
+                    val spid = LinuxNative.gettid()
+                    threadRegistry[spid] = Thread.currentThread()
+                    try {
+                        installProfilingFilterForThread(
+                            context.socketPath,
+                            Policy.PURE_COMPUTE,
+                            localLogs,
+                            localStackProfile,
+                            localPathCache,
+                        ) { workerThread }
 
-                    blockResult = block()
+                        blockResult = block()
+                    } finally {
+                        threadRegistry.remove(spid)
+                    }
                 }
 
             thread.uncaughtExceptionHandler = Thread.UncaughtExceptionHandler { _, e ->
@@ -143,7 +161,7 @@ object Profiler {
     private fun triggerDaemonShutdown(socketPath: String) {
         try {
             Arena.ofConfined().use { arena ->
-                val fdRes = LinuxNative.socket(1 /* AF_UNIX */, 1 /* SOCK_STREAM */, 0)
+                val fdRes = LinuxNative.socket(AF_UNIX, SOCK_STREAM, 0)
                 if (fdRes.returnValue < 0) return
                 val fd = fdRes.returnValue.toInt()
                 try {
@@ -151,10 +169,10 @@ object Profiler {
 
                     if (LinuxNative.connect(fd, addr, ADDR_UN_SIZE).returnValue == 0L) {
                         val cmd = arena.allocate(1)
-                        cmd.set(ValueLayout.JAVA_BYTE, 0L, 0x53.toByte()) // 'S' for Shutdown
+                        cmd.set(ValueLayout.JAVA_BYTE, 0L, SHUTDOWN_COMMAND_BYTE)
                         LinuxNative.write(fd, cmd, 1)
                         // Give the daemon a moment to process the shutdown
-                        Thread.sleep(100)
+                        Thread.sleep(SHUTDOWN_WAIT_MS)
                     }
                 } finally {
                     LinuxNative.close(fd)
@@ -178,15 +196,15 @@ object Profiler {
 
     private fun connectWithRetry(
         socketPath: String,
-        maxRetries: Int = 30,
-        delayMs: Long = 100,
+        maxRetries: Int = DAEMON_CONNECT_MAX_RETRIES,
+        delayMs: Long = DAEMON_CONNECT_RETRY_DELAY_MS,
     ): Int {
         Arena.ofConfined().use { arena ->
             val addr = setupSockAddrUn(arena, socketPath)
 
             var lastErrno = 0
             for (retry in 0 until maxRetries) {
-                val fdRes = LinuxNative.socket(1 /* AF_UNIX */, 1 /* SOCK_STREAM */, 0)
+                val fdRes = LinuxNative.socket(AF_UNIX, SOCK_STREAM, 0)
                 if (fdRes.returnValue < 0) {
                     throw IllegalStateException("Failed to create socket: errno=${fdRes.errno}")
                 }
@@ -264,7 +282,7 @@ object Profiler {
         val readBuf = arena.allocate(1)
         val ackBuf = arena.allocate(1)
         ackBuf.set(ValueLayout.JAVA_BYTE, 0L, 0x41.toByte()) // ACK byte
-        val multiBuf = arena.allocate(8192)
+        val multiBuf = arena.allocate(IO_BUFFER_SIZE.toLong())
 
         val inputStream =
             object : InputStream() {
@@ -274,7 +292,7 @@ object Profiler {
                         if (res.returnValue <= 0) {
                             -1
                         } else {
-                            readBuf.get(ValueLayout.JAVA_BYTE, 0L).toInt() and 0xFF
+                            readBuf.get(ValueLayout.JAVA_BYTE, 0L).toInt() and BYTE_MASK
                         }
                     return value
                 }
@@ -285,7 +303,7 @@ object Profiler {
                     len: Int,
                 ): Int {
                     if (len == 0) return 0
-                    val count = Math.min(len.toLong(), 8192L)
+                    val count = Math.min(len.toLong(), IO_BUFFER_SIZE.toLong())
                     val res = LinuxNative.read(socketFd, multiBuf, count)
                     val readLen =
                         if (res.returnValue <= 0) {
@@ -305,6 +323,9 @@ object Profiler {
 
         Thread {
             try {
+                val ackBuf = arena.allocate(1)
+                ackBuf.set(ValueLayout.JAVA_BYTE, 0L, PROTOCOL_ACK_BYTE) // 0xAC is the protocol ACK byte
+
                 // Wrap in BufferedInputStream to avoid per-byte Arena/FMM allocations in DataInputStream
                 val dis = DataInputStream(BufferedInputStream(inputStream))
                 while (true) {
@@ -329,7 +350,10 @@ object Profiler {
                         paths.add(String(pathBytes, Charsets.UTF_8))
                     }
 
-                    val event = TraceEvent(pid, syscallName, args, paths)
+                    // Now capture the stack trace safely without deadlocking the JVM
+                    val threadToProfile = threadRegistry[pid] ?: workerThreadProvider()
+                    val stackTrace = threadToProfile?.stackTrace?.map { it.toString() }
+                    val event = TraceEvent(pid, syscallName, args, paths, stackTrace)
 
                     // Deduplicate synchronous events that trigger both Seccomp and Landlock Audit
                     if (paths.isNotEmpty()) {
@@ -338,8 +362,8 @@ object Profiler {
                         val lastSeen = pathCache[cacheKey] ?: 0L
                         if (now - lastSeen < DEDUPLICATION_WINDOW_MS) {
                             println("[PROFILER] Deduplicated duplicate event for $cacheKey")
-                            // Write ACK to daemon so the daemon doesn't hang!
-                            // ONLY if it's a Seccomp event (pid != 0).
+                            // Send ACK back to the daemon even for deduplicated events to release the daemon's read()!
+                            // ONLY if it's a Seccomp event (pid != 0). Audit events (pid=0) don't expect ACKs.
                             if (pid != 0) {
                                 LinuxNative.write(socketFd, ackBuf, 1)
                             }
@@ -350,9 +374,8 @@ object Profiler {
 
                     // Capture stack trace while the worker thread is blocked in-kernel
                     if (stackTracesMap != null) {
-                        val workerThread = workerThreadProvider()
-                        if (workerThread != null) {
-                            val frames = workerThread.stackTrace
+                        if (threadToProfile != null) {
+                            val frames = threadToProfile.stackTrace
                             stackTracesMap
                                 .computeIfAbsent(event) {
                                     CopyOnWriteArrayList<Array<StackTraceElement>>()
@@ -401,16 +424,28 @@ object Profiler {
 
         override fun execute(command: Runnable) {
             delegate.execute {
-                ensureApplied()
-                command.run()
+                val spid = LinuxNative.gettid()
+                threadRegistry[spid] = Thread.currentThread()
+                try {
+                    ensureApplied()
+                    command.run()
+                } finally {
+                    threadRegistry.remove(spid)
+                }
             }
         }
 
         override fun <T> submit(task: Callable<T>): Future<T> =
             delegate.submit(
                 Callable {
-                    ensureApplied()
-                    task.call()
+                    val spid = LinuxNative.gettid()
+                    threadRegistry[spid] = Thread.currentThread()
+                    try {
+                        ensureApplied()
+                        task.call()
+                    } finally {
+                        threadRegistry.remove(spid)
+                    }
                 },
             )
 
@@ -419,14 +454,26 @@ object Profiler {
             result: T,
         ): Future<T> =
             delegate.submit({
-                ensureApplied()
-                task.run()
+                val spid = LinuxNative.gettid()
+                threadRegistry[spid] = Thread.currentThread()
+                try {
+                    ensureApplied()
+                    task.run()
+                } finally {
+                    threadRegistry.remove(spid)
+                }
             }, result)
 
         override fun submit(task: Runnable): Future<*> =
             delegate.submit {
-                ensureApplied()
-                task.run()
+                val spid = LinuxNative.gettid()
+                threadRegistry[spid] = Thread.currentThread()
+                try {
+                    ensureApplied()
+                    task.run()
+                } finally {
+                    threadRegistry.remove(spid)
+                }
             }
 
         override fun close() {
@@ -457,7 +504,7 @@ object Profiler {
             // Instead, wait for termination in a separate daemon thread to release resources cleanly.
             Thread {
                 try {
-                    delegate.awaitTermination(1, TimeUnit.MINUTES)
+                    delegate.awaitTermination(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES)
                 } finally {
                     cleanupDaemon(context)
                 }
@@ -546,9 +593,9 @@ object Profiler {
     ): MemorySegment {
         val addr = arena.allocate(LinuxNative.SOCKADDR_UN_LAYOUT)
         addr.fill(0)
-        addr.set(ValueLayout.JAVA_SHORT, 0L, 1.toShort()) // AF_UNIX = 1
+        addr.set(ValueLayout.JAVA_SHORT, 0L, AF_UNIX.toShort())
         val pathBytes = socketPath.toByteArray(Charsets.UTF_8)
-        val pathSeg = addr.asSlice(2, 108)
+        val pathSeg = addr.asSlice(2, SOCKADDR_UN_PATH_SIZE.toLong())
         MemorySegment.copy(pathBytes, 0, pathSeg, ValueLayout.JAVA_BYTE, 0L, pathBytes.size)
         return addr
     }

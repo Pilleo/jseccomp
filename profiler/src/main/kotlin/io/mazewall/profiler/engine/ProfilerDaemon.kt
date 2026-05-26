@@ -28,7 +28,13 @@ object ProfilerDaemon {
     private val isGlobalShutdown = AtomicBoolean(false)
 
     private const val ADDR_UN_SIZE = 110
+    private const val SOCKADDR_UN_PATH_SIZE = 108
     private const val BACKLOG_SIZE = 128
+    private const val AF_UNIX = 1
+    private const val SOCK_STREAM = 1
+    private const val MSG_PEEK = 2
+    private const val PROTOCOL_ACK_BYTE = 0xAC.toByte()
+    private const val SHUTDOWN_COMMAND_BYTE = 0x53.toByte() // 'S'
     private const val NOTIF_ID_OFF = 0L
     private const val NOTIF_PID_OFF = 8L
     private const val NOTIF_NR_OFF = 16L
@@ -110,7 +116,7 @@ object ProfilerDaemon {
     }
 
     private fun createServerSocket(): Int {
-        val bindRes = LinuxNative.socket(1 /* AF_UNIX */, 1 /* SOCK_STREAM */, 0)
+        val bindRes = LinuxNative.socket(AF_UNIX, SOCK_STREAM, 0)
         if (bindRes.returnValue < 0) {
             throw IllegalStateException("Failed to create daemon socket: errno=${bindRes.errno}")
         }
@@ -123,10 +129,10 @@ object ProfilerDaemon {
     ): MemorySegment {
         val addr = arena.allocate(LinuxNative.SOCKADDR_UN_LAYOUT)
         addr.fill(0)
-        addr.set(ValueLayout.JAVA_SHORT, 0L, 1.toShort()) // AF_UNIX = 1
+        addr.set(ValueLayout.JAVA_SHORT, 0L, AF_UNIX.toShort())
 
         val pathBytes = socketPath.toByteArray(StandardCharsets.UTF_8)
-        val pathSeg = addr.asSlice(2, 108)
+        val pathSeg = addr.asSlice(2, SOCKADDR_UN_PATH_SIZE.toLong())
         MemorySegment.copy(pathBytes, 0, pathSeg, ValueLayout.JAVA_BYTE, 0L, pathBytes.size)
         return addr
     }
@@ -190,8 +196,8 @@ object ProfilerDaemon {
         // usually starts with SCM_RIGHTS header.
         Arena.ofConfined().use { arena ->
             val buf = arena.allocate(1)
-            val res = LinuxNative.recv(socketFd, buf, 1, 2 /* MSG_PEEK */)
-            return res.returnValue == 1L && buf.get(ValueLayout.JAVA_BYTE, 0L) == 0x53.toByte()
+            val res = LinuxNative.recv(socketFd, buf, 1, MSG_PEEK)
+            return res.returnValue == 1L && buf.get(ValueLayout.JAVA_BYTE, 0L) == SHUTDOWN_COMMAND_BYTE
         }
     }
 
@@ -212,11 +218,12 @@ object ProfilerDaemon {
     private fun sendAck(socketFd: Int) {
         Arena.ofConfined().use { arena ->
             val ack = arena.allocate(1)
-            ack.set(ValueLayout.JAVA_BYTE, 0L, 0xAC.toByte())
+            ack.set(ValueLayout.JAVA_BYTE, 0L, PROTOCOL_ACK_BYTE)
             LinuxNative.write(socketFd, ack, 1)
         }
     }
 
+    @Suppress("CyclomaticComplexMethod")
     private fun runNotificationLoop(
         listenerFd: Int,
         socketFd: Int,
@@ -293,7 +300,7 @@ object ProfilerDaemon {
             val readRes = LinuxNative.read(socketFd, ackBuf, 1)
             if (readRes.returnValue > 0) {
                 val command = ackBuf.get(ValueLayout.JAVA_BYTE, 0L)
-                if (command == 0x53.toByte()) { // 'S' for Shutdown
+                if (command == SHUTDOWN_COMMAND_BYTE) {
                     triggerGlobalShutdown()
                 }
                 success = true
@@ -372,7 +379,6 @@ object ProfilerDaemon {
                 var len = 0
                 while (len < bytesRead && localBuf.get(ValueLayout.JAVA_BYTE, len.toLong()) != 0.toByte()) len++
 
-                // Bounding Check: If no null terminator was found within the read buffer, reject the string
                 if (len < bytesRead) {
                     result = localBuf.copyToString(len)
                 }
