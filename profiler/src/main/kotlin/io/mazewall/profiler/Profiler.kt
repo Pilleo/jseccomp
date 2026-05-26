@@ -20,6 +20,10 @@ import java.util.concurrent.*
 import java.util.concurrent.atomic.AtomicReference
 import java.util.logging.Logger
 
+// SUPPRESSION JUSTIFICATION: This class is the central coordinator for the unprivileged system call profiler.
+// Keeping the socket setup, trace compilation, daemon life cycle, and thread registering functions together
+// maintains the architectural cohesion of the diagnostic engine.
+
 /**
  * High-performance Out-of-Process USER_NOTIF Profiler API.
  */
@@ -103,6 +107,9 @@ object Profiler {
                 Thread {
                     val spid = LinuxNative.gettid()
                     threadRegistry[spid] = Thread.currentThread()
+                    // SUPPRESSION JUSTIFICATION: We are executing an arbitrary, untrusted user block.
+                    // We MUST catch Throwable to ensure we capture any Error or Exception thrown
+                    // by the user's workload so we can bubble it up to the calling thread safely.
                     @Suppress("TooGenericExceptionCaught")
                     try {
                         installProfilingFilterForThread(
@@ -134,6 +141,9 @@ object Profiler {
                     stackProfile = localStackProfile.toMap(),
                 )
 
+            // SUPPRESSION JUSTIFICATION: blockResult holds the result of the generic `block: () -> T` closure.
+            // Because it is stored in an AtomicReference<Any?> to pass across the worker thread boundary,
+            // type erasure requires an unchecked cast when retrieving it. This cast is statically safe.
             @Suppress("UNCHECKED_CAST")
             val finalResult = blockResult.get()
             if (finalResult == null) {
@@ -184,7 +194,6 @@ object Profiler {
         }
     }
 
-    @Suppress("TooGenericExceptionCaught")
     private fun triggerDaemonShutdown(socketPath: String) {
         try {
             Arena.ofConfined().use { arena ->
@@ -205,12 +214,16 @@ object Profiler {
                     LinuxNative.close(fd)
                 }
             }
-        } catch (e: Exception) {
+        } catch (e: InterruptedException) {
             // Shutdown errors are harmless as the daemonProcess.destroyForcibly() is called next
+            logger.log(java.util.logging.Level.FINE, "Daemon shutdown signal interrupted (harmless)", e)
+            Thread.currentThread().interrupt()
+        } catch (e: IllegalArgumentException) {
             logger.log(java.util.logging.Level.FINE, "Daemon shutdown signal failed (harmless)", e)
-            if (e is InterruptedException) {
-                Thread.currentThread().interrupt()
-            }
+        } catch (e: IllegalStateException) {
+            logger.log(java.util.logging.Level.FINE, "Daemon shutdown signal failed (harmless)", e)
+        } catch (e: UnsupportedOperationException) {
+            logger.log(java.util.logging.Level.FINE, "Daemon shutdown signal failed (harmless)", e)
         }
     }
 

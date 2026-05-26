@@ -13,6 +13,10 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.system.exitProcess
 
+// SUPPRESSION JUSTIFICATION: This class manages the out-of-process daemon loop, descriptor-passing,
+// socket connections, and signal notifications. Breaking this highly cohesive daemon engine into
+// smaller, arbitrary helper files would obscure its synchronous protocol lifecycle.
+
 /**
  * Standalone Profiler Daemon Process.
  *
@@ -227,7 +231,6 @@ object ProfilerDaemon {
         }
     }
 
-    @Suppress("CyclomaticComplexMethod")
     private fun runNotificationLoop(
         listenerFd: Int,
         socketFd: Int,

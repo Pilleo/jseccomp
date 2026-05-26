@@ -57,9 +57,13 @@ plan.md
 hs_err_pid*
 replay_pid*
 *_results.json
+*results_new.json
 /unprotected.json
 /protected.json
+/results_report.md
 /demo/vulnerable-app/results_report.md
+sbob*.json
+**/implementation_plan.md
 
 ### Python ###
 venv/

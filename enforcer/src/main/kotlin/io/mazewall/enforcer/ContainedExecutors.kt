@@ -10,6 +10,10 @@ import java.util.concurrent.*
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.logging.Logger
 
+// SUPPRESSION JUSTIFICATION: This class acts as a unified factory and cohesive coordinator for
+// wrapping Java ExecutorServices in sandboxed environments. Splitting these closely coupled
+// helper and creation methods across multiple files would fragment the security boundary API.
+
 /**
  * Public API for wrapping an existing [java.util.concurrent.ExecutorService] to enforce seccomp containment.
  *

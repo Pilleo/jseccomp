@@ -10,6 +10,10 @@ import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout
 import java.util.logging.Logger
 
+// SUPPRESSION JUSTIFICATION: This object serves as the single cohesive boundary wrapping the Landlock LSM.
+// Splitting the path wrapping, layout allocation, ABI query, and rule-building functions into
+// multiple files would severely fragment the safety-critical FFM logic and reduce readability.
+
 /**
  * Unprivileged, path-aware filesystem sandbox using the Linux Landlock LSM.
  *
@@ -52,7 +56,7 @@ import java.util.logging.Logger
  * true process-wide Landlock on these older kernels, a launcher wrapper (e.g. native C/Rust binary)
  * must apply the ruleset *before* `execve`-ing the JVM, so that all JVM threads inherit it.
  *
- * Starting with **ABI v8 (Linux 7.0)**, the kernel introduces `LANDLOCK_RESTRICT_SELF_TSYNC` which
+ * Stacking with **ABI v8 (Linux 7.0)**, the kernel introduces `LANDLOCK_RESTRICT_SELF_TSYNC` which
  * permits retroactive process-wide synchronization from within an existing thread. However, because
  * retroactive process-wide restriction breaks sibling thread transparency in multi-threaded JVMs
  * (GC, JIT, and test runners), `mazewall` disables it by default in standard enforcement.
