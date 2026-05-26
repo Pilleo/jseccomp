@@ -49,6 +49,7 @@ object LinuxNative {
     private val RECV: MethodHandle
     private val FCNTL: MethodHandle
     private val GETTID: MethodHandle
+    private val POLL: MethodHandle
 
     val ERRNO_LAYOUT: StructLayout = Linker.Option.captureStateLayout()
     private val ERRNO_OFFSET: Long = ERRNO_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("errno"))
@@ -129,6 +130,14 @@ object LinuxNative {
             ValueLayout.JAVA_INT.withName("error"),
             ValueLayout.JAVA_INT.withName("flags"),
         )
+
+    val POLLFD_LAYOUT: StructLayout =
+        MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("fd"),
+            ValueLayout.JAVA_SHORT.withName("events"),
+            ValueLayout.JAVA_SHORT.withName("revents"),
+        )
+    const val POLLIN: Short = 1
 
     init {
         PRCTL =
@@ -348,6 +357,17 @@ object LinuxNative {
             downcall(
                 "gettid",
                 FunctionDescriptor.of(ValueLayout.JAVA_INT),
+                Linker.Option.captureCallState("errno"),
+            )
+        POLL =
+            downcall(
+                "poll",
+                FunctionDescriptor.of(
+                    ValueLayout.JAVA_INT,
+                    ValueLayout.ADDRESS,
+                    ValueLayout.JAVA_LONG,
+                    ValueLayout.JAVA_INT,
+                ),
                 Linker.Option.captureCallState("errno"),
             )
     }
@@ -662,6 +682,19 @@ object LinuxNative {
             val capturedState = arena.allocate(ERRNO_LAYOUT)
             val ret = GETTID.invokeExact(capturedState) as Int
             return ret
+        }
+    }
+
+    fun poll(
+        fds: MemorySegment,
+        nfds: Long,
+        timeout: Int,
+    ): SyscallResult {
+        Arena.ofConfined().use { arena ->
+            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val ret = POLL.invokeExact(capturedState, fds, nfds, timeout) as Int
+            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
+            return SyscallResult(ret.toLong(), errno)
         }
     }
 

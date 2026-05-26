@@ -276,6 +276,7 @@ object ProfilerDaemon {
         }
     }
 
+    @Suppress("NestedBlockDepth", "LoopWithTooManyJumpStatements", "MagicNumber")
     private fun processSingleNotification(
         listenerFd: Int,
         socketFd: Int,
@@ -302,15 +303,31 @@ object ProfilerDaemon {
         try {
             sendTraceEvent(socketFd, TraceEvent(pid, syscallName, args, paths))
 
-            // Wait for ACK from parent JVM
+            // Wait for ACK from parent JVM (non-blocking, polling to allow shutdown interrupt)
             val ackBuf = arena.allocate(1)
-            val readRes = LinuxNative.read(socketFd, ackBuf, 1)
-            if (readRes.returnValue > 0) {
-                val command = ackBuf.get(ValueLayout.JAVA_BYTE, 0L)
-                if (command == SHUTDOWN_COMMAND_BYTE) {
-                    triggerGlobalShutdown("Shutdown Command (inline)")
+            val pollFd = arena.allocate(LinuxNative.POLLFD_LAYOUT)
+            pollFd.set(ValueLayout.JAVA_INT, 0L, socketFd)
+            pollFd.set(ValueLayout.JAVA_SHORT, 4L, LinuxNative.POLLIN)
+            pollFd.set(ValueLayout.JAVA_SHORT, 6L, 0.toShort())
+
+            while (!isGlobalShutdown.get()) {
+                val pollRes = LinuxNative.poll(pollFd, 1L, 100) // 100ms timeout
+                if (pollRes.returnValue > 0) {
+                    val revents = pollFd.get(ValueLayout.JAVA_SHORT, 6L)
+                    if ((revents.toInt() and LinuxNative.POLLIN.toInt()) != 0) {
+                        val readRes = LinuxNative.read(socketFd, ackBuf, 1)
+                        if (readRes.returnValue > 0) {
+                            val command = ackBuf.get(ValueLayout.JAVA_BYTE, 0L)
+                            if (command == SHUTDOWN_COMMAND_BYTE) {
+                                triggerGlobalShutdown("Shutdown Command (inline)")
+                            }
+                            success = true
+                        }
+                    }
+                    break
+                } else if (pollRes.returnValue < 0L && pollRes.errno != 4) { // EINTR = 4
+                    break // Socket error
                 }
-                success = true
             }
         } finally {
             sendContinueResponse(listenerFd, id, resp)

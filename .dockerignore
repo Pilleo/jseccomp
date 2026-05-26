@@ -1,0 +1,9 @@
+.gradle
+.gradle_home
+.idea
+.kotlin
+build
+venv
+*.log
+*.json
+!infra/dev/podman-seccomp.json

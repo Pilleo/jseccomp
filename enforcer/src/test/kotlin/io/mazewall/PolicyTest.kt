@@ -156,7 +156,13 @@ class PolicyTest {
     }
 
     @Test
-    fun `builder allowFsRead rejects null bytes`() {
+    fun `builder allowFsRead rejects invalid paths`() {
+        assertFailsWith<IllegalArgumentException> {
+            Policy.builder().allowFsRead("")
+        }
+        assertFailsWith<IllegalArgumentException> {
+            Policy.builder().allowFsRead("relative/path")
+        }
         assertFailsWith<IllegalArgumentException> {
             Policy.builder().allowFsRead("/path/with/\u0000/null")
         }

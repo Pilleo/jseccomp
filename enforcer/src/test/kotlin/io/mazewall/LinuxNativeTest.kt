@@ -164,4 +164,17 @@ class LinuxNativeTest {
             assertTrue(result.returnValue >= 0)
         }
     }
+
+    @Test
+    fun testPoll() {
+        Arena.ofConfined().use { arena ->
+            val pollFd = arena.allocate(LinuxNative.POLLFD_LAYOUT)
+            pollFd.set(ValueLayout.JAVA_INT, 0L, -1) // Invalid FD
+            pollFd.set(ValueLayout.JAVA_SHORT, 4L, LinuxNative.POLLIN)
+            pollFd.set(ValueLayout.JAVA_SHORT, 6L, 0.toShort())
+
+            val result = LinuxNative.poll(pollFd, 1L, 0) // 0 timeout
+            assertTrue(result.returnValue >= 0)
+        }
+    }
 }
