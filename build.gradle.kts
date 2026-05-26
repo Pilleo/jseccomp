@@ -36,6 +36,11 @@ subprojects {
     apply(plugin = "org.jlleitschuh.gradle.ktlint")
     apply(plugin = "com.github.spotbugs")
 
+    // Ensure code is formatted before compilation to prevent build failures
+    tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+        dependsOn("ktlintFormat")
+    }
+
     spotbugs {
         ignoreFailures.set(false)
         showStackTraces.set(true)
