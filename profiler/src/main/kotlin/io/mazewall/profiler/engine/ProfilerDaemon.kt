@@ -77,27 +77,31 @@ object ProfilerDaemon {
         // Shutdown hook for the daemon itself
         Runtime.getRuntime().addShutdownHook(
             Thread {
-                triggerGlobalShutdown()
+                triggerGlobalShutdown("JVM Shutdown Hook")
             },
         )
 
         Thread {
             try {
                 // Listen for parent JVM exit via stdin closure
-                System.`in`.read()
+                if (System.`in`.read() == -1) {
+                     triggerGlobalShutdown("Stdin EOF")
+                }
             } catch (e: IOException) {
-                System.err.println("[DAEMON] Input listener error: ${e.message}")
+                triggerGlobalShutdown("Stdin Error: ${e.message}")
             }
-            triggerGlobalShutdown()
             exitProcess(0)
-        }.apply { isDaemon = true }.start()
+        }.apply {
+            isDaemon = true
+            name = "stdin-monitor"
+        }.start()
 
         run(socketPath)
     }
 
-    private fun triggerGlobalShutdown() {
+    private fun triggerGlobalShutdown(source: String = "unknown") {
         if (isGlobalShutdown.getAndSet(true)) return
-        System.err.println("[DAEMON] Initiating graceful shutdown. Releasing tracee threads...")
+        System.err.println("[DAEMON] Initiating graceful shutdown. Source: $source. Releasing tracee threads...")
         // Actual cleanup (sending CONTINUE and closing fds) is handled by the handleConnection loops
         // which break out of their waiting state or drain when isGlobalShutdown becomes true.
     }
@@ -172,7 +176,7 @@ object ProfilerDaemon {
     private fun handleAcceptedClient(clientFd: Int): Boolean {
         if (isShutdownCommand(clientFd)) {
             LinuxNative.close(clientFd)
-            triggerGlobalShutdown()
+            triggerGlobalShutdown("Shutdown Command")
             return false
         }
 
@@ -301,7 +305,7 @@ object ProfilerDaemon {
             if (readRes.returnValue > 0) {
                 val command = ackBuf.get(ValueLayout.JAVA_BYTE, 0L)
                 if (command == SHUTDOWN_COMMAND_BYTE) {
-                    triggerGlobalShutdown()
+                    triggerGlobalShutdown("Shutdown Command (inline)")
                 }
                 success = true
             }

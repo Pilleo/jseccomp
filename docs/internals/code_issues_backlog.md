@@ -91,6 +91,10 @@
 **Context:** Even after the application has fully started (e.g., after `ApplicationReadyEvent`), the JVM JIT compiler and native library loaders (like Tomcat native) continue to require `mmap` with `PROT_EXEC`. Applying the strict `NO_EXEC` preset process-wide results in a fatal JVM crash (`os::commit_memory failed; error='Operation not permitted' (errno=1)`) when the JVM attempts to optimize code or link dynamic libraries during request processing.
 **Needed:** Recommend or default to a "Balanced Baseline" for Tier 1 process-wide protection that allows `mmap(PROT_EXEC)` while still blocking `execve`, `fork`, and other process-creation primitives. Update documentation to warn against strict `NO_EXEC` for process-wide lockdown.
 
+### 🔴 [Severity: High]: Concurrent Profiler Daemons clobber `PR_SET_PTRACER`
+**Context:** Each call to `Profiler.profile` or `Profiler.wrap` currently spawns a new `ProfilerDaemon` and calls `prctl(PR_SET_PTRACER, daemonPid)`. Because `PR_SET_PTRACER` is a process-wide setting, concurrent profiling sessions clobber each other's ptrace authorization. Only the most recently spawned daemon remains authorized, causing previous daemons to fail with `EPERM` when attempting to read tracee memory via `process_vm_readv`.
+**Needed:** Transition to a Singleton Daemon model where a single `ProfilerDaemon` is shared across all profiling sessions in the same JVM process.
+
 ### 🔴 [Severity: Critical]: Unsafe heuristics in SBoB generation mask underlying system behavior
 **Context:** SBoB generation via strace inherently captures all JVM bootstrap and classpath resolution noise. A previous attempt to address this used hardcoded string matching (`/lib`, `/sys`, `java.home`) to silently filter these paths out of the final compiled policy.
 **Needed:** Hardcoded path filtering is an unsafe heuristic that creates silent bypasses or blocks legitimate paths. The profiler must remain transparent. We must document this limitation (SBoB will include JVM bootstrap noise) and handle refinement safely—perhaps by delegating it to the operator or providing explicit, opt-in baseline path sets, rather than silently hiding it in `BobCompiler`.

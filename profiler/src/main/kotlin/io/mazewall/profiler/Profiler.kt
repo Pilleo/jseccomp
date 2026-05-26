@@ -17,14 +17,19 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
 import java.util.concurrent.*
+import java.util.concurrent.atomic.AtomicReference
 import java.util.logging.Logger
 
 /**
  * High-performance Out-of-Process USER_NOTIF Profiler API.
  */
+@Suppress("TooManyFunctions")
 object Profiler {
     private val logger = Logger.getLogger(Profiler::class.java.name)
     val threadRegistry = ConcurrentHashMap<Int, Thread>()
+
+    private val daemonLock = Any()
+    private var sharedDaemonContext: DaemonContext? = null
 
     private const val AF_UNIX = 1
     private const val SOCK_STREAM = 1
@@ -80,7 +85,7 @@ object Profiler {
             throw IllegalStateException("Seccomp profiling is not supported on Loom virtual threads.")
         }
 
-        val context = spawnDaemon()
+        val context = getOrSpawnSharedDaemon()
 
         val localLogs = CopyOnWriteArrayList<TraceEvent>()
         val localStackProfile =
@@ -90,14 +95,15 @@ object Profiler {
         var workerThread: Thread? = null
 
         try {
-            var blockResult: Any? = null
-            var blockError: Throwable? = null
+            val blockResult = AtomicReference<Any?>(null)
+            val blockError = AtomicReference<Throwable?>(null)
 
             // Dedicated OS platform thread for block
             val thread =
                 Thread {
                     val spid = LinuxNative.gettid()
                     threadRegistry[spid] = Thread.currentThread()
+                    @Suppress("TooGenericExceptionCaught")
                     try {
                         installProfilingFilterForThread(
                             context.socketPath,
@@ -107,21 +113,20 @@ object Profiler {
                             localPathCache,
                         ) { workerThread }
 
-                        blockResult = block()
+                        val res = block()
+                        blockResult.set(res)
+                    } catch (e: Throwable) {
+                        blockError.set(e)
                     } finally {
                         threadRegistry.remove(spid)
                     }
                 }
 
-            thread.uncaughtExceptionHandler = Thread.UncaughtExceptionHandler { _, e ->
-                blockError = e
-            }
-
             workerThread = thread
             thread.start()
             thread.join()
 
-            val err = blockError
+            val err = blockError.get()
             if (err != null) throw err
 
             val behavior =
@@ -130,9 +135,29 @@ object Profiler {
                 )
 
             @Suppress("UNCHECKED_CAST")
-            return ProfilingResult(blockResult as T, behavior)
+            val finalResult = blockResult.get()
+            if (finalResult == null) {
+                 logger.warning("Profiler.profile: blockResult is null! localLogs size: ${localLogs.size}")
+            }
+            return ProfilingResult(finalResult as T, behavior)
         } finally {
-            cleanupDaemon(context)
+            // No cleanup here — the shared daemon stays alive until JVM shutdown
+        }
+    }
+
+    private fun getOrSpawnSharedDaemon(): DaemonContext {
+        synchronized(daemonLock) {
+            val existing = sharedDaemonContext
+            if (existing != null && existing.daemonProcess.isAlive) {
+                // Ensure the daemon remains authorized as the tracer for this process.
+                // prctl(PR_SET_PTRACER) is process-wide, but calling it multiple times
+                // with the same PID is harmless and ensures it wasn't clobbered.
+                LinuxNative.prctl(LinuxNative.PR_SET_PTRACER, existing.daemonProcess.pid(), 0, 0, 0)
+                return existing
+            }
+            val newContext = spawnDaemon()
+            sharedDaemonContext = newContext
+            return newContext
         }
     }
 
@@ -140,7 +165,8 @@ object Profiler {
         try {
             Runtime.getRuntime().removeShutdownHook(context.shutdownHook)
         } catch (e: IllegalStateException) {
-            logger.log(java.util.logging.Level.WARNING, "Failed to remove shutdown hook", e)
+            // Shutdown already in progress - ignore
+            logger.log(java.util.logging.Level.FINE, "Shutdown hook removal skipped: shutdown in progress", e)
         } catch (e: SecurityException) {
             logger.log(java.util.logging.Level.WARNING, "Failed to remove shutdown hook", e)
         }
@@ -158,6 +184,7 @@ object Profiler {
         }
     }
 
+    @Suppress("TooGenericExceptionCaught")
     private fun triggerDaemonShutdown(socketPath: String) {
         try {
             Arena.ofConfined().use { arena ->
@@ -178,8 +205,12 @@ object Profiler {
                     LinuxNative.close(fd)
                 }
             }
-        } catch (e: InterruptedException) {
-            Thread.currentThread().interrupt()
+        } catch (e: Exception) {
+            // Shutdown errors are harmless as the daemonProcess.destroyForcibly() is called next
+            logger.log(java.util.logging.Level.FINE, "Daemon shutdown signal failed (harmless)", e)
+            if (e is InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
         }
     }
 
@@ -188,9 +219,7 @@ object Profiler {
         vararg policies: Policy,
     ): ProfilerExecutorWrapper {
         val policy = Policy.combine(*policies)
-
-        val context = spawnDaemon()
-
+        val context = getOrSpawnSharedDaemon()
         return ProfilerExecutorWrapper(delegate, policy, context)
     }
 
@@ -500,24 +529,10 @@ object Profiler {
 
         override fun shutdown() {
             delegate.shutdown()
-            // Do NOT destroy daemon immediately, as worker threads may still be in-kernel!
-            // Instead, wait for termination in a separate daemon thread to release resources cleanly.
-            Thread {
-                try {
-                    delegate.awaitTermination(SHUTDOWN_TIMEOUT_MINUTES, TimeUnit.MINUTES)
-                } finally {
-                    cleanupDaemon(context)
-                }
-            }.apply {
-                isDaemon = true
-                name = "profiler-shutdown-waiter"
-            }.start()
         }
 
         override fun shutdownNow(): List<Runnable> {
-            val tasks = delegate.shutdownNow()
-            cleanupDaemon(context)
-            return tasks
+            return delegate.shutdownNow()
         }
     }
 

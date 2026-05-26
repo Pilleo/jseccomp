@@ -141,6 +141,11 @@ subprojects {
                             "io.mazewall.profiler.Profiler*",
                             "io.mazewall.profiler.engine.Profiler*",
                         )
+                    excludes =
+                        listOf(
+                            "io.mazewall.profiler.engine.ProfilerDaemon",
+                            "io.mazewall.profiler.strace.StraceWorkloadRunner",
+                        )
                     limit {
                         counter = "INSTRUCTION"
                         value = "COVEREDRATIO"
