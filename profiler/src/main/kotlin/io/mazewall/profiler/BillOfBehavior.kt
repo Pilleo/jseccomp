@@ -211,7 +211,7 @@ data class BillOfBehavior(
                     syscall = event.syscallName,
                     paths = event.paths,
                     args = event.args.toList(),
-                    stackTrace = frames.map { it.toString() }
+                    stackTrace = frames.map { it.toString() },
                 )
             }
         }
@@ -221,7 +221,7 @@ data class BillOfBehavior(
             fsWritePaths = prunedWrites,
             syscalls = sortedSyscalls,
             execs = sortedExecs,
-            stackProfile = stackProfileDtos
+            stackProfile = stackProfileDtos,
         )
 
         return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(dto)
@@ -238,7 +238,7 @@ data class BillOfBehavior(
                     syscall = event.syscallName,
                     paths = event.paths,
                     args = event.args.toList(),
-                    stackTrace = frames.map { it.toString() }
+                    stackTrace = frames.map { it.toString() },
                 )
             }
         }
@@ -267,7 +267,8 @@ data class BillOfBehavior(
         fun fromJson(json: String): BillOfBehavior {
             val dto = mapper.readValue(json, BillOfBehaviorDto::class.java)
 
-            val mappedSyscalls = dto.syscalls.mapNotNull { name ->
+            val mappedSyscalls = dto.syscalls
+                .mapNotNull { name ->
                 try {
                     Syscall.valueOf(name.uppercase())
                 } catch (ignored: Exception) {
@@ -281,7 +282,7 @@ data class BillOfBehavior(
                     pid = 0,
                     syscallName = entry.syscall,
                     args = entry.args.map { it }.toLongArray(),
-                    paths = entry.paths
+                    paths = entry.paths,
                 )
                 val frames = entry.stackTrace.map { parseStackTraceElement(it) }.toTypedArray()
                 stackProfile.getOrPut(event) { mutableListOf() }.add(frames)
@@ -292,10 +293,11 @@ data class BillOfBehavior(
                 fsWritePaths = dto.fsWritePaths,
                 syscalls = mappedSyscalls,
                 execs = dto.execs,
-                stackProfile = stackProfile
+                stackProfile = stackProfile,
             )
         }
 
+        @Suppress("ComplexMethod", "CyclomaticComplexMethod", "MagicNumber", "ReturnCount")
         private fun parseStackTraceElement(str: String): StackTraceElement {
             val openParen = str.indexOf('(')
             val closeParen = str.lastIndexOf(')')
@@ -363,7 +365,7 @@ data class BillOfBehavior(
                 className,
                 methodName,
                 fileName,
-                lineNumber ?: -1
+                lineNumber ?: -1,
             )
         }
     }

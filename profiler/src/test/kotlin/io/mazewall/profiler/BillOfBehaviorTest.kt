@@ -232,20 +232,20 @@ class BillOfBehaviorTest {
         val event2 = TraceEvent(0, "CLOSE", longArrayOf(3), listOf("/test2"))
 
         val stack1 = arrayOf(
-            StackTraceElement("java.base", "java.io.FileInputStream", "open0", "FileInputStream.java", 123),
-            StackTraceElement("demo.vulnapp", "demo.vulnapp.Service", "doWork", "Service.kt", 12)
+            StackTraceElement("app", "java.base", "11.0", "java.io.FileInputStream", "open0", "FileInputStream.java", 123),
+            StackTraceElement("app", "demo.vulnapp", "1.0", "demo.vulnapp.Service", "doWork", "Service.kt", 12),
         )
         val stack2 = arrayOf(
-            StackTraceElement("Class2", "method2", "File2.kt", 2)
+            StackTraceElement("Class2", "method2", "File2.kt", 2),
         )
 
         val bob = BillOfBehavior(
             opens = setOf("/test1", "/test2"),
             syscalls = setOf(Syscall.OPEN, Syscall.CLOSE),
-            stackProfile = mapOf(
+            stackProfile = mapOf<TraceEvent, List<Array<StackTraceElement>>>(
                 event1 to listOf(stack1),
-                event2 to listOf(stack2)
-            )
+                event2 to listOf(stack2),
+            ),
         )
 
         val json = bob.toJson()
@@ -281,10 +281,10 @@ class BillOfBehaviorTest {
         val stack3 = arrayOf(StackTraceElement("Class2", "method2", "File2.kt", 2)) // Different contents
 
         val bob1 = BillOfBehavior(
-            stackProfile = mapOf(event to listOf(stack1))
+            stackProfile = mapOf(event to listOf(stack1)),
         )
         val bob2 = BillOfBehavior(
-            stackProfile = mapOf(event to listOf(stack2, stack3))
+            stackProfile = mapOf(event to listOf(stack2, stack3)),
         )
 
         val merged = bob1 + bob2
