@@ -8,9 +8,16 @@ import java.nio.file.Paths
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.logging.Logger
 import jakarta.annotation.PreDestroy
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.stereotype.Component
 
+/**
+ * Collects [Profiler.ProfilerExecutorWrapper] instances from all service beans and compiles
+ * a unified [BillOfBehavior] on application shutdown. Only active when
+ * `mazewall.profile=true` — must match the gate on [MazewallTestProfileConfig].
+ */
 @Component
+@ConditionalOnProperty(name = ["mazewall.profile"], havingValue = "true")
 class MazewallProfileManager {
     private val logger = Logger.getLogger(MazewallProfileManager::class.java.name)
     private val wrappers = CopyOnWriteArrayList<Profiler.ProfilerExecutorWrapper>()
@@ -37,7 +44,9 @@ class MazewallProfileManager {
         val sb = java.lang.StringBuilder()
         sb.append("[\n")
         val entries = allEvents.filter { it.stackTrace != null }.distinctBy { event ->
-            "${event.syscallName}:${event.paths.sorted().joinToString(",")}:${event.stackTrace.hashCode()}"
+            // Use content-based key rather than hashCode() to avoid 32-bit collision
+            // silently dropping distinct trace entries on large sets.
+            "${event.syscallName}:${event.paths.sorted().joinToString(",")}:${event.stackTrace?.joinToString("|")}"
         }
         
         sb.append(entries.joinToString(",\n") { event ->

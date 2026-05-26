@@ -9,13 +9,13 @@ import java.util.concurrent.Executors
 object SafeRunner {
     fun run(payload: String) {
         val executor = Executors.newSingleThreadExecutor()
-        val safeExecutor = ContainedExecutors.wrap(executor, Policy.NO_EXEC)
-
         try {
-            val future =
-                safeExecutor.submit<String> {
-                    VulnerableLogger.log(payload)
-                }
+            // Wrap inside try so the raw executor is always shut down in finally,
+            // even if ContainedExecutors.wrap() itself throws (e.g. seccomp install failure).
+            val safeExecutor = ContainedExecutors.wrap(executor, Policy.NO_EXEC)
+            val future = safeExecutor.submit<String> {
+                VulnerableLogger.log(payload)
+            }
             future.get()
         } catch (expected: ExecutionException) {
             // We intentionally unwrap the ExecutionException to expose the underlying
@@ -25,7 +25,7 @@ object SafeRunner {
             }
             throw expected
         } finally {
-            safeExecutor.shutdown()
+            // The wrapper delegates shutdown to this executor — shutting down once here is sufficient.
             executor.shutdown()
         }
     }
