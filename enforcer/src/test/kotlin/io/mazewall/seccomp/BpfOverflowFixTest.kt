@@ -12,8 +12,8 @@ class BpfOverflowFixTest {
         val arch = Arch.AMD64
         val blocked = IntArray(100) { it + 1000 } // Use numbers that won't clash with preamble
 
-        // This used to crash with "jt offset must be an unsigned 8-bit value"
-        val filters = BpfFilter.buildFromNumbers(arch, blocked, Policy.Mode.DENY_LIST)
+        val actions = blocked.associateWith { io.mazewall.SeccompAction.ACT_ERRNO }
+        val filters = BpfFilter.buildFromActions(arch, actions, io.mazewall.SeccompAction.ACT_ALLOW)
 
         assertTrue(filters.isNotEmpty())
         println("Filter with 100 syscalls: ${filters.size} instructions")

@@ -29,8 +29,8 @@ package io.mazewall
  * ```
  */
 class Policy private constructor(
-    val syscalls: Set<Syscall>,
-    val mode: Mode = Mode.DENY_LIST,
+    val defaultAction: SeccompAction = SeccompAction.ACT_ALLOW,
+    val syscallActions: Map<Syscall, SeccompAction>,
     val allowMmapExec: Boolean = false,
     val allowNonThreadClone: Boolean = false,
     val allowUnsafePrctl: Boolean = false,
@@ -38,37 +38,32 @@ class Policy private constructor(
     val allowedFsWritePaths: Set<String> = emptySet(),
     internal val enforceLandlock: Boolean = false,
 ) {
-    enum class Mode {
-        /** Only explicitly allowed syscalls are permitted. Default deny. */
-        ALLOW_LIST,
-
-        /** All syscalls except those explicitly blocked are permitted. Default allow. */
-        DENY_LIST,
+    /** Returns true if the given [syscall] is unconditionally allowed by this policy. */
+    fun isSyscallAllowed(syscall: Syscall): Boolean {
+        val action = syscallActions[syscall] ?: defaultAction
+        return action == SeccompAction.ACT_ALLOW
     }
 
-    /**
-     * Returns true if the given [syscall] is allowed by this policy.
-     * This considers both the mode (ALLOW_LIST vs DENY_LIST) and the syscalls set.
-     */
-    fun isSyscallAllowed(syscall: Syscall): Boolean =
-        if (mode == Mode.DENY_LIST) {
-            !syscalls.contains(syscall)
-        } else {
-            syscalls.contains(syscall)
+    /** Returns the concrete syscall numbers and their associated actions for the given [arch]. */
+    fun syscallActionNumbers(arch: Arch): Map<Int, SeccompAction> {
+        val result = java.util.TreeMap<Int, SeccompAction>()
+        for ((syscall, action) in syscallActions) {
+            val nr = syscall.numberFor(arch)
+            if (nr >= 0) {
+                val current = result[nr]
+                if (current == null || action.priority > current.priority) {
+                    result[nr] = action
+                }
+            }
         }
-
-    /** Returns the concrete syscall numbers to restrict for the given [arch]. */
-    fun syscallNumbers(arch: Arch): IntArray =
-        syscalls
-            .map { it.numberFor(arch) }
-            .filter { it >= 0 } // -1 means "not available on this arch"
-            .sorted()
-            .toIntArray()
+        return result
+    }
 
     companion object {
         /** Blocks all network I/O, process execution, and file opens. Suitable for pure computation tasks. */
         val PURE_COMPUTE: Policy =
             builder()
+                .defaultAction(SeccompAction.ACT_ALLOW)
                 .block(Syscall.CONNECT, Syscall.SENDTO, Syscall.SENDMSG, Syscall.SOCKET)
                 .block(Syscall.BIND, Syscall.LISTEN, Syscall.ACCEPT, Syscall.ACCEPT4)
                 .block(Syscall.EXECVE, Syscall.EXECVEAT)
@@ -92,6 +87,7 @@ class Policy private constructor(
         /** Blocks outbound network syscalls only. */
         val NO_NETWORK: Policy =
             builder()
+                .defaultAction(SeccompAction.ACT_ALLOW)
                 .block(Syscall.CONNECT, Syscall.SENDTO, Syscall.SENDMSG, Syscall.SOCKET)
                 .block(Syscall.BIND, Syscall.LISTEN, Syscall.ACCEPT, Syscall.ACCEPT4)
                 .block(Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER)
@@ -112,6 +108,7 @@ class Policy private constructor(
          */
         val NO_EXEC: Policy =
             builder()
+                .defaultAction(SeccompAction.ACT_ALLOW)
                 .block(Syscall.EXECVE, Syscall.EXECVEAT)
                 .block(Syscall.FORK, Syscall.VFORK)
                 .block(Syscall.MEMFD_CREATE, Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER, Syscall.PTRACE)
@@ -141,21 +138,16 @@ class Policy private constructor(
             val sortedSet2 = java.util.TreeSet(set2)
 
             for (p1 in set1) {
-                // 1. Check if p1 has a parent in set2
                 val potentialParent = sortedSet2.floor(p1)
                 if (potentialParent != null && isParent(potentialParent, p1)) {
                     result.add(p1)
                 }
 
-                // 2. Check if p1 is a parent of any paths in set2
-                // All potential children of p1 will follow it in alphabetical order
                 val tail = sortedSet2.tailSet(p1, false)
                 for (p2 in tail) {
                     if (isParent(p1, p2)) {
                         result.add(p2)
                     } else {
-                        // Since it's sorted, once we hit a path that doesn't start with p1,
-                        // no subsequent paths will either.
                         break
                     }
                 }
@@ -176,30 +168,30 @@ class Policy private constructor(
          * Returns a new Policy that is the combination of all given [policies].
          *
          * ### Combination Logic
-         * - If all policies are [Mode.DENY_LIST], the result is the **union** of blocked syscalls.
-         * - If all policies are [Mode.ALLOW_LIST], the result is the **intersection** of allowed syscalls.
-         * - Mixed modes are currently not supported in `combine` and will throw [IllegalArgumentException].
+         * - The defaultAction resolves to the highest priority default action among policies.
+         * - Syscall actions are merged. If multiple policies map the same syscall to different actions,
+         *   the more restrictive action (higher priority) wins.
          *
          * ### Landlock Convergence (Intersection)
          * Unlike syscall blocks (which are unioned), allowed Landlock filesystem paths are
          * **intersected**. This matches the behavior of the Linux kernel when multiple Landlock
          * rulesets are stacked on a single thread. If one policy allows `/a` and another allows `/b`,
          * the combined policy will allow **nothing** (unless one is a parent of the other).
-         *
-         * Exception: If no Landlock paths are defined in any input policy, the result remains empty
-         * (unrestricted filesystem from a Landlock perspective).
          */
         fun combine(vararg policies: Policy): Policy {
             require(policies.isNotEmpty()) { "At least one policy is required" }
-            val mode = policies.first().mode
-            require(policies.all { it.mode == mode }) { "Cannot combine policies with different modes: ${policies.map { it.mode }}" }
 
-            val combinedSyscalls =
-                if (mode == Mode.DENY_LIST) {
-                    policies.flatMap { it.syscalls }.toSet()
-                } else {
-                    policies.map { it.syscalls }.reduce { acc, set -> acc.intersect(set) }
+            val combinedDefaultAction = policies.maxByOrNull { it.defaultAction.priority }!!.defaultAction
+
+            val combinedSyscalls = mutableMapOf<Syscall, SeccompAction>()
+            for (policy in policies) {
+                for ((syscall, action) in policy.syscallActions) {
+                    val current = combinedSyscalls[syscall]
+                    if (current == null || action.priority > current.priority) {
+                        combinedSyscalls[syscall] = action
+                    }
                 }
+            }
 
             val mmapExec = policies.all { it.allowMmapExec }
             val cloneNonThread = policies.all { it.allowNonThreadClone }
@@ -216,20 +208,16 @@ class Policy private constructor(
 
             val enforceLandlock = policies.any { it.enforceLandlock }
 
-            val finalSyscalls =
-                if (enforceLandlock) {
-                    if (mode == Mode.DENY_LIST) {
-                        combinedSyscalls - setOf(Syscall.OPEN, Syscall.OPENAT, Syscall.OPENAT2)
-                    } else {
-                        combinedSyscalls + setOf(Syscall.OPEN, Syscall.OPENAT, Syscall.OPENAT2)
-                    }
-                } else {
-                    combinedSyscalls
-                }
+            if (enforceLandlock) {
+                // Landlock requires OPEN, OPENAT, OPENAT2 to function correctly.
+                combinedSyscalls[Syscall.OPEN] = SeccompAction.ACT_ALLOW
+                combinedSyscalls[Syscall.OPENAT] = SeccompAction.ACT_ALLOW
+                combinedSyscalls[Syscall.OPENAT2] = SeccompAction.ACT_ALLOW
+            }
 
             return Policy(
-                finalSyscalls,
-                mode = mode,
+                defaultAction = combinedDefaultAction,
+                syscallActions = combinedSyscalls,
                 allowMmapExec = mmapExec,
                 allowNonThreadClone = cloneNonThread,
                 allowUnsafePrctl = unsafePrctl,
@@ -241,42 +229,50 @@ class Policy private constructor(
     }
 
     class Builder {
-        private val syscalls = mutableSetOf<Syscall>()
-        private var mode = Mode.DENY_LIST
+        private var defaultAction = SeccompAction.ACT_ALLOW
+        private val syscallActions = mutableMapOf<Syscall, SeccompAction>()
         private var allowMmapExec = false
         private var allowNonThreadClone = false
         private var allowUnsafePrctl = false
         private val allowedFsReadPaths = mutableSetOf<String>()
         private val allowedFsWritePaths = mutableSetOf<String>()
 
-        fun mode(mode: Mode): Builder {
-            this.mode = mode
+        /** Sets the default action for any syscall not explicitly mapped. Defaults to ACT_ALLOW (Blacklist mode). */
+        fun defaultAction(action: SeccompAction): Builder {
+            this.defaultAction = action
             return this
         }
 
-        /** Alias for [block] when in [Mode.DENY_LIST] or simply adds to the restricted set. */
-        fun block(vararg syscalls: Syscall): Builder {
-            this.syscalls.addAll(syscalls)
+        /** Maps the given syscalls to a specific action. */
+        fun addAction(
+            action: SeccompAction,
+            vararg syscalls: Syscall,
+        ): Builder {
+            for (sys in syscalls) {
+                syscallActions[sys] = action
+            }
             return this
         }
 
-        /** Alias for [block]. In [Mode.ALLOW_LIST], this explicitly allows the syscalls. */
-        fun allow(vararg syscalls: Syscall): Builder {
-            this.syscalls.addAll(syscalls)
-            return this
-        }
+        /** Alias for mapping syscalls to ACT_ERRNO. Useful for Blacklists. */
+        fun block(vararg syscalls: Syscall): Builder = addAction(SeccompAction.ACT_ERRNO, *syscalls)
+
+        /** Alias for mapping syscalls to ACT_ALLOW. Useful for Whitelists (SBoB). */
+        fun allow(vararg syscalls: Syscall): Builder = addAction(SeccompAction.ACT_ALLOW, *syscalls)
 
         fun unblock(vararg syscalls: Syscall): Builder {
-            this.syscalls.removeAll(syscalls.toSet())
+            for (sys in syscalls) {
+                syscallActions.remove(sys)
+            }
             return this
         }
 
         /**
-         * Inherits all settings (syscalls, mode, allowed paths, etc.) from the given [policy].
+         * Inherits all settings (actions, allowed paths, etc.) from the given [policy].
          */
         fun base(policy: Policy): Builder {
-            this.mode = policy.mode
-            this.syscalls.addAll(policy.syscalls)
+            this.defaultAction = policy.defaultAction
+            this.syscallActions.putAll(policy.syscallActions)
             if (policy.allowMmapExec) allowMmapExec = true
             if (policy.allowNonThreadClone) allowNonThreadClone = true
             if (policy.allowUnsafePrctl) allowUnsafePrctl = true
@@ -373,24 +369,22 @@ class Policy private constructor(
 
         fun build(): Policy {
             val enforceLandlock = allowedFsReadPaths.isNotEmpty() || allowedFsWritePaths.isNotEmpty()
-            val finalSyscalls =
-                if (enforceLandlock) {
-                    if (mode == Mode.DENY_LIST) {
-                        syscalls.toSet() - setOf(Syscall.OPEN, Syscall.OPENAT, Syscall.OPENAT2)
-                    } else {
-                        syscalls.toSet() + setOf(Syscall.OPEN, Syscall.OPENAT, Syscall.OPENAT2)
-                    }
-                } else {
-                    syscalls.toSet()
-                }
+
+            val finalSyscalls = syscallActions.toMutableMap()
+            if (enforceLandlock) {
+                finalSyscalls[Syscall.OPEN] = SeccompAction.ACT_ALLOW
+                finalSyscalls[Syscall.OPENAT] = SeccompAction.ACT_ALLOW
+                finalSyscalls[Syscall.OPENAT2] = SeccompAction.ACT_ALLOW
+            }
+
             return Policy(
-                finalSyscalls,
-                mode,
-                allowMmapExec,
-                allowNonThreadClone,
-                allowUnsafePrctl,
-                allowedFsReadPaths.toSet(),
-                allowedFsWritePaths.toSet(),
+                defaultAction = defaultAction,
+                syscallActions = finalSyscalls.toMap(),
+                allowMmapExec = allowMmapExec,
+                allowNonThreadClone = allowNonThreadClone,
+                allowUnsafePrctl = allowUnsafePrctl,
+                allowedFsReadPaths = allowedFsReadPaths.toSet(),
+                allowedFsWritePaths = allowedFsWritePaths.toSet(),
                 enforceLandlock = enforceLandlock,
             )
         }

@@ -77,15 +77,18 @@ class BillOfBehaviorTest {
         assertEquals(setOf("/write"), compiledDeny.allowedFsWritePaths)
 
         // Allow-list mode base policy
-        val allowBase =
+        val policy = bob.toPolicy(
             io.mazewall.Policy
                 .builder()
-                .mode(io.mazewall.Policy.Mode.ALLOW_LIST)
-                .build()
-        val compiledAllow = bob.toPolicy(allowBase)
-        assertEquals(io.mazewall.Policy.Mode.ALLOW_LIST, compiledAllow.mode)
-        assertTrue(compiledAllow.syscalls.contains(Syscall.OPEN))
-        assertTrue(compiledAllow.syscalls.contains(Syscall.CONNECT))
+                .defaultAction(io.mazewall.SeccompAction.ACT_ERRNO)
+                .build(),
+        )
+        assertEquals(io.mazewall.SeccompAction.ACT_ERRNO, policy.defaultAction)
+
+        val policyDenyList = bob.toPolicy()
+        assertEquals(io.mazewall.SeccompAction.ACT_ALLOW, policyDenyList.defaultAction)
+        assertTrue(policyDenyList.isSyscallAllowed(Syscall.OPEN))
+        assertTrue(policyDenyList.isSyscallAllowed(Syscall.CONNECT))
     }
 
     @Test
@@ -109,9 +112,9 @@ class BillOfBehaviorTest {
         val allowBase =
             io.mazewall.Policy
                 .builder()
-                .mode(io.mazewall.Policy.Mode.ALLOW_LIST)
+                .defaultAction(io.mazewall.SeccompAction.ACT_ERRNO)
                 .build()
-        val dslAllow = bob.toDsl("Policy.builder().mode(Mode.ALLOW_LIST).build()", allowBase)
+        val dslAllow = bob.toDsl("Policy.builder().defaultAction(SeccompAction.ACT_ERRNO).build()", allowBase)
         assertTrue(dslAllow.contains(".allow("))
         assertTrue(dslAllow.contains("Syscall.OPEN"))
     }

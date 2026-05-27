@@ -45,7 +45,7 @@ class BpfFilterTest {
 
     @Test
     fun `ALLOW_LIST mode has RET DENY as default`() {
-        val policy = Policy.builder().mode(Policy.Mode.ALLOW_LIST).build()
+        val policy = Policy.builder().defaultAction(io.mazewall.SeccompAction.ACT_ERRNO).build()
         val filter = BpfFilter.build(arch, policy)
         val last = filter.last()
         assertEquals(0x06.toShort(), last.code)
@@ -57,7 +57,7 @@ class BpfFilterTest {
         val policy =
             Policy
                 .builder()
-                .mode(Policy.Mode.ALLOW_LIST)
+                .defaultAction(io.mazewall.SeccompAction.ACT_ERRNO)
                 .allow(Syscall.READ)
                 .build()
         val filter = BpfFilter.build(arch, policy)
@@ -81,7 +81,7 @@ class BpfFilterTest {
 
     @Test
     fun `clone3 always returns ENOSYS even in ALLOW_LIST`() {
-        val policy = Policy.builder().mode(Policy.Mode.ALLOW_LIST).build()
+        val policy = Policy.builder().defaultAction(io.mazewall.SeccompAction.ACT_ERRNO).build()
         val filter = BpfFilter.build(arch, policy)
 
         val clone3Nr = arch.clone3

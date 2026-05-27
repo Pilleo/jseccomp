@@ -1,6 +1,7 @@
 package io.mazewall.enforcer
 
 import io.mazewall.Policy
+import io.mazewall.SeccompAction
 import io.mazewall.Syscall
 import java.util.logging.Logger
 
@@ -30,8 +31,11 @@ internal object FilterInstallationPlanner {
         policy: Policy,
         state: ContainerState,
     ): FilterPlan {
-        val newBlocks = if (policy.mode == Policy.Mode.DENY_LIST) {
-            policy.syscalls - state.currentlyBlocked
+        // Any syscall with an action priority > ACT_ALLOW (1) is considered a block
+        val blockedInPolicy = policy.syscallActions.filterValues { it.priority > SeccompAction.ACT_ALLOW.priority }.keys
+
+        val newBlocks = if (policy.defaultAction == SeccompAction.ACT_ALLOW) {
+            blockedInPolicy - state.currentlyBlocked
         } else {
             emptySet()
         }
@@ -40,16 +44,20 @@ internal object FilterInstallationPlanner {
         val needsCloneProtection = !policy.allowNonThreadClone && state.currentlyAllowsNonThreadClone
         val needsPrctlProtection = !policy.allowUnsafePrctl && state.currentlyAllowsUnsafePrctl
 
-        val needsNewFilter = policy.mode == Policy.Mode.ALLOW_LIST ||
+        val needsNewFilter = policy.defaultAction != SeccompAction.ACT_ALLOW ||
             newBlocks.isNotEmpty() ||
             needsMmapProtection ||
             needsCloneProtection ||
             needsPrctlProtection
 
-        val toInstall = if (policy.mode == Policy.Mode.ALLOW_LIST) {
+        val toInstall = if (policy.defaultAction != SeccompAction.ACT_ALLOW) {
             policy
         } else {
-            val builder = Policy.builder().block(*newBlocks.toTypedArray())
+            val builder = Policy.builder()
+            for (sys in newBlocks) {
+                val action = policy.syscallActions[sys] ?: SeccompAction.ACT_ERRNO
+                builder.addAction(action, sys)
+            }
             if (policy.allowMmapExec) builder.allowMmapExec()
             if (policy.allowNonThreadClone) builder.allowNonThreadClone()
             if (policy.allowUnsafePrctl) builder.allowUnsafePrctl()

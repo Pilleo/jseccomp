@@ -5,6 +5,7 @@ import io.mazewall.BpfFilter
 import io.mazewall.LinuxNative
 import io.mazewall.Platform
 import io.mazewall.Policy
+import io.mazewall.SeccompAction
 import io.mazewall.Syscall
 import java.lang.foreign.Arena
 
@@ -95,12 +96,8 @@ object PureJavaBpfEngine : SeccompEngine {
     }
 
     private fun verifyInstallation(policy: Policy) {
-        val canVerify =
-            if (policy.mode == Policy.Mode.DENY_LIST) {
-                !policy.syscalls.contains(Syscall.PRCTL)
-            } else {
-                policy.syscalls.contains(Syscall.PRCTL)
-            }
+        val prctlAction = policy.syscallActions[Syscall.PRCTL] ?: policy.defaultAction
+        val canVerify = prctlAction == SeccompAction.ACT_ALLOW
 
         if (!canVerify) {
             return // Cannot verify because prctl itself is restricted

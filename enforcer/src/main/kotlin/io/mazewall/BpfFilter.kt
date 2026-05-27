@@ -30,53 +30,65 @@ object BpfFilter {
         policy: Policy,
         profilingMode: Boolean = false,
     ): Array<SockFilter> =
-        buildFromNumbers(
+        buildFromActions(
             arch,
-            policy.syscallNumbers(arch),
-            policy.mode,
+            policy.syscallActionNumbers(arch),
+            policy.defaultAction,
             policy.allowMmapExec,
             policy.allowNonThreadClone,
             policy.allowUnsafePrctl,
             profilingMode,
         )
 
+    private fun resolveNativeAction(
+        action: SeccompAction,
+        profilingMode: Boolean,
+    ): Int {
+        return when (action) {
+            SeccompAction.ACT_KILL_PROCESS -> LinuxNative.SECCOMP_RET_KILL_PROCESS
+            SeccompAction.ACT_KILL_THREAD -> LinuxNative.SECCOMP_RET_KILL_THREAD
+            SeccompAction.ACT_TRAP -> LinuxNative.SECCOMP_RET_TRAP
+            SeccompAction.ACT_ERRNO -> if (profilingMode) LinuxNative.SECCOMP_RET_USER_NOTIF else (LinuxNative.SECCOMP_RET_ERRNO or LinuxNative.EPERM)
+            SeccompAction.ACT_NOTIFY -> LinuxNative.SECCOMP_RET_USER_NOTIF
+            SeccompAction.ACT_LOG -> LinuxNative.SECCOMP_RET_LOG
+            SeccompAction.ACT_ALLOW -> LinuxNative.SECCOMP_RET_ALLOW
+        }
+    }
+
     /**
      * Constructs the BPF bytecode using a linear scan approach.
-     *
-     * ### Performance Rationale
-     * While an O(log N) Binary Search Tree (BST) is theoretically faster for large sets,
-     * we intentionally use a linear scan (O(N)) here for several reasons:
-     * 1. **Simplicity:** The logic is trivial to audit and maintain.
-     * 2. **Jump Limits:** BPF jump offsets are limited to 8 bits (max 255 instructions).
-     *    A BST for a large syscall list can easily exceed this limit, leading to
-     *    complex instruction reordering requirements.
-     * 3. **Practicality:** Most security policies (e.g. blocking process execution or
-     *    network) only target <10 syscalls. Even a heavy policy like [Policy.PURE_COMPUTE]
-     *    only targets ~40 syscalls, which results in ~80 BPF instructions—well within
-     *    both performance and jump limit budgets.
      */
-    internal fun buildFromNumbers(
+    @Suppress("CyclomaticComplexMethod", "LongMethod")
+    internal fun buildFromActions(
         arch: Arch,
-        syscallNumbers: IntArray,
-        mode: Policy.Mode,
+        syscallActions: Map<Int, SeccompAction>,
+        defaultAction: SeccompAction,
         allowMmapExec: Boolean = false,
         allowNonThreadClone: Boolean = false,
         allowUnsafePrctl: Boolean = false,
         profilingMode: Boolean = false,
     ): Array<SockFilter> {
         val filters = mutableListOf<SockFilter>()
-        val denyAction =
-            if (profilingMode) LinuxNative.SECCOMP_RET_USER_NOTIF else (LinuxNative.SECCOMP_RET_ERRNO or LinuxNative.EPERM)
-        val allowAction = LinuxNative.SECCOMP_RET_ALLOW
+        val defaultNativeAction = resolveNativeAction(defaultAction, profilingMode)
         val enosysAction = LinuxNative.SECCOMP_RET_ERRNO or 38
 
-        val syscallSet = syscallNumbers.toSet()
+        // The JVM Immutable Base: Syscalls absolutely required for safepoints, GC, and thread stability.
+        // These MUST return ALLOW, overriding any Whitelist or SBoB restrictions.
+        val jvmCriticalNrs = setOf(
+            Syscall.FUTEX.numberFor(arch),
+            Syscall.SCHED_YIELD.numberFor(arch),
+            Syscall.RT_SIGRETURN.numberFor(arch),
+            Syscall.RT_SIGACTION.numberFor(arch),
+            Syscall.MADVISE.numberFor(arch),
+            Syscall.GETTID.numberFor(arch),
+            Syscall.CLOSE.numberFor(arch),
+        ).filter { it >= 0 }.toSet()
 
         // 1. Check Architecture
         filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_DATA_ARCH_OFFSET))
-        // If arch matches, skip 1 instruction (the ret kill/deny)
+        // If arch matches, skip 1 instruction (the ret kill)
         filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 1, 0, arch.audit))
-        filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyAction))
+        filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, LinuxNative.SECCOMP_RET_KILL_THREAD))
 
         // 2. Load Syscall Number
         filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_DATA_NR_OFFSET))
@@ -84,21 +96,11 @@ object BpfFilter {
         // 3. Special Syscall Argument Checks
         val handledNrs = mutableSetOf<Int>()
 
-        /** Helper to decide whether to allow or deny a syscall that passed its argument inspection. */
         fun addInspectionResult(nr: Int) {
-            if (mode == Policy.Mode.DENY_LIST) {
-                if (nr in syscallSet) {
-                    filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyAction))
-                } else {
-                    filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, allowAction))
-                }
-            } else {
-                if (nr in syscallSet) {
-                    filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, allowAction))
-                } else {
-                    filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyAction))
-                }
-            }
+            val mappedAction = syscallActions[nr] ?: defaultAction
+            val effectiveAction = if (nr in jvmCriticalNrs) SeccompAction.ACT_ALLOW else mappedAction
+            val nativeAction = resolveNativeAction(effectiveAction, profilingMode)
+            filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, nativeAction))
         }
 
         // mmap & mprotect
@@ -108,10 +110,9 @@ object BpfFilter {
                     handledNrs.add(nr)
                     filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 4, nr))
                     filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_ARGS2_OFFSET))
-                    // BPF_JSET: jt=0 -> if (ACC & 0x04) != 0 (PROT_EXEC set): execute next instr (RET_DENY)
-                    //           jf=1 -> if (ACC & 0x04) == 0 (PROT_EXEC not set): skip 1 instr (the result)
                     filters.add(SockFilter((BPF_JMP or BPF_JSET or BPF_K).toShort(), 0, 1, 0x04))
-                    filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyAction))
+                    val denyNative = resolveNativeAction(SeccompAction.ACT_ERRNO, profilingMode)
+                    filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyNative))
                     addInspectionResult(nr)
                 }
             }
@@ -122,17 +123,14 @@ object BpfFilter {
             handledNrs.add(arch.clone)
             filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 5, arch.clone))
             filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_DATA_ARGS_OFFSET))
-
-            // Mask args[0] with CLONE_VM (0x00000100) | CLONE_THREAD (0x00010000) = 0x00010100
-            // This ensures the clone call is creating a standard JVM thread (sharing memory and thread group),
-            // and not attempting to fork a distinct process or bypass restrictions.
             filters.add(SockFilter((BPF_ALU or BPF_AND or BPF_K).toShort(), 0, 0, 0x00010100))
             filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 1, 0, 0x00010100))
-            filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyAction))
+            val denyNative = resolveNativeAction(SeccompAction.ACT_ERRNO, profilingMode)
+            filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyNative))
             addInspectionResult(arch.clone)
         }
 
-        // clone3 -> Always return ENOSYS to force fallback
+        // clone3 -> Always ENOSYS
         if (arch.clone3 >= 0) {
             handledNrs.add(arch.clone3)
             filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 1, arch.clone3))
@@ -150,23 +148,38 @@ object BpfFilter {
             filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 3, 0, 22)) // PR_SET_SECCOMP
             filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 2, 0, 38)) // PR_SET_NO_NEW_PRIVS
             filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 1, 0, 39)) // PR_GET_NO_NEW_PRIVS
-            filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyAction))
+            val denyNative = resolveNativeAction(SeccompAction.ACT_ERRNO, profilingMode)
+            filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyNative))
             addInspectionResult(arch.prctl)
         }
 
         // 4. Block-based checks (Linear Scan)
-        for (nr in syscallNumbers.sortedArray()) {
-            if (nr in handledNrs) continue
-            // If nr matches, execute next (RET), else skip 1
-            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 1, nr))
+        for ((nr, action) in syscallActions.entries.sortedBy { it.key }) {
+            if (nr !in handledNrs) {
+                handledNrs.add(nr)
 
-            val action = if (mode == Policy.Mode.DENY_LIST) denyAction else allowAction
-            filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, action))
+                val effectiveAction = if (nr in jvmCriticalNrs) SeccompAction.ACT_ALLOW else action
+                val nativeAction = resolveNativeAction(effectiveAction, profilingMode)
+
+                if (nativeAction != defaultNativeAction) {
+                    filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 1, nr))
+                    filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, nativeAction))
+                }
+            }
+        }
+
+        // Inject the JVM Immutable Base for restrictive default actions (Whitelists)
+        if (defaultNativeAction != LinuxNative.SECCOMP_RET_ALLOW) {
+            for (nr in jvmCriticalNrs.sorted()) {
+                if (nr in handledNrs) continue
+                handledNrs.add(nr)
+                filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 1, nr))
+                filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, LinuxNative.SECCOMP_RET_ALLOW))
+            }
         }
 
         // 5. Default Action
-        val tailAction = if (mode == Policy.Mode.ALLOW_LIST) denyAction else allowAction
-        filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, tailAction))
+        filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, defaultNativeAction))
 
         return filters.toTypedArray()
     }

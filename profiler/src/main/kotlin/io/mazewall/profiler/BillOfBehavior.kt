@@ -111,8 +111,8 @@ data class BillOfBehavior(
      */
     fun toPolicy(base: Policy = Policy.PURE_COMPUTE): Policy {
         val builder = Policy.builder().base(base)
-        if (base.mode == Policy.Mode.DENY_LIST) {
-            val toUnblock = syscalls.filter { base.syscalls.contains(it) }
+        if (base.defaultAction == io.mazewall.SeccompAction.ACT_ALLOW) {
+            val toUnblock = syscalls.filter { !base.isSyscallAllowed(it) }
             builder.unblock(*toUnblock.toTypedArray())
         } else {
             builder.allow(*syscalls.toTypedArray())
@@ -137,8 +137,8 @@ data class BillOfBehavior(
         sb.append("    .base($basePolicyName)\n")
 
         val (methodName, list) =
-            if (base.mode == Policy.Mode.DENY_LIST) {
-                ".unblock" to syscalls.filter { base.syscalls.contains(it) }.sortedBy { it.name }
+            if (base.defaultAction == io.mazewall.SeccompAction.ACT_ALLOW) {
+                ".unblock" to syscalls.filter { !base.isSyscallAllowed(it) }.sortedBy { it.name }
             } else {
                 ".allow" to syscalls.sortedBy { it.name }
             }

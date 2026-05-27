@@ -24,11 +24,11 @@ class SbobParserTest {
         val base = Policy.PURE_COMPUTE // blocks OPEN, WRITE, CONNECT
         val policy = SbobParser.parseJsonToPolicy(json, base)
 
-        assertEquals(Policy.Mode.DENY_LIST, policy.mode)
+        assertEquals(SeccompAction.ACT_ALLOW, policy.defaultAction)
         // Verify syscalls are unblocked
-        assertTrue(!policy.syscalls.contains(Syscall.OPEN))
-        assertTrue(!policy.syscalls.contains(Syscall.WRITE))
-        assertTrue(!policy.syscalls.contains(Syscall.CONNECT))
+        assertTrue(policy.isSyscallAllowed(Syscall.OPEN))
+        assertTrue(policy.isSyscallAllowed(Syscall.WRITE))
+        assertTrue(policy.isSyscallAllowed(Syscall.CONNECT))
 
         // Verify paths are added
         assertTrue(policy.allowedFsReadPaths.contains("/etc/hostname"))
@@ -54,7 +54,7 @@ class SbobParserTest {
 
         val policy = SbobParser.parseToPolicy(file, Policy.PURE_COMPUTE)
         assertTrue(policy.allowedFsReadPaths.contains("/etc/hosts"))
-        assertTrue(!policy.syscalls.contains(Syscall.OPENAT))
+        assertTrue(policy.isSyscallAllowed(Syscall.OPENAT))
     }
 
     @Test
@@ -63,7 +63,7 @@ class SbobParserTest {
         val stream = ByteArrayInputStream(json.toByteArray())
         val policy = SbobParser.parseToPolicy(stream, Policy.PURE_COMPUTE)
         assertTrue(policy.allowedFsReadPaths.contains("/etc/hosts"))
-        assertTrue(!policy.syscalls.contains(Syscall.OPEN))
+        assertTrue(policy.isSyscallAllowed(Syscall.OPEN))
     }
 
     @Test
@@ -72,15 +72,15 @@ class SbobParserTest {
         val base =
             Policy
                 .builder()
-                .mode(Policy.Mode.ALLOW_LIST)
+                .defaultAction(SeccompAction.ACT_ERRNO)
                 .allow(Syscall.WRITE)
                 .build()
         val policy = SbobParser.parseJsonToPolicy(json, base)
 
-        assertEquals(Policy.Mode.ALLOW_LIST, policy.mode)
-        assertTrue(policy.syscalls.contains(Syscall.OPEN))
-        assertTrue(policy.syscalls.contains(Syscall.READ))
-        assertTrue(policy.syscalls.contains(Syscall.WRITE))
+        assertEquals(SeccompAction.ACT_ERRNO, policy.defaultAction)
+        assertTrue(policy.isSyscallAllowed(Syscall.OPEN))
+        assertTrue(policy.isSyscallAllowed(Syscall.READ))
+        assertTrue(policy.isSyscallAllowed(Syscall.WRITE))
     }
 
     @Test
@@ -121,6 +121,6 @@ class SbobParserTest {
     fun `test invalid syscall name ignored`() {
         val json = "{\"syscalls\": [\"INVALID_SYSCALL\", \"OPEN\"]}"
         val policy = SbobParser.parseJsonToPolicy(json, Policy.PURE_COMPUTE)
-        assertTrue(!policy.syscalls.contains(Syscall.OPEN))
+        assertTrue(policy.isSyscallAllowed(Syscall.OPEN))
     }
 }

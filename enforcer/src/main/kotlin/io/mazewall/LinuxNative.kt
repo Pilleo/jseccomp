@@ -801,9 +801,13 @@ object LinuxNative {
     const val SECCOMP_MODE_FILTER = 2
     const val SECCOMP_FILTER_FLAG_TSYNC = 1
 
-    const val SECCOMP_RET_ALLOW = 0x7fff0000
+    const val SECCOMP_RET_KILL_PROCESS = 0x80000000.toInt()
+    const val SECCOMP_RET_KILL_THREAD = 0x00000000
+    const val SECCOMP_RET_TRAP = 0x00030000
     const val SECCOMP_RET_ERRNO = 0x00050000
     const val SECCOMP_RET_USER_NOTIF = 0x7fc00000
+    const val SECCOMP_RET_LOG = 0x7ffc0000
+    const val SECCOMP_RET_ALLOW = 0x7fff0000
 
     const val O_PATH = 0x01000000
     const val O_CLOEXEC = 0x00080000

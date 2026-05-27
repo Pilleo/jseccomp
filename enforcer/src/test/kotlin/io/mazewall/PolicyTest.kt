@@ -15,7 +15,7 @@ class PolicyTest {
                 .block(Syscall.SENDTO, Syscall.ACCEPT, Syscall.CONNECT, Syscall.BIND)
                 .build()
 
-        val restricted = policy.syscallNumbers(Arch.current())
+        val restricted = policy.syscallActionNumbers(Arch.current()).keys.toIntArray()
         val sorted = restricted.sortedArray()
 
         assertTrue(restricted.contentEquals(sorted), "syscallNumbers should return a sorted array")
@@ -25,7 +25,7 @@ class PolicyTest {
     fun `NO_NETWORK policy includes all network server syscalls`() {
         val policy = Policy.NO_NETWORK
         val arch = Arch.current()
-        val restricted = policy.syscallNumbers(arch).toList()
+        val restricted = policy.syscallActionNumbers(arch).keys.toList()
 
         assertTrue(restricted.contains(arch.bind), "NO_NETWORK should block bind")
         assertTrue(restricted.contains(arch.listen), "NO_NETWORK should block listen")
@@ -73,7 +73,7 @@ class PolicyTest {
                 .build()
 
         val arch = Arch.current()
-        val restricted = policy.syscallNumbers(arch).toList()
+        val restricted = policy.syscallActionNumbers(arch).keys.toList()
 
         assertTrue(restricted.contains(arch.bind))
         assertFalse(restricted.contains(arch.connect))
@@ -86,38 +86,37 @@ class PolicyTest {
         val combined = Policy.combine(p1, p2)
 
         val arch = Arch.current()
-        val restricted = combined.syscallNumbers(arch).toList()
+        val restricted = combined.syscallActionNumbers(arch).keys.toList()
         assertTrue(restricted.contains(arch.bind))
         assertTrue(restricted.contains(arch.connect))
     }
 
     @Test
-    fun `combine() with different modes fails`() {
-        val p1 = Policy.builder().mode(Policy.Mode.DENY_LIST).build()
-        val p2 = Policy.builder().mode(Policy.Mode.ALLOW_LIST).build()
-        assertFailsWith<IllegalArgumentException> {
-            Policy.combine(p1, p2)
-        }
+    fun `combine() with different default actions resolves to most restrictive`() {
+        val p1 = Policy.builder().defaultAction(SeccompAction.ACT_ALLOW).build()
+        val p2 = Policy.builder().defaultAction(SeccompAction.ACT_ERRNO).build()
+        val combined = Policy.combine(p1, p2)
+        assertEquals(SeccompAction.ACT_ERRNO, combined.defaultAction)
     }
 
     @Test
-    fun `combine() intersects ALLOW_LIST syscalls`() {
-        val p1 =
-            Policy
-                .builder()
-                .mode(Policy.Mode.ALLOW_LIST)
-                .allow(Syscall.READ, Syscall.WRITE)
-                .build()
-        val p2 =
-            Policy
-                .builder()
-                .mode(Policy.Mode.ALLOW_LIST)
-                .allow(Syscall.WRITE, Syscall.CLOSE)
-                .build()
+    fun `combine() merges whitelist actions`() {
+        val p1 = Policy
+            .builder()
+            .defaultAction(SeccompAction.ACT_ERRNO)
+            .allow(Syscall.READ, Syscall.WRITE)
+            .build()
+        val p2 = Policy
+            .builder()
+            .defaultAction(SeccompAction.ACT_ERRNO)
+            .allow(Syscall.WRITE, Syscall.CLOSE)
+            .build()
         val combined = Policy.combine(p1, p2)
 
-        assertEquals(Policy.Mode.ALLOW_LIST, combined.mode)
-        assertEquals(setOf(Syscall.WRITE), combined.syscalls)
+        assertEquals(SeccompAction.ACT_ERRNO, combined.defaultAction)
+        assertTrue(combined.isSyscallAllowed(Syscall.READ))
+        assertTrue(combined.isSyscallAllowed(Syscall.CLOSE))
+        assertTrue(combined.isSyscallAllowed(Syscall.WRITE))
     }
 
     @Test
@@ -128,7 +127,7 @@ class PolicyTest {
                 .unblock(Syscall.OPEN)
                 .unblock(Syscall.OPEN)
                 .build()
-        assertTrue(!policy.syscallNumbers(Arch.current()).toList().contains(Arch.current().open))
+        assertTrue(policy.isSyscallAllowed(Syscall.OPEN))
     }
 
     @Test
@@ -188,7 +187,7 @@ class PolicyTest {
         assertTrue(p2.allowUnsafePrctl)
         assertTrue(p2.allowedFsReadPaths.contains("/r"))
         assertTrue(p2.allowedFsWritePaths.contains("/w"))
-        assertTrue(p2.syscalls.contains(Syscall.CONNECT))
+        assertTrue(!p2.isSyscallAllowed(Syscall.CONNECT))
     }
 
     @Test
@@ -276,7 +275,7 @@ class PolicyTest {
     fun `STRICT_SANDBOX includes PURE_COMPUTE and classpath`() {
         val policy = Policy.STRICT_SANDBOX
         val arch = Arch.current()
-        val restricted = policy.syscallNumbers(arch).toList()
+        val restricted = policy.syscallActionNumbers(arch).keys.toList()
 
         assertTrue(restricted.contains(arch.connect))
         assertTrue(restricted.contains(arch.execve))
@@ -284,24 +283,20 @@ class PolicyTest {
     }
 
     @Test
-    fun `isSyscallAllowed checks mode correctly`() {
-        // Deny list mode
-        val p1 =
-            Policy
-                .builder()
-                .mode(Policy.Mode.DENY_LIST)
-                .block(Syscall.OPEN)
-                .build()
+    fun `isSyscallAllowed checks defaultAction correctly`() {
+        val p1 = Policy
+            .builder()
+            .defaultAction(SeccompAction.ACT_ALLOW)
+            .block(Syscall.OPEN)
+            .build()
         assertFalse(p1.isSyscallAllowed(Syscall.OPEN))
         assertTrue(p1.isSyscallAllowed(Syscall.CLOSE))
 
-        // Allow list mode
-        val p2 =
-            Policy
-                .builder()
-                .mode(Policy.Mode.ALLOW_LIST)
-                .allow(Syscall.READ)
-                .build()
+        val p2 = Policy
+            .builder()
+            .defaultAction(SeccompAction.ACT_ERRNO)
+            .allow(Syscall.READ)
+            .build()
         assertTrue(p2.isSyscallAllowed(Syscall.READ))
         assertFalse(p2.isSyscallAllowed(Syscall.WRITE))
     }
@@ -325,7 +320,7 @@ class PolicyTest {
         val policyAllow =
             Policy
                 .builder()
-                .mode(Policy.Mode.ALLOW_LIST)
+                .defaultAction(SeccompAction.ACT_ERRNO)
                 .allowFsRead("/tmp")
                 .build()
 

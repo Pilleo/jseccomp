@@ -1,5 +1,8 @@
 package io.mazewall
 
+import io.mazewall.Policy
+import io.mazewall.SeccompAction
+import io.mazewall.Syscall
 import java.io.InputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -57,9 +60,9 @@ object SbobParser {
 
         val builder = Policy.builder().base(base)
 
-        if (base.mode == Policy.Mode.DENY_LIST) {
+        if (base.defaultAction == SeccompAction.ACT_ALLOW) {
             val toUnblock =
-                mappedSyscalls.filter { base.syscalls.contains(it) }
+                mappedSyscalls.filter { base.syscallActions.containsKey(it) }
             builder.unblock(*toUnblock.toTypedArray())
         } else {
             builder.allow(*mappedSyscalls.toTypedArray())

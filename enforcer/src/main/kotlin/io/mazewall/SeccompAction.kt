@@ -6,7 +6,10 @@ package io.mazewall
  * The priority is used when combining multiple policies. Higher priority
  * actions (more restrictive) will override lower priority ones for the same syscall.
  */
-enum class SeccompAction(val priority: Int) {
+@Suppress("MagicNumber")
+enum class SeccompAction(
+    val priority: Int,
+) {
     /** Immediately terminates the entire process. */
     ACT_KILL_PROCESS(7),
 
@@ -26,5 +29,5 @@ enum class SeccompAction(val priority: Int) {
     ACT_LOG(2),
 
     /** Unconditionally allows the system call. */
-    ACT_ALLOW(1);
+    ACT_ALLOW(1),
 }

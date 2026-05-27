@@ -6,6 +6,7 @@ import io.mazewall.Syscall
 import io.mazewall.profiler.engine.TraceEvent
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class BobCompilerTest {
@@ -43,15 +44,9 @@ class BobCompilerTest {
         // Verify unrestricted syscalls
         // PURE_COMPUTE blocks CONNECT, OPEN, OPENAT. They should be unrestricted now.
         val arch = Arch.current()
-        val restricted = policy.syscallNumbers(arch).toSet()
-
-        val connectNr = Syscall.CONNECT.numberFor(arch)
-        val openNr = Syscall.OPEN.numberFor(arch)
-        val openatNr = Syscall.OPENAT.numberFor(arch)
-
-        assertTrue(connectNr !in restricted, "CONNECT should be unrestricted")
-        assertTrue(openNr !in restricted, "OPEN should be unrestricted")
-        assertTrue(openatNr !in restricted, "OPENAT should be unrestricted")
+        assertTrue(policy.isSyscallAllowed(Syscall.CONNECT), "CONNECT should be unrestricted")
+        assertTrue(policy.isSyscallAllowed(Syscall.OPEN), "OPEN should be unrestricted")
+        assertTrue(policy.isSyscallAllowed(Syscall.OPENAT), "OPENAT should be unrestricted")
 
         // Verify fs paths
         assertTrue(policy.allowedFsReadPaths.contains("/etc/hostname"), "Should contain read path")
@@ -86,9 +81,11 @@ val policy = Policy.builder()
         val bob = BobCompiler.compile(emptyList())
         val policy = bob.toPolicy(Policy.PURE_COMPUTE)
         val arch = Arch.current()
-        val restricted = policy.syscallNumbers(arch).toSet()
+        val restricted = policy.syscallActionNumbers(arch).keys.toSet()
 
-        assertTrue(Syscall.CONNECT.numberFor(arch) in restricted)
+        assertFalse(policy.isSyscallAllowed(Syscall.CONNECT))
+        assertFalse(policy.isSyscallAllowed(Syscall.MKDIR))
+        assertFalse(policy.isSyscallAllowed(Syscall.OPEN))
         assertTrue(policy.allowedFsReadPaths.isEmpty())
         assertTrue(policy.allowedFsWritePaths.isEmpty())
 

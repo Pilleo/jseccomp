@@ -61,7 +61,7 @@ class AllowListTest {
                     val policy =
                         Policy
                             .builder()
-                            .mode(Policy.Mode.ALLOW_LIST)
+                            .defaultAction(io.mazewall.SeccompAction.ACT_ERRNO)
                             .allow(*jvmFloor())
                             .build()
 
@@ -89,7 +89,7 @@ class AllowListTest {
                     val policy =
                         Policy
                             .builder()
-                            .mode(Policy.Mode.ALLOW_LIST)
+                            .defaultAction(io.mazewall.SeccompAction.ACT_ERRNO)
                             .allow(*jvmFloor())
                             .build()
 
