@@ -123,4 +123,29 @@ class SbobParserTest {
         val policy = SbobParser.parseJsonToPolicy(json, Policy.PURE_COMPUTE)
         assertTrue(policy.isSyscallAllowed(Syscall.OPEN))
     }
+
+    @Test
+    fun `test complex json structures`() {
+        val json = """
+            {
+                "metadata": {
+                    "nested_object": { "key": "value" },
+                    "nested_array": [ [ "a", "b" ], [ "c" ] ],
+                    "boolean_val": true,
+                    "null_val": null,
+                    "int_val": 12345
+                },
+                "opens": ["/tmp/app_data_[1]/cache"],
+                "fsWritePaths": [
+                    "/tmp/\"escaped\"", "/tmp/\\slash", "/tmp/\n\r\t\b\f\/foo"
+                ]
+            }
+        """.trimIndent()
+
+        val policy = SbobParser.parseJsonToPolicy(json)
+        assertTrue(policy.allowedFsReadPaths.contains("/tmp/app_data_[1]/cache"))
+        assertTrue(policy.allowedFsWritePaths.contains("/tmp/\"escaped\""))
+        assertTrue(policy.allowedFsWritePaths.contains("/tmp/\\slash"))
+        assertTrue(policy.allowedFsWritePaths.contains("/tmp/\n\r\t\b\u000C/foo"))
+    }
 }

@@ -1,8 +1,5 @@
 package io.mazewall
 
-import io.mazewall.Policy
-import io.mazewall.SeccompAction
-import io.mazewall.Syscall
 import java.io.InputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -44,16 +41,17 @@ object SbobParser {
         json: String,
         base: Policy = Policy.PURE_COMPUTE,
     ): Policy {
-        val opens = parseJsonStringArray(json, "opens")
-        val fsWritePaths = parseJsonStringArray(json, "fsWritePaths")
-        val syscallNames = parseJsonStringArray(json, "syscalls")
+        val arrays = extractStringArrays(json)
+        val opens = arrays["opens"] ?: emptySet()
+        val fsWritePaths = arrays["fsWritePaths"] ?: emptySet()
+        val syscallNames = arrays["syscalls"] ?: emptySet()
 
         val mappedSyscalls =
             syscallNames
                 .mapNotNull { name ->
                     try {
                         Syscall.valueOf(name.uppercase())
-                    } catch (ignored: Exception) {
+                    } catch (ignored: IllegalArgumentException) {
                         null
                     }
                 }.toSet()
@@ -80,47 +78,153 @@ object SbobParser {
     private fun pruneSubpaths(paths: Set<String>): Set<String> {
         if (paths.size <= 1) return paths
 
-        val parsedPaths = paths.map { Paths.get(it).toAbsolutePath().normalize() }
+        val sortedPaths = paths.map { Paths.get(it).toAbsolutePath().normalize() }.sorted()
         val result = mutableListOf<Path>()
+        var currentParent: Path? = null
 
-        for (path in parsedPaths) {
-            val hasParent =
-                parsedPaths.any { other ->
-                    other != path && path.startsWith(other)
-                }
-            if (!hasParent) {
+        for (path in sortedPaths) {
+            if (currentParent == null || !path.startsWith(currentParent)) {
                 result.add(path)
+                currentParent = path
             }
         }
         return result.map { it.toString() }.toSet()
     }
 
-    private fun parseJsonStringArray(
-        json: String,
-        key: String,
-    ): Set<String> {
-        val index = json.indexOf("\"$key\"")
-        val openBracket = if (index != -1) json.indexOf("[", index) else -1
-        val closeBracket = if (openBracket != -1) json.indexOf("]", openBracket) else -1
+    private fun extractStringArrays(json: String): Map<String, Set<String>> {
+        val result = mutableMapOf<String, Set<String>>()
+        val tokenizer = JsonTokenizer(json)
+        tokenizer.skipWhitespace()
 
-        if (closeBracket != -1) {
-            val arrayContent = json.substring(openBracket + 1, closeBracket)
-            if (arrayContent.isNotBlank()) {
-                return parseStringArrayContent(arrayContent)
+        if (tokenizer.pos < json.length && json[tokenizer.pos] == '{') {
+            tokenizer.pos++
+            while (tokenizer.pos < json.length) {
+                tokenizer.skipWhitespace()
+                if (tokenizer.pos < json.length && json[tokenizer.pos] == '}') {
+                    tokenizer.pos++
+                    break
+                }
+                val key = tokenizer.parseString()
+                tokenizer.skipWhitespace()
+                if (tokenizer.pos < json.length && json[tokenizer.pos] == ':') {
+                    tokenizer.pos++
+                    tokenizer.skipWhitespace()
+                    if (key != null && tokenizer.pos < json.length && json[tokenizer.pos] == '[') {
+                        result[key] = tokenizer.parseStringArray()
+                    } else {
+                        tokenizer.skipValue()
+                    }
+                }
+                tokenizer.skipWhitespace()
+                if (tokenizer.pos < json.length && json[tokenizer.pos] == ',') {
+                    tokenizer.pos++
+                }
             }
         }
-        return emptySet()
+        return result
     }
 
-    private fun parseStringArrayContent(arrayContent: String): Set<String> {
-        val result = mutableSetOf<String>()
-        val regex = "\"([^\"\\\\]|\\\\.)*\"".toRegex()
-        for (match in regex.findAll(arrayContent)) {
-            val value = match.value
-            val contentOnly = value.substring(1, value.length - 1)
-            val unescaped = contentOnly.replace("\\\"", "\"").replace("\\\\", "\\")
-            result.add(unescaped)
+    private class JsonTokenizer(
+        val json: String,
+    ) {
+        var pos = 0
+
+        fun skipWhitespace() {
+            while (pos < json.length && json[pos].isWhitespace()) pos++
         }
-        return result
+
+        fun parseString(): String? {
+            if (pos >= json.length || json[pos] != '"') return null
+            pos++
+            val sb = StringBuilder()
+            while (pos < json.length) {
+                val c = json[pos]
+                if (c == '"') {
+                    pos++
+                    return sb.toString()
+                }
+                if (c == '\\') {
+                    pos++
+                    if (pos < json.length) {
+                        val esc = json[pos]
+                        when (esc) {
+                            '"', '\\', '/' -> sb.append(esc)
+                            'b' -> sb.append('\b')
+                            'f' -> sb.append('\u000C')
+                            'n' -> sb.append('\n')
+                            'r' -> sb.append('\r')
+                            't' -> sb.append('\t')
+                            else -> sb.append(esc)
+                        }
+                    }
+                } else {
+                    sb.append(c)
+                }
+                pos++
+            }
+            return null
+        }
+
+        fun skipValue() {
+            skipWhitespace()
+            if (pos >= json.length) return
+            when (json[pos]) {
+                '"' -> parseString()
+                '[' -> {
+                    pos++
+                    while (pos < json.length) {
+                        skipWhitespace()
+                        if (pos < json.length && json[pos] == ']') {
+                            pos++
+                            break
+                        }
+                        skipValue()
+                        skipWhitespace()
+                        if (pos < json.length && json[pos] == ',') pos++
+                    }
+                }
+                '{' -> {
+                    pos++
+                    while (pos < json.length) {
+                        skipWhitespace()
+                        if (pos < json.length && json[pos] == '}') {
+                            pos++
+                            break
+                        }
+                        parseString() // skip key
+                        skipWhitespace()
+                        if (pos < json.length && json[pos] == ':') pos++
+                        skipValue()
+                        skipWhitespace()
+                        if (pos < json.length && json[pos] == ',') pos++
+                    }
+                }
+                else -> {
+                    while (pos < json.length && !json[pos].isWhitespace() && json[pos] != ',' && json[pos] != '}' && json[pos] != ']') pos++
+                }
+            }
+        }
+
+        fun parseStringArray(): Set<String> {
+            val set = mutableSetOf<String>()
+            if (pos >= json.length || json[pos] != '[') return set
+            pos++
+            while (pos < json.length) {
+                skipWhitespace()
+                if (pos < json.length && json[pos] == ']') {
+                    pos++
+                    break
+                }
+                if (pos < json.length && json[pos] == '"') {
+                    val str = parseString()
+                    if (str != null) set.add(str)
+                } else {
+                    skipValue()
+                }
+                skipWhitespace()
+                if (pos < json.length && json[pos] == ',') pos++
+            }
+            return set
+        }
     }
 }
