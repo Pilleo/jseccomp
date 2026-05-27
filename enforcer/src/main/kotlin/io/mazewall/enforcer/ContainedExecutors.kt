@@ -3,6 +3,7 @@ package io.mazewall.enforcer
 import io.mazewall.Arch
 import io.mazewall.Platform
 import io.mazewall.Policy
+import io.mazewall.SeccompAction
 import io.mazewall.Syscall
 import io.mazewall.landlock.Landlock
 import io.mazewall.seccomp.PureJavaBpfEngine
@@ -92,7 +93,7 @@ object ContainedExecutors {
 
             if (plan.needsNewFilter) {
                 FilterInstallationPlanner.verifyFilterDepth(state.currentDepth)
-                applyBpfFilter(processWide, plan.toInstall, plan.newBlocks)
+                applyBpfFilter(processWide, plan.toInstall, plan.newBlocks, plan.newDefaultAction)
             }
         }
     }
@@ -190,34 +191,69 @@ object ContainedExecutors {
         }
     }
 
-    private fun resolveCurrentState(): FilterInstallationPlanner.ContainerState =
-        FilterInstallationPlanner.ContainerState(
-            currentlyBlocked = ContainerStateRegistry.THREAD_BLOCKED.get() + ContainerStateRegistry.PROCESS_BLOCKED,
+    /**
+     * Resolves the effective sandbox state for the current thread by combining the thread-local
+     * state and the process-wide state. Where rules overlap, the most restrictive rule (highest
+     * [SeccompAction.priority]) takes precedence, matching the Linux kernel BPF evaluation semantics.
+     */
+    private fun resolveCurrentState(): FilterInstallationPlanner.ContainerState {
+        val threadActions = ContainerStateRegistry.THREAD_SYSCALL_ACTIONS.get()
+        val processActions = ContainerStateRegistry.PROCESS_SYSCALL_ACTIONS
+
+        val mergedActions = mutableMapOf<Syscall, SeccompAction>()
+        for ((sys, action) in threadActions) {
+            mergedActions[sys] = action
+        }
+        for ((sys, action) in processActions) {
+            val current = mergedActions[sys]
+            if (current == null || action.priority > current.priority) {
+                mergedActions[sys] = action
+            }
+        }
+
+        val threadDefault = ContainerStateRegistry.THREAD_DEFAULT_ACTION.get()
+        val processDefault = ContainerStateRegistry.PROCESS_DEFAULT_ACTION.get()
+        val mergedDefault = if (threadDefault.priority > processDefault.priority) threadDefault else processDefault
+
+        return FilterInstallationPlanner.ContainerState(
+            currentSyscallActions = mergedActions,
+            currentDefaultAction = mergedDefault,
             currentlyAllowsMmapExec = ContainerStateRegistry.THREAD_ALLOWS_MMAP_EXEC.get() && ContainerStateRegistry.PROCESS_ALLOWS_MMAP_EXEC.get(),
             currentlyAllowsNonThreadClone = ContainerStateRegistry.THREAD_ALLOWS_NON_THREAD_CLONE.get() && ContainerStateRegistry.PROCESS_ALLOWS_NON_THREAD_CLONE.get(),
             currentlyAllowsUnsafePrctl = ContainerStateRegistry.THREAD_ALLOWS_UNSAFE_PRCTL.get() && ContainerStateRegistry.PROCESS_ALLOWS_UNSAFE_PRCTL.get(),
             currentDepth = ContainerStateRegistry.FILTER_DEPTH.get() + ContainerStateRegistry.PROCESS_FILTER_DEPTH.get(),
         )
+    }
 
     private fun applyBpfFilter(
         processWide: Boolean,
         toInstall: Policy,
-        newBlocks: Set<Syscall>,
+        newBlocks: Map<Syscall, SeccompAction>,
+        newDefaultAction: SeccompAction,
     ) {
         if (processWide) {
             PureJavaBpfEngine.installOnProcess(toInstall)
-            updateProcessState(newBlocks, toInstall)
+            updateProcessState(newBlocks, newDefaultAction, toInstall)
         } else {
             PureJavaBpfEngine.install(toInstall)
-            updateThreadState(newBlocks, toInstall)
+            updateThreadState(newBlocks, newDefaultAction, toInstall)
         }
     }
 
     private fun updateProcessState(
-        newBlocks: Set<Syscall>,
+        newBlocks: Map<Syscall, SeccompAction>,
+        newDefaultAction: SeccompAction,
         toInstall: Policy,
     ) {
-        ContainerStateRegistry.PROCESS_BLOCKED.addAll(newBlocks)
+        val currentActions = ContainerStateRegistry.PROCESS_SYSCALL_ACTIONS
+        for ((sys, action) in newBlocks) {
+            currentActions[sys] = action
+        }
+        val currentDefault = ContainerStateRegistry.PROCESS_DEFAULT_ACTION.get()
+        if (newDefaultAction.priority > currentDefault.priority) {
+            ContainerStateRegistry.PROCESS_DEFAULT_ACTION.set(newDefaultAction)
+        }
+
         if (!toInstall.allowMmapExec) ContainerStateRegistry.PROCESS_ALLOWS_MMAP_EXEC.set(false)
         if (!toInstall.allowNonThreadClone) ContainerStateRegistry.PROCESS_ALLOWS_NON_THREAD_CLONE.set(false)
         if (!toInstall.allowUnsafePrctl) ContainerStateRegistry.PROCESS_ALLOWS_UNSAFE_PRCTL.set(false)
@@ -225,10 +261,22 @@ object ContainedExecutors {
     }
 
     private fun updateThreadState(
-        newBlocks: Set<Syscall>,
+        newBlocks: Map<Syscall, SeccompAction>,
+        newDefaultAction: SeccompAction,
         toInstall: Policy,
     ) {
-        ContainerStateRegistry.THREAD_BLOCKED.set(ContainerStateRegistry.THREAD_BLOCKED.get() + newBlocks)
+        val currentActions = ContainerStateRegistry.THREAD_SYSCALL_ACTIONS.get()
+        val mergedActions = currentActions.toMutableMap()
+        for ((sys, action) in newBlocks) {
+            mergedActions[sys] = action
+        }
+        ContainerStateRegistry.THREAD_SYSCALL_ACTIONS.set(mergedActions)
+
+        val currentDefault = ContainerStateRegistry.THREAD_DEFAULT_ACTION.get()
+        if (newDefaultAction.priority > currentDefault.priority) {
+            ContainerStateRegistry.THREAD_DEFAULT_ACTION.set(newDefaultAction)
+        }
+
         if (!toInstall.allowMmapExec) ContainerStateRegistry.THREAD_ALLOWS_MMAP_EXEC.set(false)
         if (!toInstall.allowNonThreadClone) ContainerStateRegistry.THREAD_ALLOWS_NON_THREAD_CLONE.set(false)
         if (!toInstall.allowUnsafePrctl) ContainerStateRegistry.THREAD_ALLOWS_UNSAFE_PRCTL.set(false)

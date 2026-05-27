@@ -10,7 +10,7 @@ integrates with the seccomp pipeline. Read this before modifying `ContainedExecu
 ## 1. The Enforcement Pipeline
 
 ```
-Policy (syscalls: Set<Syscall>, mode: Mode, allowMmapExec, ...)
+Policy (syscallActions: Map<Syscall, SeccompAction>, defaultAction: SeccompAction, allowMmapExec, ...)
     │
     ▼
 BpfFilter.build(arch, policy)
@@ -185,8 +185,8 @@ executor wrapping or the profiler) without wasting filter slots.
 
 | State                                  | Type                           | Purpose                                            |
 |----------------------------------------|--------------------------------|----------------------------------------------------|
-| `THREAD_BLOCKED`                       | `ThreadLocal<Set<Syscall>>`    | Syscalls already blocked on this OS thread         |
-| `PROCESS_BLOCKED`                      | `CopyOnWriteArraySet<Syscall>` | Syscalls blocked process-wide via TSYNC            |
+| `THREAD_SYSCALL_ACTIONS`               | `ThreadLocal<Map<Syscall, SeccompAction>>` | Syscall actions already enforced on this OS thread |
+| `PROCESS_SYSCALL_ACTIONS`              | `ConcurrentHashMap<Syscall, SeccompAction>` | Syscall actions enforced process-wide via TSYNC    |
 | `FILTER_DEPTH`                         | `ThreadLocal<Int>`             | Count of thread-local filter installations         |
 | `PROCESS_FILTER_DEPTH`                 | `AtomicInteger`                | Count of process-wide filter installations         |
 | `THREAD_ALLOWS_MMAP_EXEC`              | `ThreadLocal<Boolean>`         | Whether mmap PROT_EXEC inspection is still pending |
@@ -194,10 +194,10 @@ executor wrapping or the profiler) without wasting filter slots.
 | *(identical pattern for clone, prctl)* |                                |                                                    |
 
 Before installing, `installInternal` computes:
-- `newBlocks = policy.syscalls - (THREAD_BLOCKED + PROCESS_BLOCKED)` → only truly new syscalls
+- `newBlocks = policy.syscallActions - (THREAD_SYSCALL_ACTIONS merged with PROCESS_SYSCALL_ACTIONS)` based on action priority.
 - `needsMmapProtection`, `needsCloneProtection`, `needsPrctlProtection` → argument-inspection gates
 
-If `newBlocks` is empty and no gates need updating, **no filter is installed** — the
+If `newBlocks` is empty, no new default action priority escalation is required, and no gates need updating, **no filter is installed** — the
 depth counter is preserved.
 
 ### The `synchronized(processLock)` requirement

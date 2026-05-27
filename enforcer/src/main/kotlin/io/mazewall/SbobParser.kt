@@ -133,6 +133,7 @@ object SbobParser {
             while (pos < json.length && json[pos].isWhitespace()) pos++
         }
 
+        @Suppress("ReturnCount")
         fun parseString(): String? {
             if (pos >= json.length || json[pos] != '"') return null
             pos++
@@ -165,6 +166,7 @@ object SbobParser {
             return null
         }
 
+        @Suppress("CyclomaticComplexMethod")
         fun skipValue() {
             skipWhitespace()
             if (pos >= json.length) return

@@ -14,7 +14,8 @@ internal object FilterInstallationPlanner {
     private const val WARN_FILTERS_THRESHOLD = 10
 
     data class ContainerState(
-        val currentlyBlocked: Set<Syscall>,
+        val currentSyscallActions: Map<Syscall, SeccompAction>,
+        val currentDefaultAction: SeccompAction,
         val currentlyAllowsMmapExec: Boolean,
         val currentlyAllowsNonThreadClone: Boolean,
         val currentlyAllowsUnsafePrctl: Boolean,
@@ -24,38 +25,53 @@ internal object FilterInstallationPlanner {
     data class FilterPlan(
         val needsNewFilter: Boolean,
         val toInstall: Policy,
-        val newBlocks: Set<Syscall>,
+        val newBlocks: Map<Syscall, SeccompAction>,
+        val newDefaultAction: SeccompAction,
     )
 
+    /**
+     * Calculates the minimal new [Policy] (if any) needed to enforce the requested [policy]
+     * given the current [state].
+     *
+     * It compares the incoming policy's default action and specific syscall actions against
+     * the currently applied actions. BPF semantics dictate that the kernel will enforce the
+     * most restrictive (highest priority) action across all stacked filters. Thus, a new filter
+     * block is only strictly required if the new action has a higher priority than the current one.
+     */
+    @Suppress("CyclomaticComplexMethod")
     fun calculateNewFilter(
         policy: Policy,
         state: ContainerState,
     ): FilterPlan {
-        // Any syscall with an action priority > ACT_ALLOW (1) is considered a block
-        val blockedInPolicy = policy.syscallActions.filterValues { it.priority > SeccompAction.ACT_ALLOW.priority }.keys
-
-        val newBlocks = if (policy.defaultAction == SeccompAction.ACT_ALLOW) {
-            blockedInPolicy - state.currentlyBlocked
+        val effectiveNewDefaultAction = if (policy.defaultAction.priority > state.currentDefaultAction.priority) {
+            policy.defaultAction
         } else {
-            emptySet()
+            state.currentDefaultAction
+        }
+
+        val newBlocksMap = mutableMapOf<Syscall, SeccompAction>()
+        for ((sys, action) in policy.syscallActions) {
+            val currentAction = state.currentSyscallActions[sys] ?: state.currentDefaultAction
+            if (action.priority > currentAction.priority) {
+                newBlocksMap[sys] = action
+            }
         }
 
         val needsMmapProtection = !policy.allowMmapExec && state.currentlyAllowsMmapExec
         val needsCloneProtection = !policy.allowNonThreadClone && state.currentlyAllowsNonThreadClone
         val needsPrctlProtection = !policy.allowUnsafePrctl && state.currentlyAllowsUnsafePrctl
 
-        val needsNewFilter = policy.defaultAction != SeccompAction.ACT_ALLOW ||
-            newBlocks.isNotEmpty() ||
+        val needsNewFilter = policy.defaultAction.priority > state.currentDefaultAction.priority ||
+            newBlocksMap.isNotEmpty() ||
             needsMmapProtection ||
             needsCloneProtection ||
             needsPrctlProtection
 
-        val toInstall = if (policy.defaultAction != SeccompAction.ACT_ALLOW) {
+        val toInstall = if (policy.defaultAction.priority > state.currentDefaultAction.priority) {
             policy
         } else {
             val builder = Policy.builder()
-            for (sys in newBlocks) {
-                val action = policy.syscallActions[sys] ?: SeccompAction.ACT_ERRNO
+            for ((sys, action) in newBlocksMap) {
                 builder.addAction(action, sys)
             }
             if (policy.allowMmapExec) builder.allowMmapExec()
@@ -64,7 +80,7 @@ internal object FilterInstallationPlanner {
             builder.build()
         }
 
-        return FilterPlan(needsNewFilter, toInstall, newBlocks)
+        return FilterPlan(needsNewFilter, toInstall, newBlocksMap, effectiveNewDefaultAction)
     }
 
     fun verifyFilterDepth(currentDepth: Int) {
