@@ -133,3 +133,139 @@ When the daemon notifies the listener that a child thread with TID `pid` made a 
 **Context & Proof:** In `SbobParser.kt`, `pruneSubpaths` syntactically normalizes and sorts path strings. If a profiled workload accessed both `/var/log` (a symlink) and `/var/log/app` (a real directory), the SBoB JSON lists both. `pruneSubpaths` prunes `/var/log/app` because it syntactically starts with `/var/log`. In production, when `Landlock.addRule` is invoked for `/var/log`, `O_NOFOLLOW` triggers a symlink rejection `ELOOP`, so the rule is skipped and no filesystem rule is added. Since `/var/log/app` was pruned, no rule is added for `/var/log/app` either. The application is completely blocked from accessing `/var/log/app` and crashes.
 **Cascading Risk Potential:** High usability and stability risk. Causes deterministic, hard-to-debug runtime crashes in production environments when deploying SBoB policies across varying file systems or symlinks.
 **Needed:** SbobParser's subpath pruning must be aware of symlink and directory boundaries, or `addRule` must not prune paths that could fail to resolve. A safer solution is to have SbobParser retain all paths and let `Landlock.applyRuleset` perform dynamic pruning after resolving canonical/real paths in the actual environment, or avoid pruning paths syntactically if they could be symlinks.
+
+### 🔴 [Severity: HIGH]: `ProfilerDaemon` fails to resolve `SYMLINKAT` path parameters due to invalid argument grouping
+**Target:** `io.mazewall.profiler.engine.ProfilerDaemon` (specifically `getPathArgs`)
+**Failure Hypothesis:** The `ProfilerDaemon` maps `SYMLINKAT` into the same argument-parsing branch as `RENAMEAT`, `RENAMEAT2`, and `LINKAT`. However, `SYMLINKAT` uses a completely different argument layout than those double-descriptor syscalls. This mismatch causes the profiler to read invalid memory addresses, failing path resolution completely and leading to production Landlock crashes.
+**Context & Proof:** In `ProfilerDaemon.kt`, `SYMLINKAT` is matched in the following branch of `getPathArgs()`:
+```kotlin
+            "RENAMEAT", "RENAMEAT2", "LINKAT", "SYMLINKAT" ->
+                listOfNotNull(
+                    tryRead(pid, args[ARG_OLD_PATH], args[ARG_OLD_DIR_FD]),
+                    tryRead(pid, args[ARG_NEW_PATH], args[ARG_NEW_DIR_FD]),
+                )
+```
+Where:
+- `ARG_OLD_DIR_FD` = 0, `ARG_OLD_PATH` = 1
+- `ARG_NEW_DIR_FD` = 2, `ARG_NEW_PATH` = 3
+
+But the Linux signature for `symlinkat` is:
+`int symlinkat(const char *target, int newdirfd, const char *linkpath);`
+Which translates in seccomp notification args to:
+- `args[0]` = `target` (string pointer)
+- `args[1]` = `newdirfd` (integer FD)
+- `args[2]` = `linkpath` (string pointer)
+- `args[3]` = (unused / undefined register garbage)
+
+Consequently, `ProfilerDaemon` executes:
+1. `tryRead(pid, args[1], args[0])` -> Treats `newdirfd` (e.g. `3`) as a string pointer. `process_vm_readv` tries to read memory at address `3`, failing with `EFAULT`.
+2. `tryRead(pid, args[3], args[2])` -> Treats register garbage (from `args[3]`) as a string pointer, failing with `EFAULT` or `EPERM`.
+
+As a result, neither the symlink target nor the symlink creation path is resolved. SBoB output misses the rule, causing Landlock to deny `symlinkat` in production and crash the application.
+**Cascading Risk Potential:** High usability, stability, and sandbox coverage defect. Completely prevents applications from creating symbolic links via `symlinkat` in production sandboxes.
+**Needed:** Move `"SYMLINKAT"` out of the `RENAMEAT` branch. Create a dedicated branch in `getPathArgs()` for `"SYMLINKAT"`:
+```kotlin
+            "SYMLINKAT" ->
+                listOfNotNull(
+                    tryRead(pid, args[0]), // Target raw string (treated as absolute or relative to linkpath)
+                    tryRead(pid, args[2], args[1]) // Resolves linkpath (args[2]) relative to newdirfd (args[1])
+                )
+```
+
+### 🔴 [Severity: CRITICAL]: Trace Listener Socket Interruption Deadlock due to unhandled `EINTR`
+**Target:** `/profiler/src/main/kotlin/io/mazewall/profiler/Profiler.kt` (inside `startTraceListener`)
+**Failure Hypothesis:** The JVM multi-threaded runtime relies heavily on POSIX signals (e.g., `SIGUSR2`, `SIGJVM1`, `SIGJVM2`) for GC safepoints and thread suspension. If one of these signals is delivered to the trace listener thread while it is blocked inside a native `LinuxNative.read()` call on the Unix domain socket, the call will fail with `EINTR` (-1). If the custom `InputStream` wrapper treats all non-positive return values as EOF and terminates, it will cause a permanent deadlock of sandboxed sibling threads.
+**Context & Proof:** In `Profiler.kt`, `startTraceListener` wraps the socket reading in a custom `InputStream`:
+```kotlin
+override fun read(): Int {
+    val res = LinuxNative.read(socketFd, readBuf, 1)
+    val value =
+        if (res.returnValue <= 0) {
+            -1
+        } else {
+            readBuf.get(ValueLayout.JAVA_BYTE, 0L).toInt() and BYTE_MASK
+        }
+    return value
+}
+```
+If `LinuxNative.read()` is interrupted by a signal, `res.returnValue` is `-1` and `res.errno` is `4` (`EINTR`). The code does not check `errno` and instead immediately returns `-1` (EOF). When `DataInputStream.readFully()` is reading the packet (e.g., reading the PID or name length) and receives `-1`, it throws an `EOFException` and exits the listener thread's processing loop.
+Once the trace listener thread terminates, the socket is closed. When any sandboxed sibling thread subsequent to this event invokes a blocked system call, the seccomp filter intercepts the call and traps the thread by queuing a `USER_NOTIF`. The supervisor daemon receives the notification, writes the `TraceEvent` to the Unix domain socket, and blocks waiting for an ACK byte from the JVM. However, because the trace listener thread is dead and the JVM socket end is closed, the daemon's write fails or blocks indefinitely. Sibling threads are left permanently frozen in the kernel, leading to a complete JVM deadlock.
+**Cascading Risk Potential:** Critical. Deterministically causes JVM deadlocks during garbage collection or thread suspension events while running the profiler.
+**Needed:** Add an explicit loop inside the `read()` and `read(b, off, len)` overrides of the `InputStream` in `Profiler.kt` to check if `res.returnValue < 0 && res.errno == 4` (EINTR). If so, retry the `LinuxNative.read` call. Only return `-1` if the return value is non-positive and `errno` is not `EINTR` (indicating true EOF or socket failure).
+
+### 🔴 [Severity: HIGH]: Missing `sendmmsg` and `recvmmsg` system calls bypass `NO_NETWORK` and `PURE_COMPUTE` restrictions
+**Target:** `io.mazewall.Syscall`, `io.mazewall.Policy.PURE_COMPUTE`, `io.mazewall.Policy.NO_NETWORK`, and `/profiler/src/main/kotlin/io/mazewall/profiler/compiler/BobCompiler.kt`
+**Failure Hypothesis:** A blacklist-based seccomp policy that aims to prevent all outbound networking fails to block alternative or modern socket-sending system calls. An attacker with arbitrary code execution can bypass `NO_NETWORK` or `PURE_COMPUTE` by invoking these unblocked network system calls.
+**Context & Proof:** `Policy.NO_NETWORK` and `Policy.PURE_COMPUTE` block standard socket operations like `CONNECT`, `SENDTO`, `SENDMSG`, and `SOCKET`. However, they fail to account for `sendmmsg` (system call 307 on x86_64, 269 on aarch64) and `recvmmsg` (system call 299 on x86_64, 268 on aarch64). Because blacklist-based policies default to allowing any system call not explicitly blocked (`defaultAction = ACT_ALLOW`), `sendmmsg` and `recvmmsg` remain unconditionally allowed.
+If an attacker achieves native arbitrary code execution (ACE) or has access to a pre-existing socket file descriptor, they can directly invoke `syscall(307, fd, msgvec, vlen, flags)` to transmit network packets, completely bypassing the socket blocklists. Additionally, these system calls are omitted from `Syscall.kt` and thus are also ignored by the `BobCompiler` during trace compilation, creating a complete blind spot in both enforcement and profiling.
+**Cascading Risk Potential:** High security sandbox evasion. Enables arbitrary outbound network transmission on contained threads despite active network blocklists.
+**Needed:** Add `SENDMMSG` and `RECVMMSG` to `Syscall.kt` and map them in `Arch.kt` (e.g., `sendmmsg` is 307 on x86_64, 269 on aarch64; `recvmmsg` is 299, 268). Add these variants to the block lists in `Policy.PURE_COMPUTE` and `Policy.NO_NETWORK`. Finally, update `BobCompiler.kt` and `StraceProfiler.kt` to map and parse these system calls correctly.
+
+### 🔴 [Severity: HIGH]: `IterativeProfiler` fails to resolve wrapped exception chains, breaking progressive profiling
+**Target:** `/profiler/src/main/kotlin/io/mazewall/profiler/iterative/IterativeProfiler.kt` (specifically `extractViolationPath`)
+**Failure Hypothesis:** Progressive profiling (Tier A) relies on catching VFS permission failures, extracting the blocked file path, adding it to the policy, and retrying the task. If a library or framework catches the underlying `AccessDeniedException` and wraps it in a custom runtime or checked exception (which is standard behavior in modern enterprise Java frameworks), the profiler will fail to extract the path because it only inspects the top-level exception.
+**Context & Proof:** In `IterativeProfiler.kt`, `extractViolationPath` only checks:
+```kotlin
+val path = when {
+    t is AccessDeniedException -> t.file
+    else -> {
+        val msg = t.message
+        ...
+```
+If a framework catches `AccessDeniedException` and wraps it (e.g. in `RuntimeException`), `t is AccessDeniedException` is `false`. It falls into the `else` block to parse the exception's message string using regex/flat string matching. However, standard Java exception wrapper messages (e.g. `"java.lang.RuntimeException: java.nio.file.AccessDeniedException: /var/lib/app/file"`) do not contain any of the `ContainmentViolationDetector.DENIED_PHRASES` like `"Permission denied"` or `"Operation not permitted"`. As a result, `phraseIdx` evaluates to `-1` and the method returns `null`. The profiler aborts the auto-discovery loop prematurely and rethrows the wrapper exception, permanently breaking rule discovery.
+**Cascading Risk Potential:** High usability and stability failure. Breaks progressive sandbox profiling for any workload that uses third-party libraries that wrap exceptions.
+**Needed:** Modify `IterativeProfiler.extractViolationPath` to traverse the exception cause chain using a recursive or iterative helper (similar to `ContainmentViolationDetector.isContainmentViolation`). If any cause in the chain is an `AccessDeniedException`, extract the path directly from it. If the cause is a raw `IOException`, parse its message for the file path and denied phrases.
+
+### 🔴 [Severity: MEDIUM]: Redundant BPF Argument Inspection Blocks in Stacked Filters cause performance and size bloat
+**Target:** `/enforcer/src/main/kotlin/io/mazewall/enforcer/FilterInstallationPlanner.kt` (specifically `calculateNewFilter`)
+**Failure Hypothesis:** Seccomp BPF filters are additive. If a previous filter already restricts `mmap(PROT_EXEC)`, non-thread `clone`, or unsafe `prctl` calls, there is no need to compile and install duplicate argument inspection blocks for these syscalls in a new stacked filter.
+**Context & Proof:** `FilterInstallationPlanner.calculateNewFilter` evaluates:
+```kotlin
+val needsMmapProtection = !policy.allowMmapExec && state.currentlyAllowsMmapExec
+```
+If a previous filter already blocked `mmap` exec, `state.currentlyAllowsMmapExec` is `false`, so `needsMmapProtection` is `false`. Thus, the protection itself does not trigger `needsNewFilter = true`.
+However, if `needsNewFilter` is triggered by a *different* new syscall block, we compile the new policy filter `toInstall`. Because `policy.allowMmapExec` is `false` (the new policy also blocks it), the constructed `toInstall` has `allowMmapExec = false`. When `BpfFilter.build(arch, toInstall)` compiles the filter, it unconditionally adds the complete `mmap`/`mprotect` argument-inspection BPF instruction block.
+As a result, both the existing filter and the new stacked filter contain identical redundant BPF instruction sets. Each subsequent stacked filter adds yet another copy, bloating the kernel's BPF filter list, increasing runtime overhead on every `mmap`/`mprotect`/`clone`/`prctl` call, and wasting the 32-filter depth limit budget.
+**Cascading Risk Potential:** Medium performance and kernel instruction memory footprint degradation on highly nested or stacked sandbox setups.
+**Needed:** In `FilterInstallationPlanner.calculateNewFilter`, when constructing `toInstall` in the `else` branch of `policy.defaultAction == ACT_ALLOW`:
+If `state.currentlyAllowsMmapExec` is `false`, call `builder.allowMmapExec()` so that the new filter skips compilation of the redundant inspection block. Apply the same optimization for `allowNonThreadClone` and `allowUnsafePrctl`.
+
+### 🔴 [Severity: NITPICK]: Design Documentation Drift in Landlock thread-local variable and restrictive method names
+**Target:** `/docs/internals/containment_design.md`
+**Failure Hypothesis:** The design documentation has drifted from the actual source code implementation regarding thread-local tracking variables and velocity/restricting method names, which causes confusion for developers.
+**Context & Proof:** In `containment_design.md §5`:
+1. The documentation states that `THREAD_LANDLOCK_APPLIED` is a `ThreadLocal<Boolean>` that ensures rulesets are applied once. In the codebase (`ContainerStateRegistry.kt`), this was refactored to `THREAD_LANDLOCK_APPLIED_READS` and `THREAD_LANDLOCK_APPLIED_WRITES` (which are `ThreadLocal<Set<String>?>`) to support dynamic subset validation during stacked nesting.
+2. The documentation refers to the method `applyProfilingRuleset()` used by the Iterative Profiler. In `Landlock.kt`, this method is actually named `applyRestrictiveBarrier()`.
+**Cascading Risk Potential:** Nitpick / maintainability defect. Misleads developers and increases onboarding friction.
+**Needed:** Update `containment_design.md` to accurately reference `THREAD_LANDLOCK_APPLIED_READS`/`THREAD_LANDLOCK_APPLIED_WRITES` and `applyRestrictiveBarrier()`.
+
+### 🔴 [Severity: HIGH]: Public `PureJavaBpfEngine.install` bypasses Loom Carrier Poisoning safeguards and JIT warmups
+**Target:** `io.mazewall.seccomp.PureJavaBpfEngine` & `io.mazewall.enforcer.ContainedExecutors`
+**Failure Hypothesis:** A client application or direct invocation of the public `PureJavaBpfEngine.install()` or `PureJavaBpfEngine.installOnProcess()` bypasses the critical virtual thread safety guards, JIT warmups, and thread-local state tracking implemented in `ContainedExecutors`.
+**Context & Proof:** In `PureJavaBpfEngine.kt`, the `install` and `installOnProcess` methods are public and implement `SeccompEngine`. Unlike `ContainedExecutors.installOnCurrentThread`, `PureJavaBpfEngine` contains no `checkVirtualThread()` assertion. If a developer or library calls `PureJavaBpfEngine.install()` from within a Loom Virtual Thread, it will successfully execute `prctl(PR_SET_NO_NEW_PRIVS)` and `seccomp(...)` on the underlying OS carrier thread. This causes carrier thread poisoning, permanently restricting all other virtual threads scheduled on it. Furthermore, it completely bypasses the `ContainerStateRegistry` thread-local state updates and `performJitWarmup()`, leading to JIT compiler deadlocks/traps and state inconsistencies during stacked filter installation.
+**Cascading Risk Potential:** High security containment and stability bypass. Bypasses core safety guards, poisoning carrier threads and corrupting subsequent stacked sandboxes.
+**Needed:** Declare `PureJavaBpfEngine` and `SeccompEngine` as `internal` to prevent direct external access. Additionally, add a virtual thread check `if (Thread.currentThread().isVirtual) { ... }` inside `PureJavaBpfEngine.installInternal` as a defense-in-depth safety measure.
+
+### 🔴 [Severity: HIGH]: Excessive Landlock directory capability leak on unlinked/deleted files ending in ` (deleted)`
+**Target:** `io.mazewall.profiler.engine.ProfilerDaemon` (specifically `resolveFdPath`) and `io.mazewall.landlock.Landlock.kt` (specifically `addRule`)
+**Failure Hypothesis:** When a profiled application accesses a temporary file and deletes it while keeping its file descriptor open, Linux procfs `/proc/<pid>/fd/<fd>` symlinks resolve with ` (deleted)` appended to the path. The profiler logs this path, and when applied in production, Landlock's fallback mechanism opens the parent directory, exposing the entire directory to the sandbox.
+**Context & Proof:** If an application opens a file (e.g. `/var/log/app/tmp_file`) and unlinks it immediately, `ProfilerDaemon.resolveFdPath` calls `readlink` on `/proc/$pid/fd/$fd`, which returns `/var/log/app/tmp_file (deleted)`. The profiler records this exact string in the SBoB JSON. In production, `Landlock.addRule()` tries to open `/var/log/app/tmp_file (deleted)`. Since that path does not exist, `handleInitialOpenFailure` catches the `ENOENT` error and falls back to the parent directory by calling `File("/var/log/app/tmp_file (deleted)").parent ?: "/"`, which resolves to `/var/log/app`. Landlock then opens `/var/log/app` and adds a rule allowing full access. This leaks access to all sibling files and folders inside that directory.
+**Cascading Risk Potential:** High security privilege leak. An attacker can access, corrupt, or delete other sensitive logs and files in the parent directory, breaching the single-file isolation model.
+**Needed:** In `ProfilerDaemon.kt`, strip any trailing `" (deleted)"` suffix from resolved paths before returning them. Additionally, in `Landlock.kt`'s `handleInitialOpenFailure`, ignore fallback attempts for paths ending with `" (deleted)"` or validate if the path string represents a deleted file marker before reverting to the parent.
+
+### 🔴 [Severity: HIGH]: `ProfilerDaemon` memory-reading fails to resolve paths on page boundaries or large strings
+**Target:** `io.mazewall.profiler.engine.ProfilerDaemon` (specifically `readStringFromProcess`)
+**Failure Hypothesis:** If `process_vm_readv` reads a path string that does not contain a null terminator in the returned buffer (due to page boundaries or large lengths), the profiler returns `null`, breaking rule compilation.
+**Context & Proof:** In `ProfilerDaemon.kt`'s `readStringFromProcess()`, a loop searches `localBuf` for `0.toByte()`. If `process_vm_readv` performs a partial read (e.g. at the end of a mapped page boundary) or if the path is longer than `maxLen` (4096 bytes) and no null terminator is present, the index loop reaches `bytesRead`. The condition `len < bytesRead` then evaluates to `false`, causing the method to return `null`. The profiler thus fails to capture the path, producing empty rulesets that crash in production.
+**Cascading Risk Potential:** High usability and stability failure. Breaks path resolution on complex memory allocations, leading to broken policies and production crashes.
+**Needed:** If `len == bytesRead`, copy and return the best-effort string `localBuf.copyToString(bytesRead)` rather than returning `null`. Alternatively, increase the buffer size and perform a secondary read if a null terminator is not found.
+
+### 🔴 [Severity: HIGH]: `installOnProcess` process-wide seccomp synchronization (TSYNC) fails deterministically on standard JVMs
+**Target:** `io.mazewall.seccomp.PureJavaBpfEngine`
+**Failure Hypothesis:** Process-wide seccomp installation via `TSYNC` requires `no_new_privs` to be enabled on all threads in the thread group. In standard JVMs, background threads are spawned before `no_new_privs` is set, causing TSYNC to fail with `EACCES` under non-root configurations. The current exception error message is also highly misleading.
+**Context & Proof:** The Linux kernel requires `no_new_privs` to be set on all sibling threads in the thread group for `SECCOMP_FILTER_FLAG_TSYNC` to succeed. When the JVM starts, GC threads, JIT threads, and VM helper threads are spawned at startup. In `PureJavaBpfEngine.installInternal`, the main thread calls `setNoNewPrivs()`, which only sets the flag on the *calling* thread. Pre-existing background threads do not get it. When `TSYNC` is attempted, the kernel returns `EACCES` (-13). The method catches this failure and throws an exception claiming "Your kernel may be too old to support SECCOMP_FILTER_FLAG_TSYNC", which is factually incorrect and misleads operators.
+**Cascading Risk Potential:** High stability and deployment failure. Process-wide seccomp fails to install out-of-the-box on local developer setups or standard servers unless pre-set via an OCI container runtime or launcher wrapper.
+**Needed:** Update the exception message in `PureJavaBpfEngine.kt` to clearly state that `TSYNC` failed due to missing `no_new_privs` on sibling threads, advising operators to run with OCI `allowPrivilegeEscalation: false` or pre-set `no_new_privs` using an external launcher.
+
+```
+
