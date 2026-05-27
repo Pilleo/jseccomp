@@ -28,11 +28,10 @@ However, `PURE_COMPUTE` does **not** block `Syscall.IOCTL` (likely because stand
 **Context:** In applyRestrictiveBarrier(), the calls to LinuxNative.prctl(PR_SET_NO_NEW_PRIVS) and LinuxNative.syscall(LANDLOCK_RESTRICT_SELF_NR) return a SyscallResult. The method ignores the returnValue (and errno) of these calls. If the restrictive barrier fails to apply (e.g., due to Landlock configuration limits or permission errors), the profiler will proceed with no restrictions, bypassing the intended restrictive barrier entirely.
 **Needed:** Add checks for returnValue < 0 for both prctl and syscall, throwing an IllegalStateException on failure to adhere to the fail-closed doctrine, matching the logic in enforceRuleset().
 
-### 🟢 [RESOLVED] [Severity: CRITICAL]: Whitelist policies bypass deduplication, exhausting 32-filter limit on thread pools
+### 🔴 [Severity: CRITICAL]: Whitelist policies bypass deduplication, exhausting 32-filter limit on thread pools
 **Target:** /enforcer/src/main/kotlin/io/mazewall/enforcer/FilterInstallationPlanner.kt
 **Context:** calculateNewFilter hardcodes needsNewFilter = true if policy.defaultAction != SeccompAction.ACT_ALLOW. It only calculates newBlocks for ACT_ALLOW (blacklist) policies. If a thread pool is wrapped with a strict whitelist policy (e.g., PURE_COMPUTE), every single task execution will install a redundant copy of the exact same filter. After 32 tasks on the same worker thread, the kernel's MAX_SECCOMP_FILTERS limit is hit and the JVM throws an IllegalStateException, crashing the worker.
-**Fix:** Modified `ContainerStateRegistry` and `ContainedExecutors` to track currently allowed/blocked system calls dynamically using `Map<Syscall, SeccompAction>` and a default seccomp action state. Refactored `FilterInstallationPlanner.calculateNewFilter` to compute the actual delta/intersection of syscall permissions for both whitelist (ACT_KILL/ACT_TRAP default) and blacklist (ACT_ALLOW default) policies. If a new stacked policy does not reduce the allowed set or introduce higher-priority restrictions, it is skipped (`needsNewFilter = false`), preventing seccomp filter limit exhaustion.
-**Verification:** Added unit tests verifying whitelist deduplication, nested stacking with identical policies, and mixed action stacking behavior. Fully verified with `FilterInstallationPlannerTest.kt` and gradle module checks.
+**Needed:** ContainerState must track whitelist state (e.g. currentlyAllowedSyscalls and currentDefaultAction). When stacking, calculate the intersection of allowed syscalls. If a new whitelist policy does not reduce the currentlyAllowedSyscalls (i.e. it is identical or a superset), needsNewFilter should be false.
 
 ### 🔴 [Severity: MEDIUM]: Excessive container privileges and deprecated Audit architecture in compose.yml files
 **Target:** /infra/dev/compose.yml and /demo/vulnerable-app/compose.yml
@@ -70,7 +69,6 @@ However, `PURE_COMPUTE` does **not** block `Syscall.IOCTL` (likely because stand
 **Vulnerability Chain Potential:** Critical. Completely invalidates the security boundary of Tier 2 `wrap()` for any workload that isn't strictly synchronous and single-threaded. Malicious libraries can easily initiate SSRF or read files by simply hopping threads.
 **Needed:** 
 1. Document this fundamental architectural bypass clearly in `SECURITY_CONSIDERATIONS.md` alongside the ACE pivot. Emphasize that Tier 2 containment only restricts synchronous execution on the current thread.
-2. Consider implementing a Java `SecurityManager` (deprecated but functional in Java 22 if enabled) or a custom JVMTI agent to intercept `Thread` creation and `ForkJoinPool` submissions from contained threads, OR strongly advise running untrusted code in a custom Java `ThreadGroup` where thread creation is blocked.
 
 ### 🔴 [Severity: HIGH]: Silent failure of Profiler path resolution under Yama `ptrace_scope` > 1 leads to catastrophic Landlock enforcement failures
 **Target:** `io.mazewall.profiler.engine.ProfilerDaemon`
@@ -114,13 +112,12 @@ When the daemon notifies the listener that a child thread with TID `pid` made a 
 **Cascading Risk Potential:** Medium diagnostic and maintainability defect. Misleads developers and increases debugging complexity by reporting false/uncorrect stack frames for sandboxed workload execution.
 **Needed:** Remove the fallback to `workerThreadProvider()` when capturing stack traces in the listener thread. If the TID is not found in `threadRegistry`, record `null` or a sentinel string (e.g., `["<untracked_descendant_thread_stack_trace>"]`) to maintain strict data integrity.
 
-### 🟢 [RESOLVED] [Severity: HIGH]: Nested Seccomp Stacking Security Containment Bypass on already-blocked Syscalls
+### 🔴 [Severity: HIGH]: Nested Seccomp Stacking Security Containment Bypass on already-blocked Syscalls
 **Target:** `io.mazewall.enforcer.FilterInstallationPlanner`
 **Failure Hypothesis:** When a user stacked policy contains a more restrictive or more severe action for a syscall that is already blocked by a previously applied policy, the planner incorrectly skips the filter installation under a false optimization path because it only checks if the syscall is "blocked".
 **Context & Proof:** `FilterInstallationPlanner.calculateNewFilter` calculates `newBlocks = blockedInPolicy - state.currentlyBlocked`. Any syscall with an action priority > ACT_ALLOW is in `blockedInPolicy`. If a syscall (e.g. `EXECVE`) was blocked by Policy 1 with a lenient action (like `ACT_LOG`), `currentlyBlocked` already contains it. When Policy 2 is nestedly stacked to block `EXECVE` with a severe action (like `ACT_KILL_PROCESS`), `newBlocks` evaluates to empty because it was already blocked. As a result, the optimizer sets `needsNewFilter` to `false`, silently skipping the installation of the second filter. The thread continues executing with only the weaker `ACT_LOG` filter in place, completely bypassing the intended `ACT_KILL_PROCESS` containment.
 **Cascading Risk Potential:** High security containment bypass. A stacked policy that is intended to restrict thread capabilities further is ignored, causing RCE/compromised code to execute under weaker sandbox rules than designed.
-**Fix:** Redesigned the container state registry to track full maps of `Syscall` to `SeccompAction`. Refactored `FilterInstallationPlanner.calculateNewFilter` to recognize priority escalation. If a stacked policy defines a more restrictive action (higher seccomp priority) for a syscall that is already blocked/logged, `calculateNewFilter` correctly registers a delta and sets `needsNewFilter = true`.
-**Verification:** Added precise TDD unit tests simulating stacked policy progression (`ACT_LOG` -> `ACT_TRAP` -> `ACT_KILL_PROCESS`) to verify priority-escalating stack evaluation. All tests pass successfully.
+**Needed:** Modify `currentlyBlocked` to track `Map<Syscall, SeccompAction>` rather than `Set<Syscall>`. In `calculateNewFilter`, `newBlocks` should include any syscall in the new policy that maps to a *higher priority (more restrictive) action* than the currently installed action for that syscall.
 
 ### 🔴 [Severity: HIGH]: Excessive Landlock Directory Capability Leak via Parent Fallback on Non-Existent Path Rules
 **Target:** `io.mazewall.landlock.Landlock.kt` (specifically `addRule`)
@@ -299,35 +296,18 @@ Furthermore, in standard dynamic enterprise environments (like servlet container
 **Cascading Risk Potential:** High stability and reliability failure. Causes arbitrary, random JVM deadlocks during startup/GC cycles when running the profiler.
 **Needed:** Wrap the `recvmsg` downcall in a loop in `recvDescriptor`. If `returnValue < 0` and `errno == 4` (EINTR), retry the `recvmsg` call. Only return `null` if the error is fatal (non-EINTR).
 
-### 🔴 [Severity: HIGH]: Metaspace & ClassLoader Memory Leak via Permanent ThreadLocal Storage of `Syscall` Enum in Recycled Thread Pools
-**Target:** `/enforcer/src/main/kotlin/io/mazewall/enforcer/ContainerStateRegistry.kt`
-**Failure Hypothesis:** When thread-scoped sandboxing is applied on recycled worker threads (like `ForkJoinPool` or `ThreadPoolExecutor`), the security state is registered in `ThreadLocal` variables defined in `ContainerStateRegistry`. Storing the application-defined `Syscall` enum in `THREAD_BLOCKED` (which is a `ThreadLocal<Set<Syscall>>`) creates a permanent reference chain to the application's `ClassLoader`. If the application is redeployed in a dynamic server/web container, this strong reference prevents the application's ClassLoader from being garbage-collected, leading to fatal metaspace/heap exhaustion.
-**Context & Proof:** In `ContainerStateRegistry.kt`:
-```kotlin
-val THREAD_BLOCKED = ThreadLocal.withInitial<Set<Syscall>> { emptySet() }
+### 🔴 [Severity: HIGH]: `installOnProcess` process-wide seccomp synchronization (TSYNC) fails deterministically on standard JVMs
+**Target:** `io.mazewall.seccomp.PureJavaBpfEngine`
+**Failure Hypothesis:** Process-wide seccomp installation via `TSYNC` requires `no_new_privs` to be enabled on all threads in the thread group. In standard JVMs, background threads are spawned before `no_new_privs` is set, causing TSYNC to fail with `EACCES` under non-root configurations. The current exception error message is also highly misleading.
+**Context & Proof:** The Linux kernel requires `no_new_privs` to be set on all sibling threads in the thread group for `SECCOMP_FILTER_FLAG_TSYNC` to succeed. When the JVM starts, GC threads, JIT threads, and VM helper threads are spawned at startup. In `PureJavaBpfEngine.installInternal`, the main thread calls `setNoNewPrivs()`, which only sets the flag on the *calling* thread. Pre-existing background threads do not get it. When `TSYNC` is attempted, the kernel returns `EACCES` (-13). The method catches this failure and throws an exception claiming "Your kernel may be too old to support SECCOMP_FILTER_FLAG_TSYNC", which is factually incorrect and misleads operators.
+**Cascading Risk Potential:** High stability and deployment failure. Process-wide seccomp fails to install out-of-the-box on local developer setups or standard servers unless pre-set via an OCI container runtime or launcher wrapper.
+**Needed:** Update the exception message in `PureJavaBpfEngine.kt` to clearly state that `TSYNC` failed due to missing `no_new_privs` on sibling threads, advising operators to run with OCI `allowPrivilegeEscalation: false` or pre-set `no_new_privs` using an external launcher.
+### 🔴 [Severity: CRITICAL]: Seccomp Filter Bypass via `pkey_mprotect`
+**Target:** `io.mazewall.BpfFilter`, `io.mazewall.Syscall`, `io.mazewall.seccomp.MmapProtectionTest`
+**Failure Hypothesis:** The BPF filter correctly intercepts `mprotect` and `mmap` calls to prevent `PROT_EXEC` via argument inspection (checking `args[2]`). However, it misses modern Linux memory protection variants, specifically `pkey_mprotect` (`SYS_pkey_mprotect` / 329 on AMD64). Since this syscall is not explicitly hooked for argument inspection and may be allowed under loose policies or fallback behavior, an attacker who can call `pkey_mprotect` can mark memory as executable (`PROT_EXEC`), completely bypassing the Seccomp `NO_EXEC` protections designed to stop dynamic shellcode generation.
+**Context & Proof:** `pkey_mprotect` takes the same `prot` parameter as `mprotect` but also takes a `pkey`. The current `BpfFilter.kt` only restricts `arch.mmap` and `arch.mprotect`. In `Syscall.kt`, there is no representation of `pkey_mprotect`. Thus, if `pkey_mprotect` is not explicitly blocked or handled via argument inspection like `mprotect`, it will fall back to the default action. Under `Policy.NO_EXEC`, `pkey_mprotect` isn't explicitly blocked, so it would fall to `ACT_ALLOW`, allowing unrestricted `PROT_EXEC` usage. This has been proven via `bypass_pkey.c` where `mprotect` with `PROT_EXEC` is blocked but `pkey_mprotect` with `PROT_EXEC` succeeds in bypassing.
+**Vulnerability Chain Potential:** Very high. If an attacker achieves arbitrary code execution (or memory corruption) they can just use `pkey_mprotect` instead of `mprotect` to bypass JIT / dynamic shellcode protections in the sandbox.
+**Needed:** Add `pkey_mprotect` to `Syscall`, map its number per architecture, and in `BpfFilter.buildFromActions` add it to the same argument inspection block that currently restricts `PROT_EXEC` in `mprotect` and `mmap`.
+**Failure Hypothesis:** A thread pool processing multiple tasks with a whitelist policy (where `defaultAction != ACT_ALLOW`) will unconditionally attach a new, redundant Seccomp BPF filter on every task execution, eventually crashing the thread when the filter limit is reached.
 ```
-Each `Syscall` is an entry in the `Syscall` enum class loaded by the application ClassLoader. When `updateThreadState` is called:
-```kotlin
-ContainerStateRegistry.THREAD_BLOCKED.set(ContainerStateRegistry.THREAD_BLOCKED.get() + newBlocks)
-```
-The thread's `ThreadLocalMap` permanently holds a strong reference to the `Set<Syscall>` value. Since the system threads are never terminated, the `Syscall` enum and its ClassLoader are leaked permanently after the application is undeployed.
-To make the state-tracking completely ClassLoader-safe and prevent any leaks, the `ThreadLocal` state must be stored using only JDK bootstrap-loaded classes or primitives.
-**Cascading Risk Potential:** High. Deterministically causes JVM ClassLoader leaks and memory exhaustion on redeployment in standard servlet or enterprise containers.
-**Needed:** Refactor `ContainerStateRegistry.THREAD_BLOCKED` to store `java.util.BitSet` (which uses only primitives) or `Long` bitmasks instead of `Set<Syscall>`. Map each `Syscall` to its ordinal number (`Syscall.ordinal`) to read/write the state safely without holding references to application-defined enum types.
-
-### 🔴 [Severity: CRITICAL]: JVM Deadlock and Starvation under Whitelist Policies due to omitted `MMAP` and `MPROTECT` whitelisting
-**Target:** `/enforcer/src/main/kotlin/io/mazewall/BpfFilter.kt` (specifically `jvmCriticalNrs`)
-**Failure Hypothesis:** When a developer compiles a strict whitelist seccomp policy (e.g. from an SBoB or custom whitelist preset where `defaultAction = ACT_ERRNO`), any system call not explicitly allowed is blocked. If the policy does not explicitly list `MMAP` and `MPROTECT` (e.g. because they were not triggered during a short profiling run), the compiled seccomp filter will block them. While `BpfFilter` performs argument inspection on `mmap`/`mprotect` when `allowMmapExec = false`, it only intercepts `PROT_EXEC` mappings. For non-executable mappings, it delegates to `addInspectionResult(nr)`, which returns the policy's action (e.g. `ACT_ERRNO` / `EPERM`). Consequently, any standard non-executable `mmap` or `mprotect` call made by the thread (such as JVM memory commits, thread stack allocations, or GC barrier protections) will fail with `EPERM`, causing immediate JVM thread crashes or deadlocks during subsequent garbage collection or memory allocations.
-**Context & Proof:** In `BpfFilter.kt`, the Special Syscall Argument Checks for `mmap` and `mprotect` do:
-```kotlin
-filters.add(SockFilter((BPF_JMP or BPF_JSET or BPF_K).toShort(), 0, 4, nr))
-filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_ARGS2_OFFSET))
-filters.add(SockFilter((BPF_JMP or BPF_JSET or BPF_K).toShort(), 0, 1, 0x04)) // PROT_EXEC
-val denyNative = resolveNativeAction(SeccompAction.ACT_ERRNO, profilingMode)
-filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyNative))
-addInspectionResult(nr)
-```
-If `args[2] & 0x04` is zero (non-executable mapping), it jumps to `addInspectionResult(nr)`. In a whitelist policy where `defaultAction = ACT_ERRNO` and `Syscall.MMAP` is not in `syscallActions`, `addInspectionResult(nr)` will emit a `BPF_RET` of `denyNative` (i.e. `EPERM`). This blocks all non-executable `mmap`/`mprotect` calls, making the sandbox extremely unstable and causing catastrophic JVM crashes as soon as the thread triggers standard GC or stack management operations.
-**Cascading Risk Potential:** Critical. Causes deterministic, non-obvious production crashes and deadlocks during GC Safepoints or JVM memory commits under whitelist sandboxes.
-**Needed:** Add `Syscall.MMAP.numberFor(arch)` and `Syscall.MPROTECT.numberFor(arch)` to `jvmCriticalNrs` in `BpfFilter.kt` so they are always allowed for non-executable mappings (their executable mappings are already safely blocked by the argument inspection logic).
 

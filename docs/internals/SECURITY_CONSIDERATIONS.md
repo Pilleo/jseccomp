@@ -18,12 +18,41 @@ Thread-level containment (e.g., wrapping an `ExecutorService` with restrictive p
 
 Because the JVM runs within a single Linux process, **all JVM threads share the same physical address space, virtual memory maps, and heap.**
 
-If an attacker achieves native code execution (e.g., via a buffer overflow in a native JNI dependency or using raw Java FFM/`Unsafe` pointer manipulation) inside a sandboxed worker thread, they cannot make blocked system calls *on that thread*. However, they can compromise the rest of the JVM process by:
-1. **Memory Corruption:** Corrupting the stacks or memory blocks of unrestricted parent or sister threads running in the same process space.
-2. **Dynamic Thread Injection / Task Poisoning:** Accessing the JVM's internal structures (like the `ForkJoinPool.commonPool()` queue or JVM scheduler queues) directly in memory using pointer arithmetic, and injecting malicious tasks to be executed by unrestricted threads.
-3. **Internal JVM Structure Hijacking:** Overwriting JVM function tables, class metadata, or garbage collector structures to trigger code execution on unrestricted helper threads.
+To understand the exact security boundaries of Tier 2, we must draw a hard line between **Untrusted Data** and **Untrusted Code**:
 
-**The Architectural Floor:** Therefore, thread-level seccomp must **never** be treated as a strong VM boundary (like a Podman container or gVisor sandbox). It is a highly effective, low-overhead shield that prevents contained libraries from making direct system calls (e.g. initiating SSRF or spawning shells), but process-wide `NO_EXEC` (Tier 1) remains mandatory to prevent the attacker from escalating an ACE pivot.
+#### What Tier 2 Stops: Untrusted Data
+Tier 2 containment effectively isolates trusted code processing malicious data, as well as vulnerabilities in native libraries.
+1.  **Data-Oriented Attacks (SSRF, XXE):** If an attacker submits a malicious XML payload (XXE) designed to make your trusted parser read `/etc/passwd` synchronously, Seccomp will intercept and block the syscall on that thread.
+2.  **Native Dependency Exploits (JNI/FFM):** If a native C/C++ library (like ImageMagick) has a buffer overflow that tries to spawn a shell or open a socket, it will be blocked. Native code issues syscalls directly on the current thread and cannot dynamically hop to JVM thread pools.
+
+#### What Tier 2 CANNOT Stop: Untrusted Code (The `CompletableFuture` Bypass)
+Tier 2 provides **zero protection** against an attacker capable of executing arbitrary Java logic (e.g., via Insecure Deserialization RCE, SpEL/OGNL injection, or malicious plugin uploads). 
+
+Without the deprecated Java Security Manager (JSM), in-process isolation of untrusted Java code is fundamentally broken. If an attacker can execute Java logic inside a Tier 2 contained thread, they can execute a trivial 1-line bypass using standard Java concurrency APIs:
+
+```java
+// Bypasses Tier 2 thread-scoped containment instantly
+CompletableFuture.runAsync(() -> Runtime.getRuntime().exec("curl ..."));
+```
+
+**The Mechanics:** Standard concurrency APIs (`CompletableFuture`, `ForkJoinPool`, `Thread.startVirtualThread`) delegate execution to pre-existing OS threads (like `ForkJoinPool.commonPool()`) or spawn new uncontained OS threads. Because these destination threads lack the Seccomp filter of the contained worker thread, the payload executes completely unrestricted.
+
+#### The ACE Pivot
+Even without standard concurrency APIs, if an attacker achieves native code execution (e.g., via a buffer overflow in a native JNI dependency or using raw Java FFM/`Unsafe` pointer manipulation) inside a sandboxed worker thread, they can compromise the rest of the JVM process by:
+1. **Memory Corruption:** Corrupting the stacks or memory blocks of unrestricted parent or sister threads running in the same process space.
+2. **Internal JVM Structure Hijacking:** Overwriting JVM function tables, class metadata, or garbage collector structures to trigger code execution on unrestricted helper threads.
+
+**The Architectural Floor:** Therefore, thread-level seccomp must **never** be treated as a strong VM boundary (like a Podman container or gVisor sandbox). It is a highly effective, low-overhead shield that prevents contained libraries from making direct system calls, but process-wide `NO_EXEC` (Tier 1) remains mandatory to prevent the attacker from escalating an ACE or concurrency pivot.
+
+#### The GraalVM Advantage: Beyond Startup Speed
+While startup speed makes sub-process isolation (Tier 1) viable, GraalVM Native Image fundamentally hardens **Tier 2 (Thread-Scoped)** security in ways a standard JIT-based JVM cannot:
+
+1.  **Neutralizing the "Trivial" Bypass:** The thread-hopping bypass is trivial in HotSpot because an attacker can dynamically inject code (via reflection, deserialization, or script engines) that calls `CompletableFuture.runAsync`. In a GraalVM Native Image, **dynamic code execution is physically impossible**. There is no JIT to compile new code and no classloader to load it. Unless the "malicious" thread-hopping logic was explicitly compiled into the binary, the attacker cannot execute it.
+2.  **Eliminating the JIT Attack Surface:** A standard JVM requires `mmap(PROT_EXEC)` and `mprotect` to function, as the JIT must constantly write new machine code. This creates a permanent "hole" in the sandbox. A GraalVM binary is **AOT-compiled and static**. It can run under a policy that **completely blocks all executable memory modifications**, making binary shellcode injection or JIT-spraying attacks impossible.
+3.  **Static Reachability as a Sandbox Backstop:** GraalVM's "Closed-World" analysis proves at compile-time exactly which methods are reachable. If your application doesn't use `ProcessBuilder` or `java.net.Socket`, those code paths are **deleted** from the final binary. This provides a mathematical guarantee that even a compromised thread cannot find the gadgets required to perform certain sensitive actions.
+4.  **Hardware-Level CFI:** Because native images are static ELF binaries, they are compatible with hardware-level **Control Flow Integrity (CFI)** features like Intel CET or ARM BTI. These prevent ROP/JOP gadget chains from being executed, which is much harder to enforce in a dynamic JIT environment where code is constantly moving.
+
+**Summary:** In a GraalVM environment, Tier 2 (Thread-Scoped) limits are significantly harder to bypass because the attacker lacks the dynamic tools (JIT, Reflection, Classloading) required to pivot or escalate privileges.
 
 ---
 

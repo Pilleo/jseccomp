@@ -144,6 +144,16 @@ These flags are intended for profiling builds, not production. They increase bin
 > **Stability caveat:** GraalVM native-image compiler flags (`-H:*`) are not stable public API — they have been renamed or removed between versions. Before relying on these flags, verify their availability against your specific GraalVM version's output of `native-image --expert-options-all`. Do not hardcode them into production CI without a version pin.
 </details>
 
+### W^X: Why JIT is the Enemy of a Hardened Sandbox
+
+Beyond making behavioral profiling cleaner, GraalVM's lack of a JIT compiler fundamentally hardens the enforcement side of the sandbox.
+
+To function, a standard JVM **must** translate Java bytecode into machine code at runtime and write that code into memory for execution. This means the JVM requires the OS to grant it `mmap` or `mprotect` system calls with the `PROT_EXEC` (executable) flag.
+
+This is a structural security flaw. If an attacker achieves Arbitrary Code Execution (ACE) via a buffer overflow in a native JNI library, they can use the exact same syscalls the JIT compiler uses to allocate executable memory, inject malicious C shellcode, and run it. **You cannot block `mprotect(PROT_EXEC)` in Seccomp on a JIT JVM**, because the JVM will crash the moment it tries to optimize a hot loop.
+
+**GraalVM Native Image eliminates this attack surface.** Because the binary is AOT-compiled, it never needs to generate new machine code at runtime. You can apply an ultra-strict Seccomp policy that permanently enforces **W^X (Write XOR Execute)** at the OS level by blocking `PROT_EXEC`. Even if an attacker compromises the process, the Linux kernel will physically prevent them from injecting and running new shellcode.
+
 ### Control Flow Integrity
 
 GraalVM AOT compilation *positions* native Image binaries to be better candidates for hardware CFI features — **Intel CET (Shadow Stacks, IBT)** and **ARM BTI (Branch Target Identification)** — compared to JIT-compiled JVMs. The JIT compiler's requirement to frequently modify executable memory conflicts fundamentally with the kernel's ability to enforce control flow integrity at that memory; a static binary has no such constraint.
