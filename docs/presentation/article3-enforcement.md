@@ -43,6 +43,25 @@ Seccomp and Landlock are **self-restriction primitives**. Once the `NoNewPrivile
 
 ---
 
+## Comparing Sandboxing Paradigms: gVisor, NsJail, Bubblewrap, and Mazewall
+
+When sandboxing Linux processes, developers typically choose from three standard process-wrapping or container-virtualization tools:
+
+1.  **gVisor (Application Kernel):** Written in Go, gVisor virtualizes the Linux system call interface by running a user-space kernel (the **Sentry**) that intercepts syscalls (via `ptrace` or KVM) and handles them in user-space. This provides a strong host-kernel boundary but introduces significant performance overhead, particularly for system-call-heavy workloads like the JVM.
+2.  **NsJail (Process Isolation Wrapper):** Developed by Google, NsJail wraps process execution using namespaces (user, mount, network, PID, IPC), cgroups, and classic Seccomp-BPF filters. It is designed to run arbitrary, untrusted command-line binaries securely.
+3.  **Bubblewrap (Unprivileged Sandbox Launcher):** A low-level sandbox launcher developed for Flatpak. It uses unprivileged user namespaces to build custom, isolated mount structures (bind mounts) without requiring root privileges.
+
+All three of these tools are **out-of-process, process-wrapping sandboxes**. They isolate the *entire process* from the outside.
+
+### Why Out-of-Process Wrappers fall short for in-process JVM workloads:
+*   **Broad Policy Bloat:** If you run the JVM inside an external wrapper like `nsjail`, your sandbox policy must grant permission for every operation the JVM needs—including JIT compilation (`mprotect(PROT_EXEC)`), GC memory allocation, classloading, and VM thread coordination. This makes the overall policy extremely broad.
+*   **In-Process Thread Scoping:** A process wrapper cannot distinguish between a thread parsing untrusted XML and a thread performing internal JVM metrics collection or garbage collection.
+*   **Namespace Threading Hazards:** Linux namespaces (the core tool of NsJail and Bubblewrap) are generally process-wide. Applying a mount or network namespace thread-locally inside a shared-memory runtime like the JVM is practically impossible or causes severe stability failures (e.g., losing access to loaded classes or classloaders).
+
+**mazewall** solves this by operating **in-process** using **thread-scoped Seccomp-BPF** and **Landlock LSM**. This allows us to apply strict sandboxing policies (like `PURE_COMPUTE`) directly to the application worker threads while letting JVM coordination threads run unconstrained.
+
+---
+
 ## Process-Wide vs. Thread-Scoped Sandboxing
 
 The standard approach to container sandboxing is a global seccomp profile applied to the entire Linux process (such as the default Podman/Docker seccomp JSON). While this blocks highly dangerous operations like kernel module loading, it is a blunt instrument. Because a host-level Seccomp filter must permit the system calls required by the JVM's runtime infrastructure (such as file reads, network connections, and JIT compilation stubs), every thread within the JVM process shares the same broad system call permission surface. A low-privilege task thread has the exact same kernel-level permissions as the main administrative acceptor thread.

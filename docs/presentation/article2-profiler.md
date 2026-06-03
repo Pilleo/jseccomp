@@ -31,38 +31,6 @@ Note on `io_uring` profiling: there is no clean unprivileged solution here. Priv
 
 ---
 
-## Comparing Sandboxing Paradigms: gVisor, NsJail, Bubblewrap, and Mazewall
-
-When sandboxing Linux processes, developers typically choose from three standard process-wrapping or container-virtualization tools:
-
-1.  **gVisor (Application Kernel):** Written in Go, gVisor virtualizes the Linux system call interface by running a user-space kernel (the **Sentry**) that intercepts syscalls (via `ptrace` or KVM) and handles them in user-space. This provides a strong host-kernel boundary but introduces significant performance overhead, particularly for system-call-heavy workloads like the JVM.
-2.  **NsJail (Process Isolation Wrapper):** Developed by Google, NsJail wraps process execution using namespaces (user, mount, network, PID, IPC), cgroups, and classic Seccomp-BPF filters. It is designed to run arbitrary, untrusted command-line binaries securely.
-3.  **Bubblewrap (Unprivileged Sandbox Launcher):** A low-level sandbox launcher developed for Flatpak. It uses unprivileged user namespaces to build custom, isolated mount structures (bind mounts) without requiring root privileges.
-
-All three of these tools are **out-of-process, process-wrapping sandboxes**. They isolate the *entire process* from the outside.
-
-### Why Out-of-Process Wrappers fall short for in-process JVM workloads:
-*   **Broad Policy Bloat:** If you run the JVM inside an external wrapper like `nsjail`, your sandbox policy must grant permission for every operation the JVM needs—including JIT compilation (`mprotect(PROT_EXEC)`), GC memory allocation, classloading, and VM thread coordination. This makes the overall policy extremely broad.
-*   **In-Process Thread Scoping:** A process wrapper cannot distinguish between a thread parsing untrusted XML and a thread performing internal JVM metrics collection or garbage collection.
-*   **Namespace Threading Hazards:** Linux namespaces (the core tool of NsJail and Bubblewrap) are generally process-wide. Applying a mount or network namespace thread-locally inside a shared-memory runtime like the JVM is practically impossible or causes severe stability failures (e.g., losing access to loaded classes or classloaders).
-
-**mazewall** solves this by operating **in-process** using **thread-scoped Seccomp-BPF** and **Landlock LSM**. This allows us to apply strict sandboxing policies (like `PURE_COMPUTE`) directly to the application worker threads while letting JVM coordination threads run unconstrained.
-
----
-
-## The Landlock TSYNC Limitation on LTS Kernels
-
-While `mazewall`'s thread-scoped containment provides granular isolation, applying process-wide filesystem sandbox rules from within the JVM faces a critical kernel-level hurdle: **Landlock Multi-Thread Synchronization (TSYNC)**.
-
-*   **Seccomp TSYNC:** The Linux kernel natively supports `SECCOMP_FILTER_FLAG_TSYNC` (since Linux 3.17). If we call process-wide seccomp installation, the kernel atomically applies the filters to all existing sibling threads (provided `no_new_privs` is pre-enabled on all of them, e.g. via OCI configuration).
-*   **Landlock TSYNC:** Landlock domains are historically strictly thread-local. Sibling synchronization (`LANDLOCK_RESTRICT_SELF_TSYNC`) was only introduced in **Landlock ABI v8 (Linux 7.0)**. Most standard production and developer laptops run older LTS kernels (e.g., 5.15, 6.1, 6.6) where this flag is unavailable.
-
-Consequently, if `mazewall` attempts to restrict the filesystem process-wide dynamically (inside the Java `main()` method) on a kernel < 7.0, the Landlock ruleset **cannot** propagate retroactively to the JVM's already-running system threads (like GC or VM threads). An attacker achieving ACE can pivot to these unrestricted sibling threads to escape the filesystem sandbox.
-
-**The Architectural Mitigation:** To achieve absolute process-wide filesystem sandboxing on LTS kernels, developers must utilize an external wrapper launcher (such as `bubblewrap`, `nsjail`, or a custom C/Rust bootstrap) to apply the Landlock ruleset to the process *before* the JVM starts. When the JVM subsequently boots, all system and compiler threads inherit the sandbox boundaries natively from birth.
-
----
-
 ## Dynamic Profiling: The Developer Workflow
 
 The dynamic profiling workflow in mazewall involves wrapping the target workload in a `Profiler.profile` block, executing integration tests, and capturing the resulting contract.
