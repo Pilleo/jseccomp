@@ -44,6 +44,22 @@ Even without standard concurrency APIs, if an attacker achieves native code exec
 
 **The Architectural Floor:** Therefore, thread-level seccomp must **never** be treated as a strong VM boundary (like a Podman container or gVisor sandbox). It is a highly effective, low-overhead shield that prevents contained libraries from making direct system calls, but process-wide `NO_EXEC` (Tier 1) remains mandatory to prevent the attacker from escalating an ACE or concurrency pivot.
 
+### The Unconstrained Runtime as a Threat Vector & The JIT vs. AOT Security Thesis
+
+Security professionals and systems architects view managed runtimes (like the JVM, V8, or Python) through a distinct threat model: **the runtime itself is a powerful execution engine that, if unconstrained, acts as a force multiplier for an attacker.**
+
+#### 1. The Runtime-as-a-Service (RaaS) Threat
+A standard dynamic runtime is designed to be highly flexible, which requires broad, unrestricted kernel capabilities. It can resolve hostnames, dynamically load code from arbitrary paths, allocate and execute memory, and spawn subprocesses. 
+When an attacker achieves Remote Code Execution (RCE) via a dependency vulnerability, they do not need to inject complex binary shellcode. Instead, they simply instruct the unconstrained runtime to perform actions on their behalf using standard runtime APIs (e.g., calling `ProcessBuilder` or opening network sockets). Because the runtime has no OS-level boundaries, it executes these instructions with the full privileges of the host process. An unconstrained runtime is a highly capable tool built directly into the attacker's target environment.
+
+#### 2. The Security Contrast: JIT vs. AOT Compilation
+The choice of compilation model (Just-In-Time vs. Ahead-Of-Time) establishes the physical limits of the sandbox you can enforce:
+
+*   **JIT (Just-In-Time) Constraints:** A JIT compiler compiles bytecode to native machine instructions at runtime. This forces the OS to run the JVM with a permissive sandbox. The JIT requires memory pages to be toggled between write and execute permissions (`mprotect` with `PROT_EXEC`) and requires unblocking dynamic timing, scheduling, and signal management system calls to handle deoptimization and compilation worker threads. Because these capabilities must remain unblocked, an attacker with native Arbitrary Code Execution (ACE) can leverage the exact same system calls to execute arbitrary shellcode. A JIT runtime is fundamentally dynamic and cannot be locked down to a static capability contract.
+*   **AOT (Ahead-Of-Time) Sandboxing:** AOT compilation (such as GraalVM Native Image) compiles all code to a static binary prior to execution. Because the code is immutable at runtime, the application never needs to allocate or modify executable memory. We can enforce a strict **W^X (Write XOR Execute)** boundary by blocking `PROT_EXEC` entirely in Seccomp. Furthermore, because of the **Closed-World Assumption (CWA)**, all reachable code paths are resolved at compile-time, and dead code (including unused system calls or classes) is completely stripped from the final binary. This allows us to enforce highly restrictive, minimal contracts because the application's capabilities are completely bounded at compilation time, leaving no dynamic compilation "holes" in the sandbox.
+
+---
+
 #### The GraalVM Advantage: Beyond Startup Speed
 While startup speed makes sub-process isolation (Tier 1) viable, GraalVM Native Image fundamentally hardens **Tier 2 (Thread-Scoped)** security in ways a standard JIT-based JVM cannot:
 
