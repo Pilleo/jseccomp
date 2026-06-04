@@ -9,6 +9,13 @@
 
 ---
 
+## Technical Articles
+
+To read the core research and threat model analysis behind `mazewall`, start with our deep-dive article series:
+* [Do You Really Know What Your App Is Doing at Runtime?](docs/presentation/article.md) (Part 1 of the series)
+
+---
+
 ## The Problem
 
 The JVM process security model is binary: every thread in the process shares the same OS-level permissions. A vulnerability in one library exploited on one thread has access to everything the entire process holds — open network sockets, file descriptors, exec permissions. Container-level seccomp profiles (like the OCI default) are applied to the entire process; they cannot distinguish between the trusted framework thread and the worker thread parsing a malicious payload.
