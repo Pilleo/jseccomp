@@ -305,13 +305,13 @@ These areas operate on already-sanitized data or internal state. Applying strict
 
 Relying on developers to remember to sandbox every new XML parser is a failing strategy. The ultimate goal of SBoB enforcement is a static analyzer (like an **ArchUnit test**, an **ErrorProne plugin**, or a custom CI linter) that enforces the Heat Map at compile time.
 
-**How a Vulnerability Linter works:**
-1.  **Dependency Scanning:** The linter flags any class that imports packages from the "Red Zone" (e.g., `import com.fasterxml.jackson.*` or `import javax.xml.*`).
-2.  **Enforcement Rule:** It traces the call graph to ensure that the method invoking the Red Zone library is executed via `ContainedExecutors.wrap(...)` or is annotated with a required policy (e.g., `@Sandboxed(Policy.PURE_COMPUTE)`).
-3.  **CI/CD Failure:** If a developer introduces a new vulnerable dependency to process user uploads without sandboxing it, the build fails:
+**How a Sandboxing Linter Would Work (A Conceptual Design):**
+1.  **Dependency Scanning:** The linter would flag any class that imports packages from the "Red Zone" (e.g., `import com.fasterxml.jackson.*` or `import javax.xml.*`).
+2.  **Enforcement Rule:** It would trace the call graph to ensure that the method invoking the Red Zone library is executed via `ContainedExecutors.wrap(...)` or is annotated with a required policy (e.g., `@Sandboxed(Policy.PURE_COMPUTE)`).
+3.  **CI/CD Failure:** If a developer introduced a new vulnerable dependency to process user uploads without sandboxing it, the build would fail:
     > *"🚨 Vulnerability Linter: `UserUploadParser.java` uses `javax.xml.*` but is not wrapped in a ContainedExecutor. Unprotected high-risk parsing detected."*
 
-This moves thread-scoped sandboxing from a manual chore to an automated, cryptographically verifiable DevSecOps pipeline.
+This would move thread-scoped sandboxing from a manual chore to an automated, cryptographically verifiable DevSecOps pipeline.
 
 ---
 
