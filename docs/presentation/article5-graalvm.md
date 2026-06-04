@@ -46,9 +46,9 @@ This is how the most practical path seems today:
 title: "The 3-Step SBoB Generation Blueprint"
 ---
 flowchart TD
-    Step1[Step 1: Generate Per-Dependency SBoBs<br/>Fuzz & Trace libraries dynamically] --> Step2
-    Step2[Step 2: Dynamic Application Coverage<br/>Integration tests, Chaos inputs, Shadow traffic] --> Step3
-    Step3[Step 3: Merge and Prune Call Graph<br/>Prune theoretical max to actual reachable paths] --> Output([Minimal SBoB Contract])
+    Step1["Step 1: Generate Per-Dependency SBoBs<br/>Fuzz & Trace libraries dynamically"] --> Step2
+    Step2["Step 2: Dynamic Application Coverage<br/>Integration tests, Chaos inputs, Shadow traffic"] --> Step3
+    Step3["Step 3: Merge and Prune Call Graph<br/>Prune theoretical max to actual reachable paths"] --> Output([Minimal SBoB Contract])
 ```
 
 ### Step 1: Generate Per-Dependency SBoBs

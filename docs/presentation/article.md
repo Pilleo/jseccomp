@@ -58,12 +58,12 @@ title: "Boundary Model (Open Field) vs. Contract Model (Runtime Safe-Maze)"
 ---
 graph LR
     subgraph Field ["Boundary Model (Open Field)"]
-        Attacker1((Attacker)) -->|Access Any System Resource| Sys1[Sensitive Files: /etc/passwd]
+        Attacker1((Attacker)) -->|Access Any System Resource| Sys1["Sensitive Files: /etc/passwd"]
         Attacker1 -->|Access Any Process| Shell1[System Shell]
     end
 
     subgraph Maze ["Contract Model (Runtime Maze)"]
-        Attacker2((Attacker)) -.->|Blocked by Landlock| Sys2[Sensitive Files: /etc/passwd]
+        Attacker2((Attacker)) -.->|Blocked by Landlock| Sys2["Sensitive Files: /etc/passwd"]
         Attacker2 -.->|Blocked by Seccomp| Shell2[System Shell]
         Attacker2 -->|Allowed Path| DB2[(Application Database)]
     end
@@ -143,12 +143,12 @@ title: "Linux Security Primitives: Self-Restriction vs. Privileged Hooking"
 ---
 graph TD
     subgraph Unprivileged ["Unprivileged (Self-Restriction)"]
-        Seccomp[Seccomp<br/>Scope: Syscall Numbers & Registers (not io_uring queues)]
-        Landlock[Landlock<br/>Scope: Filesystem Paths & TCP Ports]
+        Seccomp["Seccomp<br/>Scope: Syscall Numbers & Registers (not io_uring queues)"]
+        Landlock["Landlock<br/>Scope: Filesystem Paths & TCP Ports"]
     end
 
     subgraph Privileged ["Privileged (Root / CAP_SYS_ADMIN Required)"]
-        BPF_LSM[BPF-LSM / AppArmor / SELinux<br/>Scope: Deep Kernel Hooks & Global Policies]
+        BPF_LSM["BPF-LSM / AppArmor / SELinux<br/>Scope: Deep Kernel Hooks & Global Policies"]
     end
 ```
 

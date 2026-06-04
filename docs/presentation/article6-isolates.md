@@ -234,6 +234,7 @@ Write Code → Profile (Integration Tests) → Generate SBoB → Lint in CI/CD �
 2. **Standardized Contracts:** SBoB definitions must be standardized in a machine-readable format (e.g. `.sbob.json` aligning with the emerging k8sstormcenter/bob spec) shipped alongside libraries directly by vendor authors.
 3. **CI/CD Static Linting:** Build plugins (like Maven or Gradle task linters) should compile call-graphs statically, verify that high-risk Red Zone libraries are wrapped in `ContainedExecutors`, and fail the build if the active policy does not cover runtime requirements.
 4. **Transparent Portals:** Sidecar portals and code generators must automate serialization, offloading tasks to isolated processes or Wasm interpreters automatically via simple method annotations (e.g., `@Isolated`).
+5. **Cross-Language Porting:** Port `mazewall` and sandbox-portal libraries to other backend runtimes (such as Go/Goroutines scheduler integration, Node.js native addons, and Python Rust extensions) to enable thread/task-level unprivileged sandboxing across the entire backend ecosystem.
 
 ---
 
