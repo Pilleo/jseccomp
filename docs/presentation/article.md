@@ -86,7 +86,7 @@ sequenceDiagram
     participant Landlock as Landlock LSM
     participant Exec as Syscall Execution
     participant eBPF as eBPF Hook
-    participant Logs as Security Logs
+    participant Agent as Security Agent (e.g., Kubescape)
 
     Note over Entry, eBPF: Linux Kernel Boundary
 
@@ -101,7 +101,7 @@ sequenceDiagram
         else Allowed
             Landlock->>Exec: 4. Allowed
             Exec->>eBPF: 5. Trigger Hook
-            eBPF-->>Logs: 6. Async Event
+            eBPF-->>Agent: 6. Non-blocking Telemetry (Perf Ring Buffer)
             Exec-->>App: 7. Return Value
         end
     end
