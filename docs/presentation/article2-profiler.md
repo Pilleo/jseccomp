@@ -16,7 +16,7 @@ Manually cataloging every system call and filesystem path an application uses in
 
 Before we look at how mazewall discovers a policy, it is worth comparing this approach to existing behavioral security tools.
 
-In the cloud-native ecosystem, tools like **Kubescape** have pioneered dynamic runtime profiling. Using eBPF (Extended Berkeley Packet Filters) at the host kernel level, Kubescape observes a running container in a staging cluster, builds a baseline of its system calls, and detects anomalies. This provides a strong platform-level security control.
+In the cloud-native ecosystem, tools like **[Kubescape](https://kubescape.io)** have pioneered dynamic runtime profiling. Using eBPF (Extended Berkeley Packet Filters) at the host kernel level, Kubescape observes a running container in a staging cluster, builds a baseline of its system calls, and detects anomalies. This provides a strong platform-level security control.
 
 However, cluster-wide dynamic profiling has a few critical limitations for application developers:
 1. **Lack of Application Context:** A cluster-level eBPF tracer sees the JVM process as a single black box. It cannot easily distinguish between a high-privilege administrative thread, a low-privilege JSON parser thread, or the JIT compiler thread. It profiles the *average process*, not individual logical tasks.
