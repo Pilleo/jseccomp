@@ -116,13 +116,16 @@ This generated policy contains three elements:
 
 ## Dynamic Filesystem Learning: The Iterative Profiler
 
-System call profiling is straightforward, but file paths are highly dynamic. In a complex web application, a task might lazily read class files, local resources, or temporary data that isn't easily captured in a single linear execution.
+Standard system call profiling (such as `USER_NOTIF` or `ptrace`) operates at the boundary of thread-issued system calls. However, as noted in the landscape discussion, **`io_uring` introduces a complete blind spot for unprivileged syscall monitors**: because filesystem commands are written directly into a shared-memory ring queue and executed asynchronously by kernel worker threads (`io-wq`), no direct file-open system calls (`openat`, etc.) are issued by the application thread. The `USER_NOTIF` supervisor daemon is completely blind to which paths are being accessed via `io_uring`.
 
-To solve this unprivileged, mazewall provides the **Iterative Profiler** (`IterativeProfiler.profile`).
+To solve this unprivileged path-blindness, `mazewall` implements the **Iterative Profiler** (`IterativeProfiler.profile`). 
 
-It is important to understand a fundamental kernel constraint here: **Landlock does not have a "permissive" or "log-only" mode.** Unlike AppArmor or SELinux, which can "complain" (log but allow), Landlock only logs when it **denies** access. This creates a "Catch-22" for transparent profiling: to see what an app is doing via Landlock logs, you must block its access; but if you block its access, the app crashes and you can't see the rest of the workload.
+This "deny-and-retry" mechanism was created specifically to discover filesystem requirements for asynchronous `io_uring` workloads without requiring root privileges.
 
-To profile file paths without root, mazewall uses a pragmatic, loop-based learning algorithm:
+### Overcoming the Landlock "Permissive" Limitation
+To understand why this requires a loop-based learning algorithm, we must look at a fundamental kernel constraint: **Landlock does not have a "permissive" or "log-only" mode.** Unlike AppArmor or SELinux, which can "complain" (log but allow), Landlock only logs when it actively **denies** access. This creates a "Catch-22" for profiling `io_uring` paths: to see what paths are accessed, you must block them via Landlock; but the moment you block them, the application crashes, preventing you from discovering any subsequent paths the workload needs.
+
+To resolve this, the Iterative Profiler runs a loop-based learning algorithm:
 
 1. **Deploy in Staging/Test:** The workload is executed under a restricted base policy with filesystem access denied by default.
 2. **Catch Violations:** When the JVM attempts to read an unauthorized path (e.g., loading a lazy class or reading a config), the kernel blocks the access, throwing a filesystem `AccessDeniedException`.
