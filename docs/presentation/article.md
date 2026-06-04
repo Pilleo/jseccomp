@@ -2,7 +2,7 @@
 ![maze_security_walls_new.png](maze_security_walls_new.png)
 
 [![Series Home](https://img.shields.io/badge/Series-Home-1e293b)](../../README.md)
-[![Part 2 →](https://img.shields.io/badge/Part_2_→-Dynamic_Profiling-6366f1)](article2-profiler.md)
+[![Part 2 →](https://img.shields.io/badge/Part_2_→-Dynamic_Profiling-6366f1)](article2-profiler.html)
 
 > **Series overview:** This is Part 1 of our series on behavioral security for cloud-native applications. While the implementation examples use the JVM as a concrete laboratory, the kernel concepts apply equally to Go, Node.js, Python, and any server-side runtime hosted on Linux. To explore the codebase and architecture details, visit the main [mazewall README](../../README.md).
  
@@ -301,7 +301,7 @@ If you are new to Linux kernel and security concepts, here are some excellent in
  
 In Part 2 of this series, we move from theory to practice. We will introduce **mazewall**, a newly developed experimental Proof-of-Concept library designed to translate SBoB concepts into active JVM thread sandboxing, and demonstrate the dynamic profiling workflow that allows the application to automatically trace and define its own required system permissions.
  
-**[Read Part 2: Let Your Code Build Its Own Sandbox: Introducing Mazewall](article2-profiler.md)**
+**[Read Part 2: Let Your Code Build Its Own Sandbox: Introducing Mazewall](article2-profiler.html)**
 
 [^landlock]: Landlock: unprivileged access control. https://landlock.io/
 [^seccomp]: Linux seccomp(2) manual page. https://man7.org/linux/man-pages/man2/seccomp.2.html

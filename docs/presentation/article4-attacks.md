@@ -1,8 +1,8 @@
 # Mazewall: The Attacks We Actually Stop
 
-[![← Part 3](https://img.shields.io/badge/←_Part_3-JVM_Mechanics-6366f1)](article3-enforcement.md)
+[![← Part 3](https://img.shields.io/badge/←_Part_3-JVM_Mechanics-6366f1)](article3-enforcement.html)
 [![Series Home](https://img.shields.io/badge/Series-Home-1e293b)](../../README.md)
-[![Part 5 →](https://img.shields.io/badge/Part_5_→-SBoB_Generation-6366f1)](article5-graalvm.md)
+[![Part 5 →](https://img.shields.io/badge/Part_5_→-SBoB_Generation-6366f1)](article5-graalvm.html)
 
 > **Series overview:** This is Part 4 of our series on behavioral security for cloud-native applications. **What this part adds:** real exploit walkthroughs using the **mazewall** demo codebase — demonstrating how thread-scoped Seccomp and Landlock co-enforcement blocks command execution, fileless malware, JIT shellcode injection, and asynchronous `io_uring` evasion. All demonstrations use the mazewall PoC library.
 
@@ -354,7 +354,7 @@ In **Part 5**, we will explore how to scale SBoB generation to production using 
 
 ---
 
-*Next Up: [Part 5: Generating an SBoB for Java: Where We Are and What's Missing](article5-graalvm.md)*
+*Next Up: [Part 5: Generating an SBoB for Java: Where We Are and What's Missing](article5-graalvm.html)*
 
 [^green2016]: Matthew Green and Matthew Smith, ["Developers are Not the Enemy!: The Need for Usable Security APIs"](https://ieeexplore.ieee.org/document/7676144), IEEE Security & Privacy, 2016.
 [^memfd]: Sandfly Security: memfd_create fileless malware. https://sandflysecurity.com/blog/detecting-linux-memfd_create-fileless-malware-with-command-line-forensics/

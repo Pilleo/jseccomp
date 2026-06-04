@@ -1,8 +1,8 @@
 # Dynamic Policy Profiling in mazewall
 
-[![← Part 1](https://img.shields.io/badge/←_Part_1-SBoB_Concepts-6366f1)](article.md)
+[![← Part 1](https://img.shields.io/badge/←_Part_1-SBoB_Concepts-6366f1)](article.html)
 [![Series Home](https://img.shields.io/badge/Series-Home-1e293b)](../../README.md)
-[![Part 3 →](https://img.shields.io/badge/Part_3_→-JVM_Mechanics-6366f1)](article3-enforcement.md)
+[![Part 3 →](https://img.shields.io/badge/Part_3_→-JVM_Mechanics-6366f1)](article3-enforcement.html)
 
 > **Series overview:** This is Part 2 of our series on behavioral security for cloud-native applications. **What this part adds:** a developer-focused walkthrough of **mazewall** — an experimental, research-grade Proof-of-Concept JVM sandboxing library. All code examples are for local exploration only; this is not a production-ready tool.
 
@@ -220,7 +220,7 @@ In **Part 3**, we will look under the hood of mazewall to examine the mechanics 
 
 ---
 
-*Next Up: [Part 3: Thread-Scoped JVM Containment: The Mechanics](article3-enforcement.md)*
+*Next Up: [Part 3: Thread-Scoped JVM Containment: The Mechanics](article3-enforcement.html)*
 
 [^strace]: strace(1) manual page. https://man7.org/linux/man-pages/man1/strace.1.html
 [^inspektor]: Inspektor Gadget: eBPF-based debugging and observability tool. https://www.inspektor-gadget.io/
