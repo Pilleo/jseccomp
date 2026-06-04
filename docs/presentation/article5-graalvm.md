@@ -187,7 +187,7 @@ If you are working on:
 ...the author is interested in collaborating on these engineering challenges.
 
 - **Instrument your CI pipeline with Inspektor Gadget** and start profiling your application's syscall footprint — regardless of whether you run GraalVM. Every application benefits from knowing its actual runtime footprint.
-- **Watch and contribute to the emerging Software Bill of Behavior (SBoB) specification:** Visit [billofbehavior.com](https://billofbehavior.com) and follow the open specification work at [github.com/k8sstormcenter/bob].
+- **Watch and contribute to the emerging Software Bill of Behavior (SBoB) specification:** Visit [billofbehavior.com](https://billofbehavior.com) and follow the open specification work at [github.com/k8sstormcenter/bob](https://github.com/k8sstormcenter/bob).
 
 ---
 
@@ -204,3 +204,11 @@ The next concrete engineering steps, in rough priority order:
 4. An open, machine-readable SBoB schema that runtime enforcement engines can consume directly
 
 None of this is complete. All of it is tractable. If you read this far and disagree with something, the repository is the right place to continue the argument.
+
+---
+
+### Next Up: High-Density Heap Isolation
+
+In Part 6 of this series, we address the memory-sharing limitations of standard JVM threads and explore how GraalVM Isolates provide sub-millisecond-startup, heap-isolated environments within the same OS process.
+
+**[Read Part 6: The 1-Millisecond Sandbox: High-Density Security with GraalVM Isolates](article6-isolates.md)**

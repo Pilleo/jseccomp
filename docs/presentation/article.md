@@ -43,13 +43,14 @@ But for developers, this boundary model has a fundamental blind spot: it treats 
 ```mermaid
 graph LR
     subgraph Field ["Boundary Model (Open Field)"]
-        Attacker1((Attacker)) -->|Unrestricted Access| DB1[(Sensitive Data)]
-        Attacker1 -->|Unrestricted Access| Shell1[System Shell]
+        Attacker1((Attacker)) -->|Access Any System Resource| Sys1[Sensitive Files: /etc/passwd]
+        Attacker1 -->|Access Any Process| Shell1[System Shell]
     end
 
     subgraph Maze ["Contract Model (Runtime Maze)"]
-        Attacker2((Attacker)) -.->|Blocked by Seccomp| Shell2[System Shell]
-        Attacker2 -->|Allowed Path| DB2[(Sensitive Data)]
+        Attacker2((Attacker)) -.->|Blocked by Landlock| Sys2[Sensitive Files: /etc/passwd]
+        Attacker2 -.->|Blocked by Seccomp| Shell2[System Shell]
+        Attacker2 -->|Allowed Path| DB2[(Application Database)]
     end
 ```
 
@@ -79,14 +80,21 @@ While eBPF-based enforcement (like BPF-LSM) is extremely powerful, it requires h
 
 ```mermaid
 graph TD
-    UserSpace[Application / User Space] -->|Issues System Call| SyscallInterface((Syscall Interface))
+    UserSpace[User Space: Application] -->|1. Issues Syscall| SyscallEntry[Kernel: Syscall Entry]
     
-    SyscallInterface -.->|1. Async Event| eBPF[eBPF Observer]
-    eBPF -.->|Read-only| Logs[Security Logs / Alerts]
+    subgraph Kernel ["Linux Kernel Boundary"]
+        SyscallEntry -->|2. Evaluate| Seccomp{Seccomp Filter}
+        Seccomp -->|Denied| EPERM[Return EPERM / Kill Thread]
+        Seccomp -->|3. Allowed| Landlock{Landlock LSM}
+        
+        Landlock -->|Denied| EACCES[Return EACCES]
+        Landlock -->|4. Allowed| Exec[Syscall Execution]
+        
+        Exec -->|5. Trigger Hook| eBPF[eBPF Tracepoint / kprobe]
+    end
     
-    SyscallInterface -->|2. Inline Check| Gates{Seccomp & Landlock}
-    Gates -->|Allowed| Kernel[Kernel Execution]
-    Gates -.->|Denied| Error[EPERM / Killed]
+    eBPF -.->|6. Async Event| Logs[User Space: Security Logs / Alerts]
+    Exec -->|7. Return Value| UserSpace
 ```
 
 ## This Isn't New—Server-Side Is Just Late
@@ -102,15 +110,15 @@ In this context, server-side Linux containers are the anomaly. SBoB is simply br
 If SBoB is the declaration of intent, the Linux kernel provides three primary mechanisms to turn that intent into a hard boundary:
 
 ```mermaid
-graph LR
-    S[Seccomp] -->|Scope| S1[System Calls]
-    S -->|Privilege| S2[Unprivileged]
-    
-    L[Landlock] -->|Scope| L1[Filesystem & TCP Ports]
-    L -->|Privilege| L2[Unprivileged]
-    
-    LSM[BPF-LSM / AppArmor] -->|Scope| LSM1[Deep Kernel Hooks]
-    LSM -->|Privilege| LSM2[Requires Root / Privileged]
+graph TD
+    subgraph Unprivileged ["Unprivileged (Self-Restriction)"]
+        Seccomp[Seccomp<br/>Scope: Syscall Numbers & Registers]
+        Landlock[Landlock<br/>Scope: Filesystem Paths & TCP Ports]
+    end
+
+    subgraph Privileged ["Privileged (Root / CAP_SYS_ADMIN Required)"]
+        BPF_LSM[BPF-LSM / AppArmor / SELinux<br/>Scope: Deep Kernel Hooks & Global Policies]
+    end
 ```
 
 ### 1. Seccomp (Secure Computing)

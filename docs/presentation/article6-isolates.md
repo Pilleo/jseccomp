@@ -41,6 +41,31 @@ This brings us to the bleeding edge of Java runtime architecture.
 
 GraalVM Native Image includes a feature called **Isolates** (`org.graalvm.nativeimage.Isolates`). An Isolate allows you to create multiple, completely independent Java execution environments *within a single OS process*.
 
+```mermaid
+graph TD
+    subgraph Standard ["Standard JVM Process (Shared Heap)"]
+        direction LR
+        Heap1[(Shared Java Heap)]
+        Thread1[Worker Thread 1] --> Heap1
+        Thread2[Worker Thread 2] --> Heap1
+        Thread3[Malicious Thread] -->|Can read/write all memory| Heap1
+    end
+
+    subgraph Isolate ["GraalVM Process with Isolates (Isolated Heaps)"]
+        direction LR
+        MainHeap[(Main App Heap)]
+        IsolateHeapA[(Isolate A Heap)]
+        IsolateHeapB[(Isolate B Heap)]
+        
+        MainThread[Main Thread] --> MainHeap
+        IsolateThreadA[Isolate Thread A] --> IsolateHeapA
+        IsolateThreadB[Isolate Thread B] --> IsolateHeapB
+        
+        IsolateThreadB -.->|Cannot access| IsolateHeapA
+        IsolateThreadB -.->|Cannot access| MainHeap
+    end
+```
+
 ### 1. True Physical Heap Isolation
 When you spawn an Isolate, GraalVM creates a dedicated Java heap, a dedicated Garbage Collector, and dedicated thread stacks. 
 Even though two Isolates run in the exact same Linux process, they **cannot share Java objects**. If an attacker compromises Isolate A, they physically cannot see or corrupt the memory of the Main Application or Isolate B.
@@ -82,3 +107,11 @@ The cloud-native world has spent years building heavier and heavier perimeter wa
 But the future of application security is happening *inside* the process. By declaring explicit behavioral contracts (SBoB), leveraging unprivileged kernel enforcement (Seccomp/Landlock), and utilizing advanced runtime architectures (GraalVM Isolates), developers can finally build self-defending applications where an exploit in a dependency is physically trapped at the exact moment it tries to misbehave.
 
 The primitives are here. The capability is real. It is time to start building the maze.
+
+---
+
+### Next Up: Safe Parsing in WebAssembly
+
+In Part 7 of this series, we go beyond process boundaries and heaps to look at instruction-level sandboxing. We explore how WebAssembly (Wasm) provides a "shared-nothing" sandbox to run untrusted code safely without the performance or memory overhead of separate OS processes.
+
+**[Read Part 7: The Instruction-Level Sandbox: Why WebAssembly is the Spiritual Successor to JSM](article7-wasm.md)**

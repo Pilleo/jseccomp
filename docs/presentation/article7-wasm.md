@@ -60,6 +60,28 @@ Instead of parsing JSON with a highly-privileged Java library, modern high-secur
 
 Because the Wasm parser has **no access to the JVM classpath**, it is physically impossible for a malicious payload to trigger a Java gadget chain (like Log4Shell).
 
+```mermaid
+graph TD
+    subgraph Jackson ["Unsafe Jackson Deserialization"]
+        JSON1[Untrusted JSON Payload] -->|Deserializes class gadgets| Mapper1[Jackson ObjectMapper]
+        Mapper1 -->|Instantiates arbitrary classes| Classpath1[(Full JVM Classpath)]
+        Classpath1 -->|Executes system shell| RCE1[Remote Code Execution]
+    end
+
+    subgraph Wasm ["Safe Wasm Object Mapper Pattern"]
+        JSON2[Untrusted JSON Payload] -->|Copies bytes to linear memory| WasmUniverse[Wasm Linear Memory Box]
+        subgraph WasmSandbox ["Wasm Sandbox"]
+            Parser[Rust serde_json Parser]
+        end
+        WasmUniverse --> Parser
+        Parser -->|Traps on crash or overflow| WasmUniverse
+        Parser -->|Returns flat, clean data| JavaHost[Java FFM Host]
+        JavaHost -->|Instantiates immutable| Record[Java Record]
+        
+        WasmSandbox -.->|No access| Classpath2[(Full JVM Classpath)]
+    end
+```
+
 ## The Component Model: The Future of "readValue"
 
 The final frontier is the **Wasm Component Model (WIT)**. While the foundation is present in Endive today, the "Jackson experience"—automatically mapping Wasm data straight into Java POJOs—is the primary focus of the late 2026 roadmap. Currently, production workloads like **`jq4j`** (a sandboxed `jq` engine for the JVM) use stable **WASI Preview 1** and manual bindings or Protobuf to bridge the memory gap.

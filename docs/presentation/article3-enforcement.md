@@ -21,7 +21,41 @@ In Linux, `errno` is a thread-local variable that stores the error code of the m
 
 If we make a system call and then attempt to read `errno` via a second FFM call, there is a high probability that the JVM's internal activity will clobber the `errno` value before we can retrieve it.
 
+#### The Unsafe Errno Race Condition (Without Capture)
+```mermaid
+sequenceDiagram
+    participant JavaCode as Java Code (via FFM)
+    participant JVM as JVM Background Tasks (GC/Safepoints)
+    participant OS as Linux Kernel / errno
+    
+    JavaCode->>OS: 1. Invokes syscall (e.g. landlock_create_ruleset)
+    OS-->>JavaCode: Returns -1 (Failure)
+    Note over OS: errno set to EACCES
+    
+    par JVM clobbers errno
+        JVM->>OS: 2. JVM internal activities on same thread (e.g., timing, memory allocation)
+        Note over OS: errno overwritten to 0 or another value!
+    and Java Code reads errno (Delayed JNI/FFM call)
+        JavaCode->>OS: 3. Java reads errno via separate call
+        OS-->>JavaCode: Returns corrupted errno (e.g., 0)
+    end
+    
+    Note over JavaCode: Result: Silent failure or incorrect security handling
+```
+
 `mazewall` handles this using the FFM `Linker.Option.captureCallState("errno")` feature. This tells the JVM to generate a specialized native "stub" that atomically captures the `errno` value into a protected memory segment the instant the system call returns, ensuring we see the kernel's true response rather than JVM-internal noise.
+
+#### The Safe Errno Capture Mechanism (With captureCallState)
+```mermaid
+sequenceDiagram
+    participant JavaCode as Java Code (via FFM)
+    participant OS as Linux Kernel / errno
+    
+    JavaCode->>OS: 1. Invokes syscall (with captureCallState)
+    Note over OS: errno set to EACCES
+    OS-->>JavaCode: 2. Atomically copies errno into JVM memory segment
+    Note over JavaCode: Java reads EACCES from the protected segment
+```
 </details>
 
 ---
