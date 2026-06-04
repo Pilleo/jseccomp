@@ -1,6 +1,6 @@
 # Do You Really Know What Your App Is Doing at Runtime?
 ![maze_security_walls_new.png](maze_security_walls_new.png)
-> **Series overview:** This is Part 1 of our series on behavioral security for cloud-native applications. To explore the codebase and architecture details, visit the main [mazewall README](../../README.md).
+> **Series overview:** This is Part 1 of our series on behavioral security for cloud-native applications. While the implementation examples use the JVM as a concrete laboratory, the kernel concepts apply equally to Go, Node.js, Python, and any server-side runtime hosted on Linux. To explore the codebase and architecture details, visit the main [mazewall README](../../README.md).
  
 We have become very good at answering one specific supply-chain question:
  
@@ -132,7 +132,7 @@ graph TD
 ```
 
 ### 1. Seccomp (Secure Computing)
-Seccomp is the industry's "fast path" for blocking system calls. It is fast, unprivileged (via `NoNewPrivileges`), and extremely reliable. While Seccomp-BPF uses strictly constrained **Classic BPF (cBPF)** bytecode rather than the full eBPF instruction set, it remains the most widely deployed syscall filter in the world. However, it is "path-blind"—it sees the system call being made, but it cannot easily inspect the file paths or network addresses involved.
+Seccomp is the industry's "fast path" for blocking system calls. It is fast, unprivileged (via `NoNewPrivileges`), and extremely reliable. While Seccomp-BPF uses strictly constrained **Classic BPF (cBPF)** bytecode rather than the full eBPF instruction set, it remains the most widely deployed syscall filter in the world. However, it is "path-blind"—it sees the system call being made, but it cannot easily inspect the file paths or network addresses involved. It is also blind to operations submitted via `io_uring` ring buffers, which bypass the syscall boundary entirely — see Part 4 for how Landlock closes this gap.
 *   **Where you use it today:** You are likely using it right now. Modern web browsers like **Chrome** and **Firefox** use Seccomp to sandbox their renderer processes, ensuring that a compromised tab cannot escape to the rest of your system. Podman/Docker also apply a default Seccomp profile to every container to block high-risk operations.
 
 ### 2. Landlock
@@ -178,7 +178,7 @@ Traditional security often focuses on blocking `execve` (spawning a shell). But 
  
 More advanced attackers use [**`io_uring`**](https://unixism.net/loti/), a high-performance asynchronous I/O API. By submitting operations via shared memory rings rather than direct syscalls, they can often "blind" traditional security monitors.
  
-An SBoB allows us to express fine-grained intent that stops these techniques: *"This application is strictly forbidden from using `memfd_create`, `io_uring_setup`, or mapping executable memory"* (note that blocking executable memory mapping is only possible in Ahead-of-Time runtimes like GraalVM, as explained in Part 5).
+An SBoB allows us to express fine-grained intent that stops these techniques: *"This application is strictly forbidden from using `memfd_create`, `io_uring_setup`, or mapping executable memory"* (note that blocking executable memory mapping *process-wide* is only safe in Ahead-of-Time runtimes like GraalVM, as explained in Part 5 — on a standard JIT JVM, mazewall blocks it per sandboxed worker thread without crashing the JIT compiler, which runs on separate, unrestricted OS threads).
 
 ## The Concept of Scopes: When is a Behavior Expected?
  
@@ -234,15 +234,18 @@ Beyond lifecycle phases, we can theoretically define scopes at a much deeper lev
  
 While these granular scopes represent the "dream" of behavioral security, they often introduce high performance overhead or require deep integration with the language runtime. For now, Lifecycle Scopes remain the most viable path for widespread adoption.
 
-## What You Can Do Today
- 
-SBoB is emerging, not universal. But teams don't have to wait to start adopting a "behavior-aligned" mindset. You can move your architecture in this direction today:
- 
-*   **Run rootless:** Drop unnecessary Linux capabilities.
-*   **Constrain the filesystem:** Use read-only root filesystems and explicitly declare writable locations.
-*   **Audit first:** Adopt runtime tooling like Kubescape in audit mode
- 
-These practices don't replace SBoB. They train engineering teams to think in the exact behavioral terms that SBoB formalizes.
+## Where This Direction Is Heading
+
+To be direct: the tooling to do what this article describes systematically — generate behavioral contracts automatically, enforce them per-thread, ship them alongside libraries — is still being built. `mazewall` itself is a research proof-of-concept exploring whether the kernel primitives are sufficient, not a production tool.
+
+The mindset shift, however, is already underway. Two things are worth tracking:
+
+**The emerging standard.** The concept of a machine-readable behavioral contract for software is being formalized. The [Software Bill of Behavior specification](https://github.com/k8sstormcenter/bob) at k8sstormcenter is the most active public effort to define what such a contract looks like and how it should be produced and consumed. The related [VEX (Vulnerability Exploitability eXchange)](https://cyclonedx.org/capabilities/vex/) format — already supported by CycloneDX and SPDX toolchains — is the industry's first standardized acknowledgment that composition is a poor proxy for risk; only behavior at runtime matters.
+
+**The observation tooling.** [Kubescape](https://kubescape.io) is the most mature open-source implementation of runtime behavioral profiling at the Kubernetes level today. Running it in observation mode against a staging workload gives a concrete, ground-truth answer to the question this article opens with: *what is this software actually doing right now?* It is not the same as per-thread, developer-authored SBoB contracts — but it is real, it is in production use, and it generates artifacts that move toward the same goal.
+
+> [!NOTE]
+> Following the direction means thinking in behavioral terms: not just *what is inside this software*, but *what does it do, and what should it be allowed to do?* That shift in framing is the precondition for everything described in this series — regardless of which specific tools eventually implement it.
 
 ---
 

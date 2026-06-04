@@ -31,7 +31,7 @@ The conclusion is unavoidable: generating a meaningful SBoB requires combining s
 
 ## The Three-Step Blueprint
 
-This how the most practical path seems today:
+This is how the most practical path seems today:
 
 ### Step 1: Generate Per-Dependency SBoBs
 
@@ -207,8 +207,8 @@ None of this is complete. All of it is tractable. If you read this far and disag
 
 ---
 
-### Next Up: High-Density Heap Isolation
+### Next Up: The Final Layer
 
-In Part 6 of this series, we address the memory-sharing limitations of standard JVM threads and explore how GraalVM Isolates provide sub-millisecond-startup, heap-isolated environments within the same OS process.
+In Part 6 — the final part of this series — we address the two fatal structural limits of thread-scoped sandboxing and build upward: GraalVM Isolates for heap isolation, WebAssembly for instruction-level isolation, and automated codegen portals to make these patterns practical for everyday backend developers.
 
-**[Read Part 6: The 1-Millisecond Sandbox: High-Density Security with GraalVM Isolates](article6-isolates.md)**
+**[Read Part 6: Beyond the Thread: GraalVM Isolates, WebAssembly, and Self-Defending Applications](article6-isolates.md)**

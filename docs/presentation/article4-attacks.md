@@ -276,7 +276,7 @@ Without the deprecated Java Security Manager (JSM), in-process isolation of untr
 |-------------------------|-----------------------------|----------------------------|----------|-----------------------------------|
 | **Shell Spawn**         | `execve`                    | Seccomp (`Policy.NO_EXEC`) | `EPERM`  | `IOException: Cannot run program` |
 | **Fileless Payload**    | `memfd_create` / `execveat` | **Tier 1 (Process-Wide)**  | `EPERM`  | `ContainmentViolationException`   |
-| **Shellcode Injection** | `mprotect(PROT_EXEC)`       | **Tier 1 (Process-Wide)**  | `EPERM`  | `SIGSEGV` → JVM fatal error       |
+| **Shellcode Injection** | `mprotect(PROT_EXEC)`       | **Tier 1 (Process-Wide)**  | `EPERM`  | `ContainmentViolationException` (then `SIGSEGV` if execution is attempted on the non-executable region) |
 | **Path Traversal**      | `openat("/etc/hosts")`      | Landlock (Path filter)     | `EACCES` | `ContainmentViolationException`   |
 | **io_uring Evasion**    | `io_uring` submission       | Landlock (Kernel ≥ 5.13)   | `EACCES` | `ContainmentViolationException`   |
 | **Thread-Hopping RCE**  | `CompletableFuture`         | **Tier 1 (Process-Wide)**  | `EPERM`  | N/A (Bypasses Tier 2)             |
@@ -329,7 +329,7 @@ These demonstrations show that the Linux kernel primitives (Seccomp and Landlock
 
 But how does this work in large-scale production? How do we handle massive, dynamic JVM frameworks (like Spring or Micronaut) where reflection, dynamic proxy generation, and massive dependency graphs make runtime profiling complex?
 
-In **Part 5**, we will explore how to scale SBoB generation to production using Ahead-of-Time (AOT) compilation and GraalVM Native Image.
+In **Part 5**, we will explore how to scale SBoB generation to production using Ahead-of-Time (AOT) compilation and GraalVM Native Image. And in **Part 6**, we will revisit Attack 6 — the Thread-Hopping bypass — and see how GraalVM Isolates close that gap permanently.
 
 ---
 

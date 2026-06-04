@@ -102,19 +102,11 @@ The standard approach to container sandboxing is a global seccomp profile applie
 
 `mazewall` implements a **two-tier** self-restriction architecture to provide more fine-grained security:
 
-```
-+--------------------------------------------------------+
-|                   JVM Process (Tier 1)                  |
-|  Policy.NO_EXEC applied globally at startup             |
-|  Permanent block on: execve, execveat, fork, vfork     |
-+--------------------------------------------------------+
-                           |
-                           v
-+--------------------------------------------------------+
-|             worker-thread-pool (Tier 2)                |
-|  Strict thread-scoped policies (e.g. PURE_COMPUTE)      |
-|  Enforced on specific worker threads during task run   |
-+--------------------------------------------------------+
+```mermaid
+graph TD
+    JVM["Tier 1: JVM Process<br/>Policy.NO_EXEC applied at startup<br/>Blocks: execve, execveat, fork, vfork, memfd_create"]
+    Pool["Tier 2: Worker Thread Pool<br/>Strict thread-scoped policies e.g. PURE_COMPUTE<br/>Enforced per worker thread during task execution"]
+    JVM --> Pool
 ```
 
 ### Tier 1: Process-Wide Lockdown
@@ -161,17 +153,16 @@ Managed runtimes are not isolated islands. Periodically, the JVM pauses applicat
 
 To participate in these operations, application threads must run JVM runtime code, which frequently invokes system calls for thread synchronization, signaling, and resource management.
 
-```
-                   JVM SAFEPOINT / GC CYCLE
-                              |
-                              v
-    Worker Thread (Sandboxed) ---> Invokes futex() / sched_yield()
-                                         |
-               +-------------------------+-------------------------+
-               |                                                   |
-               v (Allowed)                                         v (Blocked by mistake)
-    GC / Safepoint completes.                             JVM permanently deadlocks!
-    Application continues.
+```mermaid
+flowchart TD
+    GC[JVM Safepoint / GC Cycle triggered]
+    Worker["Worker Thread (Sandboxed)<br/>Invokes futex / sched_yield"]
+    GC --> Worker
+    Worker --> Check{"Custom policy<br/>blocks futex?"}
+    Check -- "No \u2014 Allowed" --> OK["GC / Safepoint completes<br/>Application continues normally"]
+    Check -- "Yes \u2014 Blocked by mistake" --> Dead["JVM permanently deadlocks!"]
+    style OK fill:#16a34a,color:#fff
+    style Dead fill:#dc2626,color:#fff
 ```
 
 Because of this, we must establish a **Golden Rule of JVM Safety**: **Never block core thread coordination and scheduling system calls.**
@@ -199,7 +190,7 @@ If a virtual thread installs a seccomp filter, it permanently sandboxes the **ph
 
 To prevent this carrier contamination, `mazewall` includes dynamic guards:
 1. **Loom Prevention:** Every entry point that installs containment checks `Thread.currentThread().isVirtual` and immediately throws an `IllegalStateException` with clear diagnostics if called from a virtual thread.
-2. **The Loom Impasse:** While the conceptual solution to secure virtual threads is to pre-sandbox a dedicated carrier pool and schedule virtual threads exclusively onto it, **the standard JDK (as of Java 21 through Java 25) does not expose a public API to configure a custom carrier scheduler for Virtual Threads.** The virtual thread scheduler is hardcoded to a shared, JVM-wide carrier pool.
+2. **The Loom Impasse:** While the conceptual solution to secure virtual threads is to pre-sandbox a dedicated carrier pool and schedule virtual threads exclusively onto it, **the standard JDK (as of Java 21 through Java 25) does not expose a public API to configure a custom carrier scheduler for Virtual Threads.** The virtual thread scheduler is hardcoded to a shared, JVM-wide carrier pool. This was an explicit architectural decision — a proposal to expose a configurable carrier scheduler API was considered and ultimately closed.
 
 As a result, **Loom Virtual Threads are fundamentally incompatible with thread-scoped Seccomp/Landlock sandboxing in standard Java today.** Attempting to sandbox a virtual thread would poison a global carrier thread, causing unexpected `EPERM`/`EACCES` failures or catastrophic deadlocks in unrelated, high-privilege virtual threads scheduled on that same carrier.
 
