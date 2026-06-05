@@ -71,7 +71,7 @@ class BillOfBehaviorTest {
             )
 
         // Deny-list mode base policy (blocks OPEN, so should unblock it)
-        val denyPolicy = io.mazewall.Policy.PURE_COMPUTE
+        val denyPolicy = io.mazewall.Policy.PURE_COMPUTE_UNSAFE
         val compiledDeny = bob.toPolicy(denyPolicy)
         assertEquals(setOf("/read"), compiledDeny.allowedFsReadPaths)
         assertEquals(setOf("/write"), compiledDeny.allowedFsWritePaths)
@@ -101,9 +101,9 @@ class BillOfBehaviorTest {
             )
 
         // Deny-list base DSL
-        val dslDeny = bob.toDsl("Policy.PURE_COMPUTE", io.mazewall.Policy.PURE_COMPUTE)
+        val dslDeny = bob.toDsl("Policy.PURE_COMPUTE_UNSAFE", io.mazewall.Policy.PURE_COMPUTE_UNSAFE)
         assertTrue(dslDeny.contains("Policy.builder()"))
-        assertTrue(dslDeny.contains(".base(Policy.PURE_COMPUTE)"))
+        assertTrue(dslDeny.contains(".base(Policy.PURE_COMPUTE_UNSAFE)"))
         assertTrue(dslDeny.contains("Syscall.OPEN"))
         assertTrue(dslDeny.contains(".allowFsRead(\"/read\")"))
         assertTrue(dslDeny.contains(".allowFsWrite(\"/write\")"))
@@ -136,7 +136,7 @@ class BillOfBehaviorTest {
                 ),
             )
 
-        val policy = bob.toPolicy(io.mazewall.Policy.PURE_COMPUTE)
+        val policy = bob.toPolicy(io.mazewall.Policy.PURE_COMPUTE_UNSAFE)
 
         // Verifying the compiled policy allowed paths are pruned to keep the most specific child (least privilege)!
         assertEquals(setOf("/home/leanid/.sdkman", "/tmp/config.json"), policy.allowedFsReadPaths)

@@ -123,6 +123,6 @@ When a malicious payload (like a SnakeYAML RCE gadget) attempts to call `Runtime
 
 As the core `mazewall:enforcer` library matures (specifically addressing the `OPENAT` and `PROT_EXEC` linkage issues logged in the backlog), this demo will be upgraded to demonstrate tighter constraints:
 
-1.  **Stricter Base Policies:** We will transition the executors from `Policy.NO_NETWORK` to `Policy.STRICT_SANDBOX` or `Policy.PURE_COMPUTE`. This will prove that Mazewall can block advanced kernel exploitation primitives (like arbitrary `ioctl`, `mount`, or `prctl` manipulations) beyond just blocking shell execution and network access.
+1.  **Stricter Base Policies:** We will transition the executors from `Policy.NO_NETWORK` to `Policy.PURE_COMPUTE` or `Policy.PURE_COMPUTE_UNSAFE`. This will prove that Mazewall can block advanced kernel exploitation primitives (like arbitrary `ioctl`, `mount`, or `prctl` manipulations) beyond just blocking shell execution and network access.
 2.  **Simplified Configuration:** The verbose boilerplate (e.g., manually appending `.allowMmapExec()`) will be removed, proving that the built-in presets handle JVM-native linking operations safely by default.
 3.  **Lazy Classloading Verification:** A dedicated endpoint will be added to force the JVM to load heavy, uninitialized libraries *inside* the strict sandbox, verifying that `allowJvmClasspath()` seamlessly permits legitimate JVM mechanics while blocking malicious path traversals.

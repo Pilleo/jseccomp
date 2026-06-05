@@ -93,7 +93,7 @@ class PureJavaBpfEngineTest {
             }
         // Should throw UnsupportedOperationException as per default impl
         assertFailsWith<UnsupportedOperationException> {
-            engine.installOnProcess(Policy.PURE_COMPUTE)
+            engine.installOnProcess(Policy.PURE_COMPUTE_UNSAFE)
         }
     }
 }

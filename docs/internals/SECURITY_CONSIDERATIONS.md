@@ -14,7 +14,7 @@ For years, industry leaders like **Elasticsearch** have successfully used a mini
 **Recommendation:** Use `ContainedExecutors.installOnProcess(Policy.NO_EXEC)` as your foundational baseline defense.
 
 ### Thread-Level Mitigation & The "ACE Shared-Memory Pivot" Threat Model
-Thread-level containment (e.g., wrapping an `ExecutorService` with restrictive policies like `PURE_COMPUTE`) is a powerful tool to minimize the blast radius of un-trusted library execution. However, **thread-scoped seccomp is not an absolute security boundary against an attacker who achieves Arbitrary Code Execution (ACE) on that thread.**
+Thread-level containment (e.g., wrapping an `ExecutorService` with restrictive policies like `PURE_COMPUTE_UNSAFE`) is a powerful tool to minimize the blast radius of un-trusted library execution. However, **thread-scoped seccomp is not an absolute security boundary against an attacker who achieves Arbitrary Code Execution (ACE) on that thread.**
 
 Because the JVM runs within a single Linux process, **all JVM threads share the same physical address space, virtual memory maps, and heap.**
 
@@ -85,7 +85,7 @@ To achieve mathematically isolated, "Zero-Trust" execution of untrusted code wit
 We recommend a two-tiered defense-in-depth model:
 
 1.  **Tier 1: Global Lockdown (`installOnProcess`):** Apply `Policy.NO_EXEC` process-wide at startup to permanently disable shell spawning. This prevents the "pivot" attack because no unrestricted threads remain.
-2.  **Tier 2: Surgical Restrictions (`wrap`):** Apply stricter policies (like `Policy.NO_NETWORK` or `Policy.PURE_COMPUTE`) to specific worker pools handling untrusted data (e.g., XML parsers, image processors). This stops **Data-Oriented Attacks** (SSRF, XXE, Path Traversal) where the attacker lacks the ACE required to pivot.
+2.  **Tier 2: Surgical Restrictions (`wrap`):** Apply stricter policies (like `Policy.NO_NETWORK` or `Policy.PURE_COMPUTE_UNSAFE`) to specific worker pools handling untrusted data (e.g., XML parsers, image processors). This stops **Data-Oriented Attacks** (SSRF, XXE, Path Traversal) where the attacker lacks the ACE required to pivot.
 
 ## 3. Advanced Syscall Evasion & Modern Attack Vectors
 
@@ -93,7 +93,7 @@ Blocking `execve` (spawning a shell) is a foundational defense, but sophisticate
 
 ### Fileless Malware (`memfd_create`)
 Attackers can create anonymous, memory-backed file descriptors using `memfd_create`. They can then download an ELF binary into this "fileless" descriptor and execute it using `fexecve` or `execveat`. Because the binary never touches the disk, it bypasses traditional filesystem-based security scanners.
-*   **Mitigation:** `mazewall` includes `MEMFD_CREATE` in its strict policies (e.g., `PURE_COMPUTE`) and recommends blocking it wherever possible, as the standard JVM does not require it for normal operation.
+*   **Mitigation:** `mazewall` includes `MEMFD_CREATE` in its strict policies (e.g., `PURE_COMPUTE_UNSAFE`) and recommends blocking it wherever possible, as the standard JVM does not require it for normal operation.
 
 ### Modern Execution Variants (`execveat`)
 Attackers may use `execveat` to execute programs relative to a directory file descriptor. This can sometimes bypass filters that only monitor the absolute path arguments of the classic `execve`.
@@ -225,7 +225,7 @@ Even if `mazewall` only used the modern `seccomp(2)` system call to load and sta
 To neutralize the attack surface of generic process control without breaking initialization or nesting, `mazewall` employs two primary mitigation strategies:
 
 #### Strategy 1: Post-Installation System Call Blocking
-In strict, non-stackable policies (such as `Policy.PURE_COMPUTE`), dangerous `prctl` options are restricted via BPF argument inspection — **not** by adding `Syscall.PRCTL` to the block-list. Adding `Syscall.PRCTL` to the block-list would inadvertently block the whitelisted safe options (`PR_SET_NAME`, `PR_SET_NO_NEW_PRIVS`, `PR_GET_SECCOMP`) that the JVM needs, and could prevent filter installation itself.
+In strict, non-stackable policies (such as `Policy.PURE_COMPUTE_UNSAFE`), dangerous `prctl` options are restricted via BPF argument inspection — **not** by adding `Syscall.PRCTL` to the block-list. Adding `Syscall.PRCTL` to the block-list would inadvertently block the whitelisted safe options (`PR_SET_NAME`, `PR_SET_NO_NEW_PRIVS`, `PR_GET_SECCOMP`) that the JVM needs, and could prevent filter installation itself.
 
 The argument-inspection approach (§5.B below) is always active unless `allowUnsafePrctl()` is set on the policy. After the final BPF filter is installed, only the whitelisted `prctl` options remain accessible — all others return `EPERM`. `ioctl` is blocked via the block-list since the JVM does not need it in compute-only threads:
 ```kotlin
@@ -250,7 +250,7 @@ It is critical to recognize that the HotSpot JVM itself invokes `prctl(2)` inter
 2. **Transparent Huge Pages (`PR_SET_THP_DISABLE`):** GC threads may query or disable Transparent Huge Pages (THP) for specific allocation arenas.
 
 #### Impact of Complete `prctl` Blocking
-When using **Strategy 1** (completely blocking the `prctl` syscall after setup, such as in `Policy.PURE_COMPUTE`):
+When using **Strategy 1** (completely blocking the `prctl` syscall after setup, such as in `Policy.PURE_COMPUTE_UNSAFE`):
 * **No JVM Crashes:** Fortunately, the HotSpot JVM executes `prctl(PR_SET_NAME)` and other process control options defensively and silently discards the return value. A blocked `prctl` call will return `EPERM` safely without crashing the JVM.
 * **Loss of OS-Level Diagnostics:** Any thread renaming performed *after* the sandbox is armed will fail silently. As a result, native OS-level tracing tools (`top -H`, `htop`, `/proc/self/task/<tid>/comm`) and Java diagnostic thread dumps (`jstack`) will continue to show the thread's *original* name from before sandboxing, which can hinder debugging.
 
@@ -380,7 +380,7 @@ Seccomp restricts **actions** (syscalls), but it does not provide **data isolati
 |:---------------|:---------------|:----------------------------------|:----------------------------------------------------|
 | `NO_EXEC`      | High           | Low                               | Global process-wide lockdown (Elasticsearch model). |
 | `NO_NETWORK`   | High           | Medium                            | Data parsing, report generation.                    |
-| `PURE_COMPUTE` | Critical       | High (HotSpot) / Medium (GraalVM) | Pure algorithmic tasks (image processing, crypto).  |
+| `PURE_COMPUTE_UNSAFE` | Critical       | High (HotSpot) / Medium (GraalVM) | Pure algorithmic tasks (image processing, crypto).  |
 
 ---
 

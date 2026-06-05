@@ -85,3 +85,7 @@ coverage.xml
 *,cover
 .hypothesis/
 demo/output/report.md
+
+### Scratch / Draft Files ###
+/test_poll.kt
+/original_article.md

@@ -130,20 +130,22 @@ class ContainedExecutorsTest {
         val executor = Executors.newFixedThreadPool(2)
         val safeExecutor = ContainedExecutors.wrap(executor, Policy.PURE_COMPUTE)
 
-        val tasks =
-            listOf(
-                java.util.concurrent.Callable { "task1" },
-                java.util.concurrent.Callable { "task2" },
-            )
+        try {
+            val tasks =
+                listOf(
+                    java.util.concurrent.Callable { "task1" },
+                    java.util.concurrent.Callable { "task2" },
+                )
 
-        val results = safeExecutor.invokeAll(tasks, 5, TimeUnit.SECONDS)
-        assertEquals(2, results.size)
-        assertEquals("task1", results[0].get())
+            val results = safeExecutor.invokeAll(tasks, 5, TimeUnit.SECONDS)
+            assertEquals(2, results.size)
+            assertEquals("task1", results[0].get())
 
-        val any = safeExecutor.invokeAny(tasks, 5, TimeUnit.SECONDS)
-        assertTrue(any == "task1" || any == "task2")
-
-        executor.shutdown()
+            val any = safeExecutor.invokeAny(tasks, 5, TimeUnit.SECONDS)
+            assertTrue(any == "task1" || any == "task2")
+        } finally {
+            executor.shutdown()
+        }
     }
 
     @Test
@@ -174,7 +176,7 @@ class ContainedExecutorsTest {
         val policy =
             Policy
                 .builder()
-                .base(Policy.PURE_COMPUTE)
+                .base(Policy.PURE_COMPUTE_UNSAFE)
                 .unblock(Syscall.IO_URING_SETUP)
                 .build()
 

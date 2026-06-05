@@ -272,14 +272,14 @@ class PolicyTest {
     }
 
     @Test
-    fun `STRICT_SANDBOX includes PURE_COMPUTE and classpath`() {
-        val policy = Policy.STRICT_SANDBOX
+    fun `PURE_COMPUTE includes PURE_COMPUTE_UNSAFE and classpath allowance`() {
+        val policy = Policy.PURE_COMPUTE
         val arch = Arch.current()
         val restricted = policy.syscallActionNumbers(arch).keys.toList()
 
         assertTrue(restricted.contains(arch.connect))
         assertTrue(restricted.contains(arch.execve))
-        assertTrue(policy.allowedFsReadPaths.isNotEmpty(), "STRICT_SANDBOX should allow reading from classpath")
+        assertTrue(policy.allowedFsReadPaths.isNotEmpty(), "PURE_COMPUTE should allow reading from classpath")
     }
 
     @Test
@@ -307,7 +307,7 @@ class PolicyTest {
         val policyDeny =
             Policy
                 .builder()
-                .base(Policy.PURE_COMPUTE)
+                .base(Policy.PURE_COMPUTE_UNSAFE) // use the raw block list as the Landlock test base
                 .allowFsRead("/tmp")
                 .build()
 

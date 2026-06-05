@@ -83,8 +83,8 @@ class ProfilerIntegrationTest {
         val bob = result.behavior
 
         // Let's compile!
-        val compiledPolicy = bob.toPolicy(Policy.PURE_COMPUTE)
-        val dsl = bob.toDsl("Policy.PURE_COMPUTE", Policy.PURE_COMPUTE)
+        val compiledPolicy = bob.toPolicy(Policy.PURE_COMPUTE_UNSAFE)
+        val dsl = bob.toDsl("Policy.PURE_COMPUTE_UNSAFE", Policy.PURE_COMPUTE_UNSAFE)
         println("Profiler compiled DSL:\n$dsl")
 
         // The compiled policy should have the open variant unblocked!
@@ -154,7 +154,7 @@ class ProfilerIntegrationTest {
         file.writeText("content")
         val absolutePath = file.absolutePath
         val pool = Executors.newSingleThreadExecutor()
-        val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE)
+        val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE_UNSAFE)
         try {
             wrapped
                 .submit(
@@ -190,7 +190,7 @@ class ProfilerIntegrationTest {
     @Test
     fun `test profiler daemon handles high-frequency concurrent events without stream corruption`() {
         val pool = Executors.newFixedThreadPool(8)
-        val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE)
+        val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE_UNSAFE)
         try {
             val taskCount = 200
             val target = File("/etc/hostname")
@@ -221,7 +221,7 @@ class ProfilerIntegrationTest {
     fun `test wrap() executor correctly resolves paths via daemon ptrace`() {
         val targetFile = File("/etc/hostname")
         val pool = Executors.newSingleThreadExecutor()
-        val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE)
+        val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE_UNSAFE)
         try {
             val future =
                 wrapped.submit(
@@ -247,7 +247,7 @@ class ProfilerIntegrationTest {
         // Even if Landlock audit was enabled, the sharedPathCache should deduplicate them
         // if they happen within the 500ms window.
         val pool = Executors.newFixedThreadPool(4)
-        val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE)
+        val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE_UNSAFE)
         try {
             val target = File("/etc/hostname")
             val tasks =
@@ -274,7 +274,7 @@ class ProfilerIntegrationTest {
     @Test
     fun `test wrap() executor shutdown waits for pending tasks and avoids ENOSYS`() {
         val pool = Executors.newSingleThreadExecutor()
-        val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE)
+        val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE_UNSAFE)
         val latch = java.util.concurrent.CountDownLatch(1)
         val finished =
             java.util.concurrent.atomic
@@ -303,7 +303,7 @@ class ProfilerIntegrationTest {
     fun `test wrap() executor captures stack traces correctly`() {
         val targetFile = File("/etc/hostname")
         val pool = Executors.newSingleThreadExecutor()
-        val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE)
+        val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE_UNSAFE)
         try {
             wrapped
                 .submit(

@@ -79,7 +79,7 @@ Combining GraalVM Isolates with kernel-level Seccomp/Landlock enforcement gives 
 1. **The Trusted Host:** The main application handles HTTP routing and database connections.
 2. **The Untrusted Task:** A request arrives to parse a potentially malicious XML document.
 3. **Spawn the Isolate:** The main app spawns a new GraalVM Isolate in sub-milliseconds.
-4. **Lock the Doors:** The very first line inside the Isolate calls `ContainedExecutors.installOnCurrentThread(Policy.PURE_COMPUTE)`.
+4. **Lock the Doors:** The very first line inside the Isolate calls `ContainedExecutors.installOnCurrentThread(Policy.PURE_COMPUTE_UNSAFE)`.
 
     > [!WARNING]
     > **The Thread Poisoning Hazard:** Because Seccomp and Landlock filters are bound to the physical Linux OS thread and are strictly **irreversible**, applying a sandbox policy inside the Isolate permanently sandboxes the OS thread executing it. If the host invokes the Isolate synchronously on a primary worker thread (e.g., a Netty HTTP worker), that thread remains locked down even after the Isolate is destroyed. When returned to the pool, the poisoned thread will crash with `EPERM` on standard host operations.
@@ -196,7 +196,7 @@ Because the **Wasm runtime itself** is software. Runtimes like Endive can have i
 2. **Mazewall (The Host):** Wraps the thread executing the Wasm runtime. If a bug is found in the runtime's parser, Mazewall's Seccomp filter is the final backstop preventing that exploit from spawning a shell or accessing the filesystem.
 
 > [!CAUTION]
-> **The JIT vs. W^X Conflict:** If you use Chicory Redline (which JIT-compiles Wasm via Panama FFM), the executing thread must have permission to allocate executable memory. This introduces a minor JIT security gap on that thread. To enforce absolute W^X memory security (blocking `PROT_EXEC` via `Policy.PURE_COMPUTE`), you must run the Wasm engine in **interpreter mode** — slower, but requires zero executable memory allocation.
+> **The JIT vs. W^X Conflict:** If you use Chicory Redline (which JIT-compiles Wasm via Panama FFM), the executing thread must have permission to allocate executable memory. This introduces a minor JIT security gap on that thread. To enforce absolute W^X memory security (blocking `PROT_EXEC` via `Policy.PURE_COMPUTE_UNSAFE`), you must run the Wasm engine in **interpreter mode** — slower, but requires zero executable memory allocation.
 
 ---
 

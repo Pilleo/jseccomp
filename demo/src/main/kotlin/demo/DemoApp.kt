@@ -12,6 +12,9 @@ fun main(args: Array<String>) {
         "safe" -> runSafe()
         "profile" -> runProfileAndEnforce()
         "both" -> {
+            // 'both' is a subset of 'all' (runs unsafe + safe, skips the profiler phase).
+            // Prefer 'all' for the full demonstration. Use 'profile' for the profiler phase alone.
+            println("Note: 'both' mode runs unsafe + safe only. Use 'all' for the complete demonstration.")
             println("=== Running in UNSAFE mode ===")
             runUnsafe()
             println("\n=== Running in SAFE mode ===")
@@ -25,9 +28,31 @@ fun main(args: Array<String>) {
             println()
             runProfileAndEnforce()
         }
+        "--help", "-h", "help" -> {
+            println(
+                """
+                Usage: DemoApp [mode]
 
+                Modes:
+                  unsafe   Simulate a Log4Shell exploit with no protection active.
+                           Shows the attack succeeding and a marker file created.
+
+                  safe     Simulate the same exploit with Policy.NO_EXEC protection.
+                           Shows the kernel blocking execve() via Seccomp-BPF.
+
+                  profile  Full Profile -> Enforce -> Breach -> io_uring evasion showcase.
+                           Phases 1-6 with ANSI output. Requires Linux + Landlock support.
+
+                  all      Run all modes sequentially (default if no argument given).
+
+                  both     Run unsafe + safe only (subset of 'all', no profiler phase).
+
+                  --help   Show this help message.
+            """.trimIndent(),
+            )
+        }
         else -> {
-            println("Usage: DemoApp [unsafe|safe|profile|both|all]")
+            println("Unknown mode: '$mode'. Run with --help for usage.")
             exitProcess(1)
         }
     }

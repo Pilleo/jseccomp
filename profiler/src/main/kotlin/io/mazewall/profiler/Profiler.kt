@@ -114,7 +114,7 @@ object Profiler {
                     try {
                         installProfilingFilterForThread(
                             context.socketPath,
-                            Policy.PURE_COMPUTE,
+                            Policy.PURE_COMPUTE_UNSAFE,
                             localLogs,
                             localStackProfile,
                             localPathCache,
@@ -322,8 +322,6 @@ object Profiler {
     ) {
         val arena = Arena.ofShared()
         val readBuf = arena.allocate(1)
-        val ackBuf = arena.allocate(1)
-        ackBuf.set(ValueLayout.JAVA_BYTE, 0L, 0x41.toByte()) // ACK byte
         val multiBuf = arena.allocate(IO_BUFFER_SIZE.toLong())
 
         val inputStream =

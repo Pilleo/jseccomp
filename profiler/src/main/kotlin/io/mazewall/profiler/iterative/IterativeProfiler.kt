@@ -15,7 +15,7 @@ import java.nio.file.AccessDeniedException
  */
 object IterativeProfiler {
     fun profile(
-        basePolicy: Policy = Policy.PURE_COMPUTE,
+        basePolicy: Policy = Policy.PURE_COMPUTE_UNSAFE,
         task: Runnable,
     ): Policy {
         var currentPolicy = basePolicy

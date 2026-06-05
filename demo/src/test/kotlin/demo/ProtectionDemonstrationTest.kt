@@ -149,8 +149,8 @@ class ProtectionDemonstrationTest {
         if (!io.mazewall.Platform.isSupported()) return
 
         val executor = Executors.newSingleThreadExecutor()
-        // STRICT_SANDBOX uses PURE_COMPUTE which blocks OPENAT, and automatically enables Landlock
-        val safeExecutor = ContainedExecutors.wrap(executor, Policy.STRICT_SANDBOX)
+        // PURE_COMPUTE includes PURE_COMPUTE_UNSAFE and blocks OPENAT, and automatically enables Landlock
+        val safeExecutor = ContainedExecutors.wrap(executor, Policy.PURE_COMPUTE)
 
         try {
             assertFailsWith<ExecutionException> {
@@ -177,8 +177,8 @@ class ProtectionDemonstrationTest {
         if (!io.mazewall.Platform.isSupported()) return
 
         val executor = Executors.newSingleThreadExecutor()
-        // STRICT_SANDBOX uses PURE_COMPUTE and automatically enables Landlock
-        val safeExecutor = ContainedExecutors.wrap(executor, Policy.STRICT_SANDBOX)
+        // PURE_COMPUTE uses PURE_COMPUTE_UNSAFE and automatically enables Landlock
+        val safeExecutor = ContainedExecutors.wrap(executor, Policy.PURE_COMPUTE)
 
         try {
             safeExecutor

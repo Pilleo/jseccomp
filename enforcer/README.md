@@ -36,7 +36,7 @@ import io.mazewall.Policy
 
 // Build a restrictive, path-aware policy
 val securePolicy = Policy.builder()
-    .base(Policy.PURE_COMPUTE)
+    .base(Policy.PURE_COMPUTE_UNSAFE)
     .allowJvmClasspath()              // Permits JVM lazy class loading
     .allowFsRead("/var/tmp/incoming") // Read permission only
     .build()

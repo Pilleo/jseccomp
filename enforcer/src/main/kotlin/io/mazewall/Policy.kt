@@ -3,6 +3,14 @@ package io.mazewall
 /**
  * Defines which syscalls to block. Create via [builder] or use the built-in presets.
  *
+ * ### Built-in Preset Decision Guide
+ * | Preset | Blocks | JVM-Safe | Use when |
+ * |--------|--------|----------|----------|
+ * | [NO_EXEC] | exec, fork, memfd | ✅ | Process-wide startup lockdown |
+ * | [NO_NETWORK] | all network syscalls | ✅ | Parsers needing local FS |
+ * | [PURE_COMPUTE] | network + exec + most FS | ✅ | **Recommended default** for worker pools |
+ * | [PURE_COMPUTE_UNSAFE] | same as PURE_COMPUTE | ⚠️ | Low-level building block only |
+ *
  * ### Modern Syscall Handling
  * This library uses BPF argument inspection to allow critical JVM operations while blocking
  * malicious ones:
@@ -60,8 +68,24 @@ class Policy private constructor(
     }
 
     companion object {
-        /** Blocks all network I/O, process execution, and file opens. Suitable for pure computation tasks. */
-        val PURE_COMPUTE: Policy =
+        private val logger = java.util.logging.Logger
+            .getLogger(Policy::class.java.name)
+
+        /**
+         * Low-level building block. Blocks all network I/O, process execution, and file opens
+         * (including `open`, `openat`, `openat2`).
+         *
+         * ⚠️ **NOT SAFE FOR DIRECT USE ON THE JVM:** Blocking `open`/`openat`/`openat2` prevents
+         * JVM lazy class loading. Any worker thread that hasn't pre-loaded all required classes
+         * will crash with `NoClassDefFoundError` when it hits a new class load.
+         *
+         * **Use [PURE_COMPUTE] instead** — it adds [Builder.allowJvmClasspath] to prevent
+         * class-loading deadlocks while retaining the same security posture.
+         *
+         * Only use this preset directly if you have complete startup warmup control and
+         * have verified that every class the thread will ever touch is already loaded.
+         */
+        val PURE_COMPUTE_UNSAFE: Policy =
             builder()
                 .defaultAction(SeccompAction.ACT_ALLOW)
                 .block(Syscall.CONNECT, Syscall.SENDTO, Syscall.SENDMSG, Syscall.SOCKET)
@@ -116,13 +140,21 @@ class Policy private constructor(
                 .build()
 
         /**
-         * A highly restrictive baseline that blocks all network, execution, and most filesystem access.
-         * Automatically whitelists the JVM classpath to prevent lazy classloading deadlocks.
-         * Suitable for worker threads that only perform pure computation using pre-loaded data.
+         * The recommended default for pure-computation worker threads.
+         *
+         * Blocks all network I/O, process execution, and most filesystem access —
+         * the same security posture as [PURE_COMPUTE_UNSAFE] — while **automatically
+         * whitelisting the JVM classpath** via [Builder.allowJvmClasspath] to prevent
+         * lazy class-loading deadlocks (`NoClassDefFoundError`).
+         *
+         * ### When to use each preset
+         * - **Use [PURE_COMPUTE]** (this preset) for any worker pool. It is safe by default.
+         * - **Use [PURE_COMPUTE_UNSAFE]** only when you have fully pre-loaded all required
+         *   classes before the thread starts and need to eliminate the classpath read permission.
          */
-        val STRICT_SANDBOX: Policy =
+        val PURE_COMPUTE: Policy =
             builder()
-                .base(PURE_COMPUTE)
+                .base(PURE_COMPUTE_UNSAFE)
                 .allowJvmClasspath()
                 .build()
 
@@ -177,6 +209,10 @@ class Policy private constructor(
          * **intersected**. This matches the behavior of the Linux kernel when multiple Landlock
          * rulesets are stacked on a single thread. If one policy allows `/a` and another allows `/b`,
          * the combined policy will allow **nothing** (unless one is a parent of the other).
+         *
+         * A `WARNING` is logged if Landlock is enforced but the path intersection collapses to empty
+         * (meaning all filesystem access will be blocked). A `FINE` log is always emitted summarising
+         * the merged result — useful when debugging unexpected containment violations.
          */
         fun combine(vararg policies: Policy): Policy {
             require(policies.isNotEmpty()) { "At least one policy is required" }
@@ -208,11 +244,37 @@ class Policy private constructor(
 
             val enforceLandlock = policies.any { it.enforceLandlock }
 
+            // Warn when Landlock is active but the path intersection collapses — this means
+            // ALL filesystem reads (or writes) will be denied, which is almost always a mistake.
+            if (enforceLandlock && fsReads.isEmpty() && allReadSets.isNotEmpty()) {
+                logger.warning(
+                    "Policy.combine(): Landlock is enforced but the read-path intersection is empty. " +
+                    "The combined policy will DENY ALL filesystem reads. " +
+                    "${allReadSets.size} input policies had non-empty read-path sets with no common ancestor. " +
+                    "Ensure at least one path is a common parent of all allowed paths.",
+                )
+            }
+            if (enforceLandlock && fsWrites.isEmpty() && allWriteSets.isNotEmpty()) {
+                logger.warning(
+                    "Policy.combine(): Landlock is enforced but the write-path intersection is empty. " +
+                    "The combined policy will DENY ALL filesystem writes. " +
+                    "${allWriteSets.size} input policies had non-empty write-path sets with no common ancestor.",
+                )
+            }
+
             if (enforceLandlock) {
                 // Landlock requires OPEN, OPENAT, OPENAT2 to function correctly.
                 combinedSyscalls[Syscall.OPEN] = SeccompAction.ACT_ALLOW
                 combinedSyscalls[Syscall.OPENAT] = SeccompAction.ACT_ALLOW
                 combinedSyscalls[Syscall.OPENAT2] = SeccompAction.ACT_ALLOW
+            }
+
+            logger.fine {
+                "Policy.combine(${policies.size} policies): " +
+                "defaultAction=$combinedDefaultAction, " +
+                "blockedSyscalls=${combinedSyscalls.count { it.value != SeccompAction.ACT_ALLOW }}, " +
+                "readPaths=${fsReads.size}, writePaths=${fsWrites.size}, " +
+                "enforceLandlock=$enforceLandlock"
             }
 
             return Policy(

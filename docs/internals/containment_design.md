@@ -41,7 +41,7 @@ ContainedExecutors.installInternal(processWide, vararg policies)
 ## 2. Why a Linear BPF Scan (Not a BST)
 
 BPF jump offsets are 8-bit unsigned integers — the maximum forward jump is 255 instructions.
-A Binary Search Tree layout for even a moderately sized syscall set (e.g. `PURE_COMPUTE`'s
+A Binary Search Tree layout for even a moderately sized syscall set (e.g. `PURE_COMPUTE_UNSAFE`'s
 ~40 syscalls) can require jumps that exceed this limit, requiring complex instruction
 rewriting or label patching.
 
@@ -248,7 +248,7 @@ exclusive. `NEW_LISTENER` is used exclusively by `Profiler`. Never combine them.
 
 Landlock installation calls `landlock_create_ruleset(2)`, `landlock_add_rule(2)`,
 and `landlock_restrict_self(2)` — all standard syscalls. If seccomp is installed
-first with a policy that blocks `openat` (e.g. `PURE_COMPUTE`), these Landlock
+first with a policy that blocks `openat` (e.g. `PURE_COMPUTE_UNSAFE`), these Landlock
 syscalls fail before Landlock can activate.
 
 **Enforced order in `ContainedExecutors.ContainedExecutorWrapper.applyContainment()`:**
@@ -370,7 +370,7 @@ captured state segment reflects only the most recent call.
 
 ## 9. Logging & Metrics inside a Sandboxed Thread
 
-Applying strict sandboxing rules (like `Policy.PURE_COMPUTE` or restricted Landlock paths) to individual worker threads introduces a critical operational challenge: **logging and metrics execution**.
+Applying strict sandboxing rules (like `Policy.PURE_COMPUTE_UNSAFE` or restricted Landlock paths) to individual worker threads introduces a critical operational challenge: **logging and metrics execution**.
 
 ### The Problem
 If a sandboxed task thread attempts to execute synchronous logging or metrics updates (e.g., standard file writes, TCP/UDP socket transmissions, or JMX updates):

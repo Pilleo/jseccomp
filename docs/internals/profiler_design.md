@@ -144,7 +144,7 @@ Seccomp-BPF is blind to operations submitted via `io_uring` rings.
 ### Tier A: Native Iterative Deny-and-Retry Loop (The Unprivileged Fallback)
 For heavily locked-down environments where `root` is unavailable and Tier S is blocked by strict OCI container profiles, the `IterativeProfiler` provides a fully in-process, zero-privilege alternative:
 
-1.  **Baseline Run:** Execute the target code under a restrictive baseline policy (e.g. `Policy.PURE_COMPUTE`).
+1.  **Baseline Run:** Execute the target code under a restrictive baseline policy (e.g. `Policy.PURE_COMPUTE_UNSAFE`).
 2.  **Exception Accumulation:** Instead of stopping on the first `ContainmentViolationException`, the profiler catches `AccessDeniedException` and other I/O errors, extracts the missing path, and accumulates it.
 3.  **Policy Expansion and Retry:** The blocked paths/syscalls are added to the policy model and the run is repeated.
 4.  **Convergence:** Execution converges in O(N) runs.
@@ -265,12 +265,12 @@ internal fun assertSafeCoordination(blocked: Set<Syscall>) {
 
 ## 4. Policy DSL Compilation Example
 
-At the end of a profiling run, raw observations are converted into a `BillOfBehavior`. Calling `bill.toDsl("Policy.PURE_COMPUTE")` compiles the bill and produces a clean, copy-pasteable Kotlin DSL code snippet:
+At the end of a profiling run, raw observations are converted into a `BillOfBehavior`. Calling `bill.toDsl("Policy.PURE_COMPUTE_UNSAFE")` compiles the bill and produces a clean, copy-pasteable Kotlin DSL code snippet:
 
 ```kotlin
 // Automatically compiled and emitted by BillOfBehavior.toDsl():
 val policy = Policy.builder()
-    .base(Policy.PURE_COMPUTE)
+    .base(Policy.PURE_COMPUTE_UNSAFE)
     // Syscall whitelists compiled from trace events:
     .unblock(
         Syscall.READ,

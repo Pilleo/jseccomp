@@ -2,7 +2,7 @@
 
 ## The GC and Safepoint Deadlock Risk
 
-Applying extreme restrictions like `Policy.PURE_COMPUTE` inside a HotSpot JVM comes with a massive, implicit runtime risk: **Safepoints and GC cycles.**
+Applying extreme restrictions like `Policy.PURE_COMPUTE_UNSAFE` inside a HotSpot JVM comes with a massive, implicit runtime risk: **Safepoints and GC cycles.**
 
 A JVM thread is never a completely isolated island. Periodically, the JVM pauses application threads to perform Garbage Collection, generate thread dumps, or execute runtime optimizations (safepoints). To coordinate these operations, application threads must run JVM runtime code, which frequently invokes system calls for synchronization and resource management:
 * `futex` for native lock acquisition and thread waking.

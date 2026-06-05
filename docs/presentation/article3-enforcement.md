@@ -47,7 +47,7 @@ All three of these tools are **out-of-process, process-wrapping sandboxes**. The
 *   **In-Process Thread Scoping:** A process wrapper cannot distinguish between a thread parsing untrusted XML and a thread performing internal JVM metrics collection or garbage collection.
 *   **Namespace Threading Hazards:** Linux namespaces (the core tool of NsJail and Bubblewrap) are generally process-wide. Applying a mount or network namespace thread-locally inside a shared-memory runtime like the JVM is practically impossible or causes severe stability failures (e.g., losing access to loaded classes or classloaders).
 
-**mazewall** solves this by operating **in-process** using **thread-scoped Seccomp-BPF** and **Landlock LSM**. This allows us to apply strict sandboxing policies (like `PURE_COMPUTE`) directly to the application worker threads while letting JVM coordination threads run unconstrained.
+**mazewall** solves this by operating **in-process** using **thread-scoped Seccomp-BPF** and **Landlock LSM**. This allows us to apply strict sandboxing policies (like `PURE_COMPUTE_UNSAFE`) directly to the application worker threads while letting JVM coordination threads run unconstrained.
 
 ---
 
@@ -153,7 +153,7 @@ This configuration maintains a robust container-level security floor (blocking a
 </details>
 
 ### Tier 2: Surgical Thread Containment
-For specific thread pools handling untrusted data (like JSON parsers or image processors), we apply stricter policies (like `Policy.PURE_COMPUTE` or custom Landlock paths). We wrap the target `ExecutorService` using `ContainedExecutors.wrap()`, which automatically binds the compiled policy to each worker thread before it executes its first task.
+For specific thread pools handling untrusted data (like JSON parsers or image processors), we apply stricter policies (like `Policy.PURE_COMPUTE_UNSAFE` or custom Landlock paths). We wrap the target `ExecutorService` using `ContainedExecutors.wrap()`, which automatically binds the compiled policy to each worker thread before it executes its first task.
 
 ### The Thread-Scoped ACE Escape Caveat
 It is critical to understand the threat model of thread-scoped sandboxing. Because all JVM threads share the same physical address space (the Java heap and class metadata), a thread-scoped sandbox is **not** an absolute barrier against an attacker who achieves Arbitrary Code Execution (ACE) on the sandboxed thread. 
@@ -208,7 +208,7 @@ If a custom `mazewall` policy aggressively blocks any of the following system ca
 
 Blocking `futex` or `rt_sigreturn` will cause the JVM to permanently freeze or crash. The other syscalls above produce severe degradation or instability if blocked.
 
-This is why `mazewall`'s base policies (like `Policy.PURE_COMPUTE`) pre-whitelist these system calls. When writing custom policies, these system calls must remain unblocked.
+This is why `mazewall`'s base policies (like `Policy.PURE_COMPUTE_UNSAFE`) pre-whitelist these system calls. When writing custom policies, these system calls must remain unblocked.
 
 ---
 

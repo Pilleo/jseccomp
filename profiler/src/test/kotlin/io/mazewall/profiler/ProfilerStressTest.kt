@@ -21,7 +21,7 @@ class ProfilerStressTest {
             val threadCount = 64
             val iterationsPerThread = 10
             val pool = Executors.newFixedThreadPool(threadCount)
-            val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE)
+            val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE_UNSAFE)
 
             val successCount = AtomicInteger(0)
             val totalExpected = threadCount * iterationsPerThread
@@ -55,7 +55,7 @@ class ProfilerStressTest {
 
             repeat(lifecycleIterations) {
                 val pool = Executors.newFixedThreadPool(4)
-                val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE)
+                val wrapped = Profiler.wrap(pool, Policy.PURE_COMPUTE_UNSAFE)
 
                 try {
                     val futures =

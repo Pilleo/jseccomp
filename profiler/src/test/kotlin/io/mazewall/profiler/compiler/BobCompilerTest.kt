@@ -39,7 +39,7 @@ class BobCompilerTest {
         val bob = BobCompiler.compile(events)
 
         // Transpile to Policy
-        val policy = bob.toPolicy(Policy.PURE_COMPUTE)
+        val policy = bob.toPolicy(Policy.PURE_COMPUTE_UNSAFE)
 
         // Verify unrestricted syscalls
         // PURE_COMPUTE blocks CONNECT, OPEN, OPENAT. They should be unrestricted now.
@@ -54,13 +54,13 @@ class BobCompilerTest {
         assertTrue(policy.allowedFsWritePaths.contains("/tmp/new-dir"), "Should contain write path")
 
         // Compile to DSL
-        val dsl = bob.toDsl("Policy.PURE_COMPUTE", Policy.PURE_COMPUTE)
+        val dsl = bob.toDsl("Policy.PURE_COMPUTE_UNSAFE", Policy.PURE_COMPUTE_UNSAFE)
         println("Generated DSL:\n$dsl")
 
         val expectedDsl =
             """
 val policy = Policy.builder()
-    .base(Policy.PURE_COMPUTE)
+    .base(Policy.PURE_COMPUTE_UNSAFE)
     .unblock(
         Syscall.CONNECT,
         Syscall.MKDIR,
@@ -79,7 +79,7 @@ val policy = Policy.builder()
     @Test
     fun `test empty events returns unmodified base policy`() {
         val bob = BobCompiler.compile(emptyList())
-        val policy = bob.toPolicy(Policy.PURE_COMPUTE)
+        val policy = bob.toPolicy(Policy.PURE_COMPUTE_UNSAFE)
         val arch = Arch.current()
         val restricted = policy.syscallActionNumbers(arch).keys.toSet()
 
@@ -89,11 +89,11 @@ val policy = Policy.builder()
         assertTrue(policy.allowedFsReadPaths.isEmpty())
         assertTrue(policy.allowedFsWritePaths.isEmpty())
 
-        val dsl = bob.toDsl("Policy.PURE_COMPUTE", Policy.PURE_COMPUTE)
+        val dsl = bob.toDsl("Policy.PURE_COMPUTE_UNSAFE", Policy.PURE_COMPUTE_UNSAFE)
         val expectedDsl =
             """
 val policy = Policy.builder()
-    .base(Policy.PURE_COMPUTE)
+    .base(Policy.PURE_COMPUTE_UNSAFE)
     .build()
             """.trimIndent()
         assertEquals(expectedDsl.trim(), dsl.trim())
@@ -101,7 +101,7 @@ val policy = Policy.builder()
 
     @Test
     fun `test C-1 bug fix - syscall observed but not restricted by base policy is absent from compiled policy`() {
-        // GETPID is generally not restricted by Policy.PURE_COMPUTE.
+        // GETPID is generally not restricted by Policy.PURE_COMPUTE_UNSAFE.
         // If we observe GETPID, compiling against PURE_COMPUTE should NOT list it in the unrestricted list of the DSL
         // and should not have any effect.
         val events =
@@ -112,11 +112,11 @@ val policy = Policy.builder()
         val bob = BobCompiler.compile(events)
 
         // Generate DSL - GETPID should not be listed as unrestricted since PURE_COMPUTE does not block it.
-        val dsl = bob.toDsl("Policy.PURE_COMPUTE", Policy.PURE_COMPUTE)
+        val dsl = bob.toDsl("Policy.PURE_COMPUTE_UNSAFE", Policy.PURE_COMPUTE_UNSAFE)
         val expectedDsl =
             """
 val policy = Policy.builder()
-    .base(Policy.PURE_COMPUTE)
+    .base(Policy.PURE_COMPUTE_UNSAFE)
     .build()
             """.trimIndent()
 

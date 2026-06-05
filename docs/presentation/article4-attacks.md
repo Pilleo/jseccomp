@@ -307,7 +307,7 @@ flowchart TD
 ```
 
 ### 🔥 RED ZONES (High Risk / Must Sandbox)
-These are the most vulnerable parts of an application. They should *always* be wrapped in a restricted thread pool (e.g., `Policy.PURE_COMPUTE`).
+These are the most vulnerable parts of an application. They should *always* be wrapped in a restricted thread pool (e.g., `Policy.PURE_COMPUTE_UNSAFE`).
 *   **Deserializers:** Jackson, Gson, SnakeYAML, XStream. (Risk: RCE via gadget chains, memory exhaustion).
 *   **Document/Media Parsers:** XML (SAX/DOM), PDF generation, Image processing libraries. (Risk: XXE, SSRF, native memory corruption).
 *   **Template Engines:** Spring Expression Language (SpEL), Velocity, FreeMarker. (Risk: Server-Side Template Injection / SSTI).
@@ -335,7 +335,7 @@ To scale application containment, security must be built directly into the devel
 Building on the usability principles highlighted in the usable security research[^green2016], the most robust way to enforce these boundaries without relying on developer memory is to automate the validation in the build toolchain. Here is how a future sandboxing linter concept would fit into the development workflow:
 
 1.  **Dependency Scanning:** The linter would flag any class that imports packages from the "Red Zone" (e.g., `import com.fasterxml.jackson.*` or `import javax.xml.*`).
-2.  **Enforcement Rule:** It would trace the call graph to ensure that the method invoking the Red Zone library is executed via `ContainedExecutors.wrap(...)` or is annotated with a required policy (e.g., `@Sandboxed(Policy.PURE_COMPUTE)`).
+2.  **Enforcement Rule:** It would trace the call graph to ensure that the method invoking the Red Zone library is executed via `ContainedExecutors.wrap(...)` or is annotated with a required policy (e.g., `@Sandboxed(Policy.PURE_COMPUTE_UNSAFE)`).
 3.  **CI/CD Failure:** If a developer introduced a new vulnerable dependency to process user uploads without sandboxing it, the build would fail:
      > *"🚨 Vulnerability Linter: `UserUploadParser.java` uses `javax.xml.*` but is not wrapped in a ContainedExecutor. Unprotected high-risk parsing detected."*
 

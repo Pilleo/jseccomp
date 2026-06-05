@@ -38,32 +38,35 @@ This subproject implements powerful, unprivileged trace profiling engines meant 
 
 ## Quick Start Example
 
-Profile a workload dynamically under the `strace` descendant profiler to auto-generate a security policy:
+Profile a workload dynamically under the recommended `USER_NOTIF` listener to auto-generate a security policy:
 
 ```kotlin
-import io.mazewall.profiler.StraceProfiler
-import io.mazewall.profiler.TraceableWorkload
+import io.mazewall.profiler.Profiler
+import java.io.File
 
-// 1. Define your workload
-class ProcessDataWorkload : TraceableWorkload {
-    override fun run() {
-        val dataFile = File("/var/tmp/data.csv")
-        dataFile.writeText("sample data")
-        println(dataFile.readText())
-    }
+// 1. Profile your workload inline
+val result = Profiler.profile {
+    val dataFile = File("/var/tmp/data.csv")
+    dataFile.writeText("sample data")
+    println(dataFile.readText())
 }
 
-// 2. Profile the workload
-val result = StraceProfiler.profile(ProcessDataWorkload::class.java)
-
-// 3. Compile your pristine, auto-generated policy
+// 2. Compile your pristine, auto-generated policy
 val behavior = result.behavior
 val policy = behavior.toPolicy() // Pre-built Policy ready for enforcer wrap!
 
-// 4. Generate Kotlin DSL code for your configuration files
+// 3. Generate Kotlin DSL code for your configuration files
 val dslCode = behavior.toDsl()
 println(dslCode)
 ```
+
+## Profiling Tiers
+
+| Tier | API | Kernel Requirement | Best For |
+|------|-----|--------------------|----------|
+| **S (Recommended)** | `Profiler.profile { }` | Linux 5.0+ (`USER_NOTIF`) | In-process workloads with accurate stack traces |
+| **A** | `IterativeProfiler` | Any | Landlock path discovery, no daemon required |
+| **P** | `StraceProfiler` | `ptrace_scope ≤ 1` | Legacy environments, subprocess tracing |
 
 ---
 

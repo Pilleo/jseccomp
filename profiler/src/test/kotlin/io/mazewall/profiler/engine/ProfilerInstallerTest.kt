@@ -22,7 +22,7 @@ class ProfilerInstallerTest {
                 val currentThread = Thread.currentThread()
                 ProfilerInstaller.installProfilingFilterForThread(
                     socketPath = "/tmp/nonexistent-path.sock",
-                    policy = Policy.PURE_COMPUTE,
+                    policy = Policy.PURE_COMPUTE_UNSAFE,
                     accumulatedLogs = accumulatedLogs,
                     stackTracesMap = null,
                     pathCache = pathCache,
@@ -60,7 +60,7 @@ class ProfilerInstallerTest {
                 val currentThread = Thread.currentThread()
                 ProfilerInstaller.installProfilingFilterForThread(
                     socketPath = "/tmp/nonexistent-path.sock",
-                    policy = Policy.PURE_COMPUTE,
+                    policy = Policy.PURE_COMPUTE_UNSAFE,
                     accumulatedLogs = accumulatedLogs,
                     stackTracesMap = null,
                     pathCache = pathCache,

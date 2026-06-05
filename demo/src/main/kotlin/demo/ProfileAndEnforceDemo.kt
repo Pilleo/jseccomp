@@ -119,7 +119,7 @@ fun runProfileAndEnforce() {
         // PHASE 2: Code Generation (BoB DSL)
         // ------------------------------------------------------------
         println("\n\u001b[33;1m[PHASE 2] Generated Bill of Behavior (BoB) DSL:\u001b[0m")
-        val dsl = bob.toDsl("Policy.PURE_COMPUTE", Policy.PURE_COMPUTE)
+        val dsl = bob.toDsl("Policy.PURE_COMPUTE_UNSAFE", Policy.PURE_COMPUTE_UNSAFE)
         println("\u001b[34m$dsl\u001b[0m")
 
         // Always save the compiled Bill of Behavior (SBoB) JSON containing captured stack traces
@@ -149,7 +149,7 @@ fun runProfileAndEnforce() {
         val compiledPolicy =
             Policy
                 .builder()
-                .base(bob.toPolicy(Policy.PURE_COMPUTE))
+                .base(bob.toPolicy(Policy.PURE_COMPUTE_UNSAFE))
                 .unblock(Syscall.IO_URING_SETUP)
                 .build()
 
@@ -217,10 +217,11 @@ fun runProfileAndEnforce() {
         val attackerIoUringEvasionTask = {
             println("  [Attacker] Preparing io_uring asynchronous read of '/etc/hosts'...")
 
-            // Simulating the kernel VFS check under Landlock active ruleset:
-            // Even if io_uring submits the read, the kernel worker (io-wq) inherits Landlock restrictions,
-            // which rejects access to '/etc/hosts' and returns EACCES (Permission denied).
-            // Let's perform a validation check mimicking what the kernel async worker experiences:
+            // NOTE: We cannot submit a real io_uring SQE from Kotlin/JVM without a native C library.
+            // This open() call is the closest observable proxy: the kernel applies the same Landlock
+            // ruleset to the io-wq async worker that it applies here — if /etc/hosts is outside the
+            // whitelisted scope, the VFS layer rejects the open regardless of whether it came from a
+            // synchronous syscall or an io_uring submission queue entry.
             Arena.ofConfined().use { arena ->
                 val openResult =
                     LinuxNative.open(
@@ -228,7 +229,11 @@ fun runProfileAndEnforce() {
                         0, // O_RDONLY
                     )
 
-                if (openResult.returnValue < 0 && (openResult.errno == 1 || openResult.errno == 13)) {
+                // EPERM (1)  = Seccomp blocked the syscall entirely
+                // EACCES (13) = Landlock denied the path access at the VFS layer
+                val EPERM = 1
+                val EACCES = 13
+                if (openResult.returnValue < 0 && (openResult.errno == EPERM || openResult.errno == EACCES)) {
                     println("  [Kernel io-wq Worker] Landlock LSM hook intercepted '/etc/hosts' access inside kernel workqueue!")
                     throw java.io.IOException("Permission denied (io_uring async worker blocked by Landlock)")
                 }
@@ -296,6 +301,20 @@ fun runProfileAndEnforce() {
     }
 
     println("\n\u001b[36;1m==========================================================")
-    println("          DEMO COMPLETED SUCCESSFULLY                     ")
+    println("          PHASE OUTCOMES SUMMARY                          ")
+    println("==========================================================")
+    println("  Phase 1: Profiling (Tier S / USER_NOTIF)  ✅ COMPLETED")
+    println("  Phase 2: Bill of Behavior DSL generation   ✅ COMPLETED")
+    println("  Phase 3: Enforcement (legit workload)      ✅ BLOCKED by Seccomp + Landlock")
+    println("  Phase 4: Sync path traversal breach        🛡  BLOCKED by Landlock VFS")
+    println("  Phase 5: io_uring async evasion attempt    🛡  BLOCKED by Landlock VFS (io-wq inherits ruleset)")
+    println("  Phase 6: Thread-hopping bypass             ⚠  BYPASSED (intentional — Tier 2 limitation)")
+    println("\u001b[35m")
+    println("  [LESSON] Phase 6 is intentionally bypassed. Thread-scoped Tier 2 containment")
+    println("           is a shield for trusted code paths, not a cage for arbitrary Java logic.")
+    println("           For full isolation of untrusted code, stack Tier 1 (process-wide)")
+    println("           lockdown with GraalVM Isolates or Wasm sandboxing.")
+    println("\u001b[36;1m")
+    println("          DEMO COMPLETED                                  ")
     println("==========================================================\u001b[0m")
 }

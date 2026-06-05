@@ -109,7 +109,7 @@ data class BillOfBehavior(
      * All [opens] paths are granted read access; all [fsWritePaths] paths
      * are granted write access.
      */
-    fun toPolicy(base: Policy = Policy.PURE_COMPUTE): Policy {
+    fun toPolicy(base: Policy = Policy.PURE_COMPUTE_UNSAFE): Policy {
         val builder = Policy.builder().base(base)
         if (base.defaultAction == io.mazewall.SeccompAction.ACT_ALLOW) {
             val toUnblock = syscalls.filter { !base.isSyscallAllowed(it) }
@@ -129,8 +129,8 @@ data class BillOfBehavior(
      * [basePolicyName] is used as the string label in the emitted code.
      */
     fun toDsl(
-        basePolicyName: String = "Policy.PURE_COMPUTE",
-        base: Policy = Policy.PURE_COMPUTE,
+        basePolicyName: String = "Policy.PURE_COMPUTE_UNSAFE",
+        base: Policy = Policy.PURE_COMPUTE_UNSAFE,
     ): String {
         val sb = StringBuilder()
         sb.append("val policy = Policy.builder()\n")
@@ -313,7 +313,25 @@ data class BillOfBehavior(
             )
         }
 
-        @Suppress("ComplexMethod", "CyclomaticComplexMethod", "MagicNumber", "ReturnCount")
+        /**
+         * Parses a string produced by [StackTraceElement.toString].
+         *
+         * Format (all optional segments in brackets):
+         * ```
+         * [classLoaderName/][moduleName[@version]/]className.methodName(fileName[:lineNumber])
+         * ```
+         *
+         * Examples:
+         * - `io.mazewall.Profiler.profile(Profiler.kt:152)`
+         * - `java.base/java.lang.Thread.run(Thread.java:1583)`
+         * - `app/io.mazewall@1.0/io.mazewall.Profiler.profile(Profiler.kt:152)`
+         * - `Native Method` / `Unknown Source` inside parens
+         *
+         * A regex is not used: the optional classloader, module, and version segments create
+         * ambiguous group boundaries (e.g., `foo/bar` could be classloader+class or module+class)
+         * that are more clearly disambiguated by the sequential string decomposition below.
+         */
+        @Suppress("ComplexMethod", "CyclomaticComplexMethod", "MagicNumber", "ReturnCount") // justified by format above
         private fun parseStackTraceElement(str: String): StackTraceElement {
             val openParen = str.indexOf('(')
             val closeParen = str.lastIndexOf(')')

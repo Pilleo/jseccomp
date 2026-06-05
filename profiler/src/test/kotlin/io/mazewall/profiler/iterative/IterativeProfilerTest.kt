@@ -61,7 +61,7 @@ class IterativeProfilerTest {
 
     @Test
     fun `test iterative profiling rethrows unrelated exceptions`() {
-        val basePolicy = Policy.PURE_COMPUTE
+        val basePolicy = Policy.PURE_COMPUTE_UNSAFE
         org.junit.jupiter.api.assertThrows<IllegalStateException> {
             IterativeProfiler.profile(basePolicy) {
                 throw IllegalStateException("completely unrelated error")
@@ -71,7 +71,7 @@ class IterativeProfilerTest {
 
     @Test
     fun `test iterative profiling parses path from generic exception messages`() {
-        val basePolicy = Policy.PURE_COMPUTE
+        val basePolicy = Policy.PURE_COMPUTE_UNSAFE
         var attempts = 0
         val targetPath = "/etc/custom_denied_path"
         val compiledPolicy = IterativeProfiler.profile(basePolicy) {
@@ -119,7 +119,7 @@ class IterativeProfilerTest {
 
     @Test
     fun `test iterative profiling retry limit exceeded`() {
-        val basePolicy = Policy.PURE_COMPUTE
+        val basePolicy = Policy.PURE_COMPUTE_UNSAFE
         val compiledPolicy = IterativeProfiler.profile(basePolicy) {
             throw java.io.IOException("/etc/forever_denied (Permission denied)")
         }
@@ -128,7 +128,7 @@ class IterativeProfilerTest {
 
     @Test
     fun `test iterative profiling ignores exception with null message`() {
-        val basePolicy = Policy.PURE_COMPUTE
+        val basePolicy = Policy.PURE_COMPUTE_UNSAFE
         org.junit.jupiter.api.assertThrows<java.io.IOException> {
             IterativeProfiler.profile(basePolicy) {
                 throw java.io.IOException(null as String?)

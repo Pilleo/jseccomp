@@ -9,6 +9,18 @@
 
 ---
 
+## Start Here
+
+| I want to… | Go to |
+|------------|-------|
+| Understand what mazewall is and why it exists | Keep reading ↓ |
+| Run the live exploit demo | [Demo README](demo/README.md) |
+| Integrate mazewall into my Spring/Quarkus app | [enforcer README](enforcer/README.md) → Quick Start |
+| Understand the kernel internals and threat model | [Article Series](#technical-articles) |
+| Contribute or modify the codebase | [CONTRIBUTING.md](CONTRIBUTING.md) (coming soon) |
+
+---
+
 ## Technical Articles
 
 To read the core research and threat model analysis behind `mazewall`, start with our deep-dive article series:
@@ -75,7 +87,7 @@ The canonical use case: wrap thread pools that process untrusted input (user upl
 
 This is a less obvious but equally important use case. `mazewall` can be used to **prove** — at the kernel level, not by software assertion — that sensitive data was handled with strict behavioral constraints.
 
-Consider a thread pool that decrypts and processes PII, payment card data, or legally privileged documents. By wrapping it with `Policy.PURE_COMPUTE` and a Landlock path restriction:
+Consider a thread pool that decrypts and processes PII, payment card data, or legally privileged documents. By wrapping it with `Policy.PURE_COMPUTE_UNSAFE` and a Landlock path restriction:
 
 - **No network call was made.** `connect`, `socket`, `sendmsg` are blocked by the kernel. The data could not have been exfiltrated, regardless of what application code claims.
 - **No file was written outside the declared path.** The data was not persisted anywhere outside the explicitly whitelisted Landlock paths — not even by a misbehaving logger.
@@ -139,13 +151,16 @@ podman compose -f infra/dev/compose.yml exec mazewall ./gradlew test
 > Standard `security_opt: seccomp=...` triggers a bug in some orchestrators where the full JSON profile is passed as a string over the socket, causing a "file name too long" (`ENAMETOOLONG`) error. We bypass this using the Podman-native annotation `io.podman.annotations.seccomp` in `infra/dev/compose.yml`.
 
 > **Note on Container Security:** Rather than running completely unconfined (which is insecure), `mazewall` includes a custom [podman-seccomp.json](infra/dev/podman-seccomp.json) profile that is automatically configured in [infra/dev/compose.yml](infra/dev/compose.yml). This profile whitelists `seccomp(2)` filter stacking, enabling the JVM inside the container to apply nested thread-level policies while keeping the container fully isolated from the host.
+>
+> > [!NOTE]
+> > **Container Profiles:** This command uses the development profile (`infra/dev/compose.yml`) which runs the test environment. Do not confuse it with the CVE demo profile (`demo/vulnerable-app/compose.yml`) used to run the vulnerable Spring Boot app.
 
 ### 2. Configure a Path-Restricted Thread Pool (Landlock)
 
 ```kotlin
 // Restrict filesystem access, block process execution, and disable network
 val policy = Policy.builder()
-    .base(Policy.PURE_COMPUTE)
+    .base(Policy.PURE_COMPUTE_UNSAFE)
     .allowJvmClasspath()             // Crucial: allow lazy loading of JVM classes
     .allowFsRead("/data/incoming")   // Allow read-only access here
     .allowFsWrite("/data/processed") // Allow write-only access here
@@ -187,8 +202,8 @@ The interactive showcase demonstrating:
 |-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------|
 | `Policy.NO_EXEC`      | `execve`, `execveat`, `fork`, `vfork`, `memfd_create`, `io_uring_setup`, `io_uring_enter`, `ptrace`, `init_module`, `finit_module`                                                                                                                                                                                                                         | Process-wide startup lockdown baseline.                              |
 | `Policy.NO_NETWORK`   | `connect`, `sendto`, `sendmsg`, `socket`, `bind`, `listen`, `accept`, `accept4`, `io_uring_setup`, `io_uring_enter`                                                                                                                                                                                                                                       | Data parsers that require local filesystem access but no internet.   |
-| `Policy.PURE_COMPUTE` | All network and execution blocks + `open`, `openat`, `openat2`, `rename`, `mkdir`, `chmod`, `chown`, `umask`, `truncate`, `process_vm_writev`, `userfaultfd`, `unshare`, `setns`, `mount`, `pivot_root`, `chroot`, `bpf`, `io_uring_enter`; `mmap`/`mprotect` with `PROT_EXEC` and non-thread `clone` via BPF; `prctl` restricted to safe options via BPF | Algorithmic worker pools (image decoding, cryptographic operations). |
-| `Policy.STRICT_SANDBOX` | Base: `PURE_COMPUTE` + allows JVM classpath read.                                                                                                                                                                                                                                                                                                         | High-security workers preventing lazy classloading deadlocks.        |
+| `Policy.PURE_COMPUTE_UNSAFE` | All network and execution blocks + `open`, `openat`, `openat2`, `rename`, `mkdir`, `chmod`, `chown`, `umask`, `truncate`, `process_vm_writev`, `userfaultfd`, `unshare`, `setns`, `mount`, `pivot_root`, `chroot`, `bpf`, `io_uring_enter`; `mmap`/`mprotect` with `PROT_EXEC` and non-thread `clone` via BPF; `prctl` restricted to safe options via BPF | Algorithmic worker pools (image decoding, cryptographic operations). |
+| `Policy.PURE_COMPUTE` | Base: `PURE_COMPUTE_UNSAFE` + allows JVM classpath read.                                                                                                                                                                                                                                                                                                         | High-security workers preventing lazy classloading deadlocks.        |
 
 ## System Call Reference
 

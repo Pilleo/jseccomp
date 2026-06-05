@@ -104,7 +104,7 @@ Once profiling converges, the observations compile into an immutable `Policy` re
 
 ```kotlin
 val MyWorkerPolicy = Policy.builder()
-    .base(Policy.PURE_COMPUTE)
+    .base(Policy.PURE_COMPUTE_UNSAFE)
     .unblock(Syscall.IO_URING_SETUP)             // Detected: io_uring queue setup
     .unblock(Syscall.SOCKET, Syscall.CONNECT)    // Detected: loopback network call
     .allowFsRead("/app/config.json")             // Detected: config file read
@@ -113,7 +113,7 @@ val MyWorkerPolicy = Policy.builder()
 
 ### The Anatomy of the Policy
 This generated policy contains four elements:
-1. **`Policy.PURE_COMPUTE`:** This is a default-deny base policy. It blocks high-risk actions like process execution (`execve`), network socket creation (`socket`), and executable memory allocation.
+1. **`Policy.PURE_COMPUTE_UNSAFE`:** This is a default-deny base policy. It blocks high-risk actions like process execution (`execve`), network socket creation (`socket`), and executable memory allocation.
 2. **`unblock(Syscall.IO_URING_SETUP)`:** The profiler detected that the thread requires setting up an `io_uring` queue, and whitelists only this specific system call.
 3. **`unblock(Syscall.SOCKET, Syscall.CONNECT)`:** The profiler observed a network call to `localhost`. It whitelists only the two syscalls needed to establish a loopback connection, rather than granting broad network access.
 4. **`allowFsRead("/app/config.json")`:** The profiler observed a file read. Instead of granting broad filesystem access, it whitelists only the specific configuration file path that was touched.

@@ -25,7 +25,7 @@ class BpfFilterLabelTest {
     @Test
     fun `all jump targets land on valid instructions`() {
         val arch = Arch.AMD64
-        val policy = Policy.PURE_COMPUTE
+        val policy = Policy.PURE_COMPUTE_UNSAFE
         val filter = BpfFilter.build(arch, policy)
 
         for (i in filter.indices) {
