@@ -15,11 +15,10 @@ version = "0.1.0-SNAPSHOT"
 allprojects {
     apply(plugin = "maven-publish")
 
-    // Attempt to preempt JitPack's broken 'listDeps' task
-    tasks.register("listDeps") {
-        doLast {
-            println("JitPack listDeps shim for ${project.name}")
-        }
+    // Safely attempt to preempt or override JitPack's broken 'listDeps' task
+    // Using 'matching' to avoid collision if JitPack already injected it.
+    tasks.matching { it.name == "listDeps" }.configureEach {
+        enabled = false
     }
 }
 
