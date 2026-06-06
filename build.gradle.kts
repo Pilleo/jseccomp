@@ -5,7 +5,11 @@ plugins {
     id("org.jlleitschuh.gradle.ktlint") version "14.2.0"
     id("com.github.spotbugs") version "6.5.5"
     id("org.owasp.dependencycheck") version "10.0.4"
+    id("maven-publish")
 }
+
+group = "io.mazewall"
+version = "0.0.1-prealpha-SNAPSHOT"
 
 dependencyCheck {
     failBuildOnCVSS = 7.0f
@@ -35,6 +39,7 @@ subprojects {
     apply(plugin = "dev.detekt")
     apply(plugin = "org.jlleitschuh.gradle.ktlint")
     apply(plugin = "com.github.spotbugs")
+    apply(plugin = "maven-publish")
 
     // Ensure code is formatted before compilation to prevent build failures
     tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {

@@ -1,6 +1,6 @@
 # mazewall
 
-**Kernel-enforced thread-scoped sandboxing for JVM applications. No native agents. No SecurityManager. Just pure Linux Seccomp & Landlock.**
+**Kernel-enforced thread-scoped sandboxing for JVM applications.**
 
 ---
 
@@ -17,11 +17,12 @@
 | Run the live exploit demo | [Demo README](demo/README.md) |
 | Integrate mazewall into my Spring/Quarkus app | [enforcer README](enforcer/README.md) → Quick Start |
 | Understand the kernel internals and threat model | [Article Series](#technical-articles) |
-| Contribute or modify the codebase | [CONTRIBUTING.md](CONTRIBUTING.md) (coming soon) |
+| Contribute or modify the codebase | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ---
 
 ## Technical Articles
+
 
 To read the core research and threat model analysis behind `mazewall`, start with our deep-dive article series:
 
@@ -132,12 +133,46 @@ To avoid parsing JVM exception message strings (since Java `IOException` does no
 
 ---
 
+## Installation
+
+`mazewall` is available via **JitPack**.
+
+### Gradle (Kotlin)
+
+1. Add the JitPack repository to your `settings.gradle.kts` or `build.gradle.kts`:
+```kotlin
+repositories {
+    mavenCentral()
+    maven { url = uri("https://jitpack.io") }
+}
+```
+
+2. Add the dependency to your `build.gradle.kts`:
+```kotlin
+dependencies {
+    // enforcement engine
+    implementation("com.github.mazewall:mazewall:enforcer-SNAPSHOT")
+    implementation("com.github.mazewall:mazewall:profiler-SNAPSHOT")
+
+}
+```
+
+> **Note:** Replace `enforcer-SNAPSHOT` with a specific commit hash or tag (e.g., `v0.1.0`) for reproducible builds.
+
+---
+
 ## Quick Start
 
 
-### 1. Run the Tests Locally
+### 1. Run the Tests
 
-To run the integration suite in a contained environment with nested seccomp support:
+To run the integration suite directly on a Linux host with a compatible kernel (6.2+):
+
+```bash
+./gradlew test
+```
+
+Alternatively, you can run the tests in an isolated environment using **Podman** (which includes a custom seccomp profile for nested sandboxing):
 
 ```bash
 # Start the container under the custom seccomp profile

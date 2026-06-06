@@ -38,23 +38,23 @@ The demo must be run inside the nested seccomp OCI container:
 
 ```bash
 # Start the Podman test environment
-podman compose up -d
+podman compose -f infra/dev/compose.yml up -d
 
 # Execute the complete demonstration suite
-podman compose exec mazewall ./gradlew :demo:run
+podman compose -f infra/dev/compose.yml exec mazewall ./gradlew :demo:run
 ```
 
 You can run individual modes by passing arguments to the Gradle task:
 
 ```bash
 # Run only the JNDI exploit showcase
-podman compose exec mazewall ./gradlew :demo:run --args="unsafe"
+podman compose -f infra/dev/compose.yml exec mazewall ./gradlew :demo:run --args="unsafe"
 
 # Run only the JNDI protection showcase
-podman compose exec mazewall ./gradlew :demo:run --args="safe"
+podman compose -f infra/dev/compose.yml exec mazewall ./gradlew :demo:run --args="safe"
 
 # Run the complete Profile & Enforce (io_uring) showcase
-podman compose exec mazewall ./gradlew :demo:run --args="profile"
+podman compose -f infra/dev/compose.yml exec mazewall ./gradlew :demo:run --args="profile"
 ```
 
 ---

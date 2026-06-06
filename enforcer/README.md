@@ -26,6 +26,25 @@ The codebase inside `:enforcer` is structured into three clear enforcement layer
 
 ---
 
+## Installation
+
+Add `mazewall-enforcer` to your project via **JitPack**.
+
+### Gradle (Kotlin)
+
+```kotlin
+repositories {
+    mavenCentral()
+    maven { url = uri("https://jitpack.io") }
+}
+
+dependencies {
+    implementation("com.github.mazewall:mazewall:enforcer-SNAPSHOT")
+}
+```
+
+---
+
 ## Quick Start Example
 
 Wrap your untrusted, data-parsing executor service with process or thread-scoped limitations:
@@ -69,12 +88,15 @@ sandboxedExecutor.submit {
 
 ## Setup & Testing
 
-Compile the module or run tests in isolation:
+Compile the module or run tests. Tests require a Linux host (6.2+) or the provided Podman environment.
 
 ```bash
 # Compile core module
 ./gradlew :enforcer:build
 
-# Run unprivileged test suite
-podman compose exec mazewall ./gradlew :enforcer:test
+# Run tests directly
+./gradlew :enforcer:test
+
+# Run tests in Podman
+podman compose -f infra/dev/compose.yml exec mazewall ./gradlew :enforcer:test
 ```
