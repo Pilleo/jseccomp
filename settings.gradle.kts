@@ -23,5 +23,4 @@ include(":profiler")
 include(":demo")
 include(":demo:vulnerable-app")
 
-
 rootProject.name = "mazewall"
