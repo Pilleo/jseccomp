@@ -39,9 +39,12 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.mazewall:mazewall:enforcer-SNAPSHOT")
+    // Replace 'USER.REPO' with your actual GitHub username and repository name
+    implementation("com.github.USER.REPO:enforcer:Tag")
 }
 ```
+
+> **Note:** JitPack coordinates for multi-module projects follow the pattern `com.github.User.Repo:Module:Tag`.
 
 ---
 

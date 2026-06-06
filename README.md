@@ -150,14 +150,13 @@ repositories {
 2. Add the dependency to your `build.gradle.kts`:
 ```kotlin
 dependencies {
-    // enforcement engine
-    implementation("com.github.mazewall:mazewall:enforcer-SNAPSHOT")
-    implementation("com.github.mazewall:mazewall:profiler-SNAPSHOT")
-
+    // Core enforcement engine
+    // Replace 'USER.REPO' with your actual GitHub username and repository name
+    implementation("com.github.USER.REPO:enforcer:Tag")
 }
 ```
 
-> **Note:** Replace `enforcer-SNAPSHOT` with a specific commit hash or tag (e.g., `v0.1.0`) for reproducible builds.
+> **Note:** For multi-module projects, JitPack uses the format `com.github.User.Repo:Module:Tag`.
 
 ---
 
