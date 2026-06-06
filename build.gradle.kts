@@ -20,8 +20,15 @@ allprojects {
     tasks.matching { it.name == "listDeps" }.configureEach {
         enabled = false
     }
-}
 
+    // Aggressively skip tests on JitPack because the host kernel (4.4)
+    // is too old for Seccomp/Landlock/FFM and will cause failures.
+    if (System.getenv("JITPACK") == "true") {
+        tasks.withType<Test>().configureEach {
+            enabled = false
+        }
+    }
+}
 dependencyCheck {
     failBuildOnCVSS = 7.0f
     format = "ALL"

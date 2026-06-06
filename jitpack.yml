@@ -1,4 +1,4 @@
 jdk:
     - openjdk17
 install:
-    - ./gradlew publishToMavenLocal -x test -x listDeps
+    - ./gradlew publishToMavenLocal -x listDeps
