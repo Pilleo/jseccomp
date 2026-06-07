@@ -125,9 +125,15 @@ object ContainedExecutors {
         processWide: Boolean,
         policy: Policy,
     ) {
-        val needsLandlock = policy.allowedFsReadPaths.isNotEmpty() ||
+        val needsLandlock =
+            policy.allowedFsReadPaths.isNotEmpty() ||
                 policy.allowedFsWritePaths.isNotEmpty() ||
+                // NOTE: io_uring bypasses seccomp filters via kernel-side async syscall dispatch.
+                // If io_uring is allowed, we must apply Landlock to contain its filesystem access.
+                // This is an intentional implicit Landlock trigger. See backlog "Blacklist policies
+                // trigger silent Landlock lockdown" for the known UX risk of this design.
                 policy.isSyscallAllowed(Syscall.IO_URING_SETUP)
+
 
         if (!needsLandlock) return
 

@@ -326,3 +326,13 @@ Consequently, if a workload relies on `io_uring` for file access, `StraceProfile
 **Context:** Seccomp effectively blocks *new* network connections (`socket`, `connect`), but it cannot prevent data exfiltration over a pre-existing, inherited network file descriptor if the policy permits `write` or `send` calls (which are often needed for file I/O). 
 **Needed:** Propose an optional process-wide `CLONE_NEWNET` initialization to create a private network namespace. This physically removes the host's routing tables and network interfaces (leaving only loopback), ensuring that even if a process possesses an open socket FD, it has no route to the external network, providing a stronger architectural guarantee than syscall blocking alone.
 
+
+### 🔴 [Severity: MEDIUM]: `ContainedExecutors.kt` violates single-responsibility at the API surface
+**Target:** `io.mazewall.enforcer.ContainedExecutors`
+**Context:** The `ContainedExecutors` object conflates the public API, internal plumbing, inner class wrappers, and JIT warmup logic in a single 377-line file. It currently uses `@Suppress("TooManyFunctions")`. The `ContainedExecutorWrapper` inner class conflates lifecycle concerns by triggering the full installation chain on every task execution.
+**Needed:** Refactor `ContainedExecutors` to separate the public API from the internal installation plumbing. Extract `ContainedExecutorWrapper` into its own file and optimize the task-wrapping logic to avoid redundant Landlock checks.
+
+### 🔴 [Severity: HIGH]: Blacklist policies trigger silent Landlock filesystem lockdown due to `io_uring` check
+**Target:** `io.mazewall.enforcer.ContainedExecutors.kt` (specifically `needsLandlock` calculation)
+**Context:** In `ContainedExecutors.kt`, `needsLandlock` is implicitly triggered if `io_uring_setup` is allowed, even if no filesystem paths are specified. This causes Landlock to be applied with an empty ruleset, permanently locking down the filesystem for the thread. This trigger is currently undocumented in the code, making it difficult for agents to diagnose the root cause of the "silent lockdown" symptom observed in `Landlock.kt`.
+**Needed:** Add a cross-reference comment to the `io_uring` trigger in `ContainedExecutors.kt`. Long-term, decouple the `io_uring` safety check from the automatic filesystem lockdown or provide a clear warning/opt-out mechanism.
