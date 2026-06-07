@@ -1,5 +1,6 @@
 plugins {
     kotlin("jvm")
+    id("info.solidsoft.pitest")
 }
 
 kotlin {
@@ -39,4 +40,10 @@ tasks.register<JavaExec>("runScratch") {
     classpath = sourceSets["test"].runtimeClasspath
     mainClass.set("io.mazewall.Scratch")
     jvmArgs("--enable-native-access=ALL-UNNAMED")
+}
+
+pitest {
+    junit5PluginVersion.set("1.2.1")
+    targetClasses.set(setOf("io.mazewall.*"))
+    jvmArgs.set(listOf("--enable-native-access=ALL-UNNAMED"))
 }
