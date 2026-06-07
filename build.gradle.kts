@@ -5,6 +5,7 @@ plugins {
     id("org.jlleitschuh.gradle.ktlint") version "14.2.0"
     id("com.github.spotbugs") version "6.5.5"
     id("org.owasp.dependencycheck") version "10.0.4"
+    id("info.solidsoft.pitest") version "1.19.0" apply false
     id("maven-publish")
     id("base")
 }
