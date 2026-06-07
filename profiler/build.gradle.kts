@@ -1,5 +1,6 @@
 plugins {
     kotlin("jvm")
+    id("info.solidsoft.pitest")
 }
 
 kotlin {
@@ -34,4 +35,10 @@ tasks.withType<Test> {
     testLogging {
         showStandardStreams = true
     }
+}
+
+pitest {
+    junit5PluginVersion.set("1.2.1")
+    targetClasses.set(setOf("io.mazewall.*"))
+    jvmArgs.set(listOf("--enable-native-access=ALL-UNNAMED"))
 }
