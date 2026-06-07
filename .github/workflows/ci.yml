@@ -23,11 +23,16 @@ jobs:
               with:
                   java-version: "25"
                   distribution: "temurin"
-                  cache: gradle
+
+            - name: Setup Gradle
+              uses: gradle/actions/setup-gradle@v4
+              with:
+                  gradle-version: wrapper
+                  # This enables the Gradle Build Cache, Configuration Cache, and dependency caching
+                  cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
 
             - name: Grant Execute Permission for Gradlew
               run: chmod +x gradlew
-
             - name: Run Build and Tests
               run: ./gradlew check --info
               env:
