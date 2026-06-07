@@ -9,9 +9,11 @@ dependencyResolutionManagement {
         maven { url = uri("https://jitpack.io") }
         maven {
             url = uri("https://maven.pkg.github.com/Pilleo/mazewall")
-            credentials {
-                username = System.getenv("GITHUB_ACTOR")
-                password = System.getenv("GITHUB_TOKEN")
+            System.getenv("GITHUB_ACTOR")?.let { actor ->
+                credentials {
+                    username = actor
+                    password = System.getenv("GITHUB_TOKEN")
+                }
             }
         }
     }
