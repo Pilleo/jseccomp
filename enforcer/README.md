@@ -49,7 +49,7 @@ dependencies {
 repositories {
     mavenCentral()
     maven {
-        url = uri("https://maven.pkg.github.com/Pilleo/jseccomp")
+        url = uri("https://maven.pkg.github.com/Pilleo/mazewall")
         credentials {
             username = "GITHUB_USER"
             password = "GITHUB_TOKEN"

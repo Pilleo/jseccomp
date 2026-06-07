@@ -32,5 +32,5 @@ This series explores the threat model of modern cloud-native backend application
 ## Getting Started with Mazewall
 
 To inspect the source code or run the PoC sandbox locally:
-* **Repository:** [jseccomp on GitHub](https://github.com/Pilleo/jseccomp)
+* **Repository:** [jseccomp on GitHub](https://github.com/Pilleo/mazewall)
 * **Design Docs:** [Internal Containment Design](internals/containment_design.html) | [Security Considerations](internals/SECURITY_CONSIDERATIONS.html)

@@ -272,7 +272,7 @@ If you are working on syscall attribution tooling for GraalVM native binaries, a
 
 ---
 
-*This concludes our series on Behavioral Security for Cloud-Native Applications. To explore the code and primitives discussed, visit the [mazewall repository](https://github.com/Pilleo/jseccomp).*
+*This concludes our series on Behavioral Security for Cloud-Native Applications. To explore the code and primitives discussed, visit the [mazewall repository](https://github.com/Pilleo/mazewall).*
 
 [^bytecodealliance]: Endive (formerly Chicory) in the Bytecode Alliance. https://bytecodealliance.org/
 [^wasi]: WASI Preview 1 Specification. https://wasi.dev/

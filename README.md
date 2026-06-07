@@ -1,7 +1,7 @@
 # mazewall
 
-[![CI](https://github.com/Pilleo/jseccomp/actions/workflows/ci.yml/badge.svg)](https://github.com/Pilleo/jseccomp/actions/workflows/ci.yml)
-[![JitPack](https://jitpack.io/v/Pilleo/jseccomp.svg)](https://jitpack.io/#Pilleo/jseccomp)
+[![CI](https://github.com/Pilleo/mazewall/actions/workflows/ci.yml/badge.svg)](https://github.com/Pilleo/mazewall/actions/workflows/ci.yml)
+[![JitPack](https://jitpack.io/v/Pilleo/mazewall.svg)](https://jitpack.io/#Pilleo/mazewall)
 
 **Kernel-enforced thread-scoped sandboxing for JVM applications.**
 
@@ -190,7 +190,7 @@ dependencyResolutionManagement {
     repositories {
         mavenCentral()
         maven {
-            url = uri("https://maven.pkg.github.com/Pilleo/jseccomp")
+            url = uri("https://maven.pkg.github.com/Pilleo/mazewall")
             credentials {
                 username = "YOUR_GITHUB_USERNAME"
                 password = "YOUR_GITHUB_TOKEN"
