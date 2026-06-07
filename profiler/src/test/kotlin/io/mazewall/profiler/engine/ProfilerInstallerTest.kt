@@ -44,8 +44,50 @@ class ProfilerInstallerTest {
         val ex = errorRef.get()
         System.err.println("[TEST DEBUG] connection retry failure ex: $ex")
         ex?.printStackTrace()
-        assertTrue(ex is java.io.IOException)
-        assertTrue(ex.message?.contains("Function not implemented") == true)
+        assertTrue(ex is IllegalStateException)
+        assertTrue(ex.message?.contains("Simulated connection retry failure") == true)
+    }
+
+    @Test
+    fun `test main thread waits for coordinator thread to finish`() {
+        val accumulatedLogs = CopyOnWriteArrayList<TraceEvent>()
+        val pathCache = ConcurrentHashMap<String, Long>()
+        val errorRef = AtomicReference<Throwable?>(null)
+        val startTime = System.currentTimeMillis()
+
+        // Run on a dedicated thread to avoid contaminating the main JUnit thread
+        val thread = Thread {
+            try {
+                val currentThread = Thread.currentThread()
+                ProfilerInstaller.installProfilingFilterForThread(
+                    socketPath = "/tmp/nonexistent-path.sock",
+                    policy = Policy.PURE_COMPUTE_UNSAFE,
+                    accumulatedLogs = accumulatedLogs,
+                    stackTracesMap = null,
+                    pathCache = pathCache,
+                    workerThreadProvider = { currentThread },
+                    connectWithRetry = { _ ->
+                        Thread.sleep(500)
+                        throw IllegalStateException("Delayed error")
+                    },
+                    startTraceListener = { _, _, _, _, _ -> },
+                )
+            } catch (t: Throwable) {
+                errorRef.set(t)
+            }
+        }
+        thread.start()
+        thread.join()
+
+        val duration = System.currentTimeMillis() - startTime
+        val ex = errorRef.get()
+
+        System.err.println("[TEST DEBUG] delayed error duration: $duration ms, ex: $ex")
+
+        // This assertion will fail if the race condition is present (duration will be < 500ms)
+        assertTrue(duration >= 500, "Main thread should have waited at least 500ms, but took $duration ms")
+        assertTrue(ex is IllegalStateException)
+        assertTrue(ex.message?.contains("Delayed error") == true)
     }
 
     @Test
@@ -83,7 +125,7 @@ class ProfilerInstallerTest {
         val ex = errorRef.get()
         System.err.println("[TEST DEBUG] send descriptor failure ex: $ex")
         ex?.printStackTrace()
-        assertTrue(ex is java.io.IOException)
-        assertTrue(ex.message?.contains("Function not implemented") == true)
+        assertTrue(ex is IllegalStateException)
+        assertTrue(ex.message?.contains("Failed to send seccomp listener FD to daemon") == true)
     }
 }

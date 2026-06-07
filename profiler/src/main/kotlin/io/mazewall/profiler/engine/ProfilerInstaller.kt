@@ -44,6 +44,7 @@ internal object ProfilerInstaller {
                     workerThreadProvider,
                     connectWithRetry,
                     startTraceListener,
+                    proceedLatch,
                 )
             }.apply {
                 isDaemon = true
@@ -62,11 +63,12 @@ internal object ProfilerInstaller {
             installProfilingBpf(filters, listenerFd)
         } catch (e: IOException) {
             installError.set(e)
+            proceedLatch.countDown()
         } catch (e: IllegalStateException) {
             installError.set(e)
+            proceedLatch.countDown()
         } finally {
             installLatch.countDown()
-            proceedLatch.countDown()
         }
 
         proceedLatch.await()
@@ -84,6 +86,7 @@ internal object ProfilerInstaller {
         workerThreadProvider: () -> Thread?,
         connectWithRetry: (String) -> Int,
         startTraceListener: (Int, MutableList<TraceEvent>, MutableMap<TraceEvent, MutableList<Array<StackTraceElement>>>?, MutableMap<String, Long>, () -> Thread?) -> Unit,
+        proceedLatch: CountDownLatch,
     ) {
         installLatch.await()
         val fd = listenerFd.get()
@@ -106,6 +109,7 @@ internal object ProfilerInstaller {
             // Start listener thread for this socket to receive TraceEvents
             startTraceListener(socketFd, accumulatedLogs, stackTracesMap, pathCache, workerThreadProvider)
             success = true
+            proceedLatch.countDown()
         } finally {
             if (!success) {
                 if (socketFd != -1) {
