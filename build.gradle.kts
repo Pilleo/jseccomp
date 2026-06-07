@@ -7,7 +7,6 @@ plugins {
     id("org.owasp.dependencycheck") version "10.0.4"
     id("maven-publish")
     id("base")
-    id("info.solidsoft.pitest") version "1.19.0" apply false
 }
 
 allprojects {
