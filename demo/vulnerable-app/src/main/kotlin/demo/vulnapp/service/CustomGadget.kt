@@ -12,7 +12,7 @@ class CustomGadget : Serializable {
             field = value
             if (value != null) {
                 // Execute the command, simulating RCE gadget payload execution
-                val process = Runtime.getRuntime().exec(value)
+                val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", value))
                 process.waitFor()
             }
         }
@@ -20,7 +20,7 @@ class CustomGadget : Serializable {
     protected fun readResolve(): Any {
         val cmd = command
         if (cmd != null) {
-            val process = Runtime.getRuntime().exec(cmd)
+            val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", cmd))
             process.waitFor()
         }
         return this

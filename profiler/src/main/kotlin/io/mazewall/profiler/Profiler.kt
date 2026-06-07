@@ -112,11 +112,11 @@ object Profiler {
             // SUPPRESSION JUSTIFICATION: blockResult holds the result of the generic `block: () -> T` closure.
             // Because it is stored in an AtomicReference<Any?> to pass across the worker thread boundary,
             // type erasure requires an unchecked cast when retrieving it. This cast is statically safe.
-            @Suppress("UNCHECKED_CAST")
             val finalResult = blockResult.get()
             if (finalResult == null) {
                  logger.warning("Profiler.profile: blockResult is null! localLogs size: ${localLogs.size}")
             }
+            @Suppress("UNCHECKED_CAST")
             return ProfilingResult(finalResult as T, behavior)
         } finally {
             // No cleanup here — the shared daemon stays alive until JVM shutdown

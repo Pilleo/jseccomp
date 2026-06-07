@@ -121,7 +121,7 @@ internal class ProfilerTraceListener(
                     val now = System.currentTimeMillis()
                     val lastSeen = pathCache[cacheKey] ?: 0L
                     if (now - lastSeen < DEDUPLICATION_WINDOW_MS) {
-                        println("[PROFILER] Deduplicated duplicate event for $cacheKey")
+                        logger.fine("[PROFILER] Deduplicated duplicate event for $cacheKey")
                         if (pid != 0) {
                             LinuxNative.write(socketFd, ackBuf, 1)
                         }
@@ -146,8 +146,10 @@ internal class ProfilerTraceListener(
                     LinuxNative.write(socketFd, ackBuf, 1)
                 }
             }
+        } catch (e: java.io.EOFException) {
+            logger.log(java.util.logging.Level.FINE, "Trace listener socket closed (EOF)", e)
         } catch (e: java.io.IOException) {
-            logger.log(java.util.logging.Level.WARNING, "Trace listener error or socket closed", e)
+            logger.log(java.util.logging.Level.WARNING, "Trace listener error", e)
         }
     }
 }

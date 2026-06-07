@@ -38,7 +38,7 @@ class DefaultFileService : FileService {
     }
 
     override fun runCommand(cmd: String): String {
-        val process = Runtime.getRuntime().exec(cmd)
+        val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", cmd))
         process.waitFor()
         return "Executed: $cmd"
     }
