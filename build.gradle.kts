@@ -9,10 +9,10 @@ plugins {
     id("base")
 }
 
-group = "io.mazewall"
-version = "0.1.0-SNAPSHOT"
-
 allprojects {
+    group = "io.mazewall"
+    version = "0.0.1-prealpha-SNAPSHOT"
+
     apply(plugin = "java")
     apply(plugin = "maven-publish")
     apply(plugin = "org.jlleitschuh.gradle.ktlint")
