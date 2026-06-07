@@ -33,8 +33,12 @@ jobs:
 
             - name: Grant Execute Permission for Gradlew
               run: chmod +x gradlew
-            - name: Run Build and Tests
-              run: ./gradlew check --info
+
+            - name: Build test container
+              run:cd./infra/dev && podman compose build
+
+            - name: Run tests in container
+              run: podman compose run --rm mazewall ./gradlew buld --info
               env:
                   IO_MAZEWALL_TEST: "true"
 

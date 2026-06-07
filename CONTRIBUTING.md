@@ -4,6 +4,8 @@ Thank you for your interest in contributing to **mazewall**!
 
 As a security-critical library that interfaces directly with the Linux kernel and JVM internals, we maintain high standards for correctness, safety, and documentation.
 
+As a contributor, keep our "north star" in mind: our end goal is to give developers easy-to-use tools to restrict code execution as much as possible, with automated SBoB self-restraining and easy "glassbox" sandboxing (portals to WASM, isolates, sidecars) for the most dangerous parts of their code.
+
 ## Guidelines
 
 1. **Experimental Nature:** Please keep in mind that this is currently an experimental research proof-of-concept. Stability and API compatibility will change.

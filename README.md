@@ -68,6 +68,13 @@ val future = safe.submit { vulnerableLogger.log(maliciousInput) }
 future.get() // Throws ExecutionException { cause: ContainmentViolationException }
 ```
 
+## Project Vision & End Goal
+
+The ultimate goal of `mazewall` is to give developers frictionless, easy-to-understand tools to restrict code execution as much as possible. This includes:
+
+1.  **Automated SBoB:** Seamless, automatic generation and enforcement of Software Bill of Behavior (SBoB) to enable self-restraining applications.
+2.  **Glassbox Sandboxing:** Making it trivial to sandbox the most dangerous parts of a codebase. We envision a "glassbox" architecture where the core application logic is isolated, utilizing secure, well-defined portals to communicate with isolated components like WebAssembly (WASM) modules, GraalVM Isolates, and out-of-process sidecars.
+
 ## Motivation: Developer-Centric Security & The "Friction Budget"
 
 `mazewall` was created to explore how to build usable, automated sandboxing directly into the JVM codebase. Security only succeeds when it integrates cleanly with developer workflows. As highlighted by Matthew Green and Matthew Smith in [*"Developers are Not the Enemy!: The Need for Usable Security APIs"*](https://ieeexplore.ieee.org/document/7676144) and supported by Google's yearly [**DORA Reports**](https://dora.dev/publications/), reducing developer friction and shifting security left is critical for both safety and velocity.

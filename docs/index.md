@@ -7,6 +7,12 @@ Welcome to the **Backend Behavioral Sandboxing** article series. While the imple
 
 This series explores the threat model of modern cloud-native backend applications and guides you through dynamic profiling, thread-level containment, and production-grade sandboxing.
 
+## Project Vision & End Goal
+
+The ultimate goal of this project is to provide developers with easy-to-use, frictionless tools to restrict code execution as much as possible. We aim to enable:
+*   **Automatic SBoB:** Easy, automated Software Bill of Behavior (SBoB) generation for self-restraining applications.
+*   **Glassbox Architecture:** Trivial sandboxing of the most dangerous parts of code, utilizing secure portals to communicate with isolated components like WebAssembly (WASM), GraalVM Isolates, and out-of-process sidecars.
+
 ## Read the Series
 
 1. **[Part 1: The Core Threat Model & Attack Vectors](presentation/article.html)**  
