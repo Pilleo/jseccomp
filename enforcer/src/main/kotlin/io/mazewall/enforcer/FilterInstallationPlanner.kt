@@ -20,6 +20,7 @@ internal object FilterInstallationPlanner {
         val currentlyAllowsNonThreadClone: Boolean,
         val currentlyAllowsUnsafePrctl: Boolean,
         val currentDepth: Int,
+        val currentlyAllowedSyscalls: Set<Syscall>? = null,
     )
 
     data class FilterPlan(
@@ -61,13 +62,28 @@ internal object FilterInstallationPlanner {
         val needsCloneProtection = !policy.allowNonThreadClone && state.currentlyAllowsNonThreadClone
         val needsPrctlProtection = !policy.allowUnsafePrctl && state.currentlyAllowsUnsafePrctl
 
-        val needsNewFilter = policy.defaultAction.priority > state.currentDefaultAction.priority ||
+        val needsDefaultActionEscalation = policy.defaultAction.priority > state.currentDefaultAction.priority
+
+        val needsWhitelistEscalation = if (needsDefaultActionEscalation && policy.defaultAction != SeccompAction.ACT_ALLOW) {
+            val toInstallAllowed = Syscall.entries.filter { policy.isSyscallAllowed(it) }.toSet()
+            val currentlyAllowed = state.currentlyAllowedSyscalls
+
+            if (currentlyAllowed != null) {
+                !toInstallAllowed.containsAll(currentlyAllowed)
+            } else {
+                true
+            }
+        } else {
+            needsDefaultActionEscalation
+        }
+
+        val needsNewFilter = needsWhitelistEscalation ||
             newBlocksMap.isNotEmpty() ||
             needsMmapProtection ||
             needsCloneProtection ||
             needsPrctlProtection
 
-        val toInstall = if (policy.defaultAction.priority > state.currentDefaultAction.priority) {
+        val toInstall = if (needsWhitelistEscalation) {
             policy
         } else {
             val builder = Policy.builder()

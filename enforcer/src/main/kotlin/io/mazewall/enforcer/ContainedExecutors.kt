@@ -220,6 +220,16 @@ object ContainedExecutors {
         val processDefault = ContainerStateRegistry.PROCESS_DEFAULT_ACTION.get()
         val mergedDefault = if (threadDefault.priority > processDefault.priority) threadDefault else processDefault
 
+        val threadAllowed = ContainerStateRegistry.THREAD_ALLOWED_SYSCALLS.get()
+        val processAllowed = ContainerStateRegistry.PROCESS_ALLOWED_SYSCALLS.get()
+        val mergedAllowed = if (threadAllowed == null) {
+            processAllowed
+        } else if (processAllowed == null) {
+            threadAllowed
+        } else {
+            threadAllowed.intersect(processAllowed)
+        }
+
         return FilterInstallationPlanner.ContainerState(
             currentSyscallActions = mergedActions,
             currentDefaultAction = mergedDefault,
@@ -227,6 +237,7 @@ object ContainedExecutors {
             currentlyAllowsNonThreadClone = ContainerStateRegistry.THREAD_ALLOWS_NON_THREAD_CLONE.get() && ContainerStateRegistry.PROCESS_ALLOWS_NON_THREAD_CLONE.get(),
             currentlyAllowsUnsafePrctl = ContainerStateRegistry.THREAD_ALLOWS_UNSAFE_PRCTL.get() && ContainerStateRegistry.PROCESS_ALLOWS_UNSAFE_PRCTL.get(),
             currentDepth = ContainerStateRegistry.FILTER_DEPTH.get() + ContainerStateRegistry.PROCESS_FILTER_DEPTH.get(),
+            currentlyAllowedSyscalls = mergedAllowed,
         )
     }
 
@@ -263,6 +274,17 @@ object ContainedExecutors {
         if (!toInstall.allowNonThreadClone) ContainerStateRegistry.PROCESS_ALLOWS_NON_THREAD_CLONE.set(false)
         if (!toInstall.allowUnsafePrctl) ContainerStateRegistry.PROCESS_ALLOWS_UNSAFE_PRCTL.set(false)
         ContainerStateRegistry.PROCESS_FILTER_DEPTH.incrementAndGet()
+
+        if (toInstall.defaultAction != SeccompAction.ACT_ALLOW) {
+            val toInstallAllowed = Syscall.entries.filter { toInstall.isSyscallAllowed(it) }.toSet()
+            while (true) {
+                val current = ContainerStateRegistry.PROCESS_ALLOWED_SYSCALLS.get()
+                val next = current?.intersect(toInstallAllowed) ?: toInstallAllowed
+                if (ContainerStateRegistry.PROCESS_ALLOWED_SYSCALLS.compareAndSet(current, next)) {
+                    break
+                }
+            }
+        }
     }
 
     private fun updateThreadState(
@@ -286,6 +308,12 @@ object ContainedExecutors {
         if (!toInstall.allowNonThreadClone) ContainerStateRegistry.THREAD_ALLOWS_NON_THREAD_CLONE.set(false)
         if (!toInstall.allowUnsafePrctl) ContainerStateRegistry.THREAD_ALLOWS_UNSAFE_PRCTL.set(false)
         ContainerStateRegistry.FILTER_DEPTH.set(ContainerStateRegistry.FILTER_DEPTH.get() + 1)
+
+        if (toInstall.defaultAction != SeccompAction.ACT_ALLOW) {
+            val toInstallAllowed = Syscall.entries.filter { toInstall.isSyscallAllowed(it) }.toSet()
+            val currentAllowed = ContainerStateRegistry.THREAD_ALLOWED_SYSCALLS.get()
+            ContainerStateRegistry.THREAD_ALLOWED_SYSCALLS.set(currentAllowed?.intersect(toInstallAllowed) ?: toInstallAllowed)
+        }
     }
 
     /**
