@@ -35,7 +35,7 @@ jobs:
               run: chmod +x gradlew
 
             - name: Build test container
-              run:cd./infra/dev && podman compose build
+              run: cd ./infra/dev && podman compose build
 
             - name: Run tests in container
               run: podman compose run --rm mazewall ./gradlew buld --info
