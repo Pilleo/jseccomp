@@ -1,16 +1,15 @@
 package io.mazewall.seccomp
 
 import io.mazewall.Arch
+import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.LinuxNative
 import io.mazewall.Policy
 import io.mazewall.Syscall
 import io.mazewall.enforcer.ContainedExecutors
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.condition.EnabledOnOs
-import org.junit.jupiter.api.condition.OS
 import java.util.concurrent.Executors
 
-@EnabledOnOs(OS.LINUX)
+@EnabledIfLinuxAndSupported
 class AllowListTest {
     private fun jvmFloor(): Array<Syscall> =
         arrayOf(

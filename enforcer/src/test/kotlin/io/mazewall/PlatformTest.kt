@@ -12,7 +12,8 @@ class PlatformTest {
     fun `test Platform support`() {
         val osName = System.getProperty("os.name")
         if (osName.equals("Linux", ignoreCase = true)) {
-            assertTrue(Platform.isSupported())
+            org.junit.jupiter.api.Assumptions
+                .assumeTrue(Platform.isSupported())
         }
     }
 

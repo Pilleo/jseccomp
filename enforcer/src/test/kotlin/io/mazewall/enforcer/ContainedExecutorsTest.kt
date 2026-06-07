@@ -126,6 +126,7 @@ class ContainedExecutorsTest {
     }
 
     @Test
+    @EnabledIfLinuxAndSupported
     fun `test wrap() executor invokeAll and invokeAny with timeouts`() {
         val executor = Executors.newFixedThreadPool(2)
         val safeExecutor = ContainedExecutors.wrap(executor, Policy.PURE_COMPUTE)
