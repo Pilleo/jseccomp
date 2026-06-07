@@ -136,29 +136,76 @@ To avoid parsing JVM exception message strings (since Java `IOException` does no
 
 ---
 
+## Kernel Compatibility
+
+`mazewall` utilizes modern Linux kernel features. While the library can be **compiled** on older kernels (like JitPack's Kernel 4.4), the **runtime features** available depend on your host's kernel version:
+
+| Feature | Min Kernel | Status on 4.4 (JitPack) |
+| :--- | :--- | :--- |
+| **Seccomp-BPF** (Basic) | 3.5 | ✅ Available |
+| **Seccomp Syscall** | 3.17 | ✅ Available |
+| **io_uring** | 5.1 | ❌ Unavailable |
+| **Seccomp USER_NOTIF** | 5.0 | ❌ Unavailable (Profiler disabled) |
+| **Landlock LSM** (Filesystem) | 5.13 | ❌ Unavailable |
+| **Landlock Network Control** | 6.7 | ❌ Unavailable |
+
+> [!NOTE]
+> **Seccomp-BPF vs. Seccomp Syscall:** 
+> * **Seccomp-BPF** is the kernel feature (since 3.5) that allows filtering syscalls via BPF programs.
+> * **Seccomp(2) Syscall** is the modern API (since 3.17) that enables advanced features like **`TSYNC`** (synchronizing filters across all JVM threads), which is the primary mechanism `mazewall` uses for process-wide lockdowns.
+
+> [!IMPORTANT]
+> **Recommended Kernel:** For the full security suite (including Landlock filesystem isolation and `io_uring` bypass mitigation), we recommend **Linux Kernel 6.2+**.
+
+---
+
 ## Installation
 
-`mazewall` is available via **JitPack**.
+`mazewall` is available via **JitPack** (Community) and **GitHub Packages** (Official).
 
-### Gradle (Kotlin)
+### 📦 Option 1: JitPack (Easiest)
 
-1. Add the JitPack repository to your `settings.gradle.kts` or `build.gradle.kts`:
+Add the JitPack repository and the dependency to your build:
+
 ```kotlin
 repositories {
     mavenCentral()
     maven { url = uri("https://jitpack.io") }
 }
-```
 
-2. Add the dependency to your `build.gradle.kts`:
-```kotlin
 dependencies {
     // Core enforcement engine
     implementation("com.github.Pilleo.jseccomp:enforcer:main-SNAPSHOT")
 }
 ```
 
-> **Note:** For multi-module projects, JitPack uses the format `com.github.User.Repo:Module:Tag`.
+### 🛡️ Option 2: GitHub Packages (Production-Grade)
+
+For higher reliability and verified builds, use GitHub Packages.
+
+1. **Authenticate:** Add your GitHub credentials to `settings.gradle.kts` (requires a Personal Access Token with `read:packages` scope):
+
+```kotlin
+dependencyResolutionManagement {
+    repositories {
+        mavenCentral()
+        maven {
+            url = uri("https://maven.pkg.github.com/Pilleo/jseccomp")
+            credentials {
+                username = "YOUR_GITHUB_USERNAME"
+                password = "YOUR_GITHUB_TOKEN"
+            }
+        }
+    }
+}
+```
+
+2. **Add Dependency:**
+```kotlin
+dependencies {
+    implementation("io.mazewall:enforcer:0.1.0-SNAPSHOT")
+}
+```
 
 ---
 

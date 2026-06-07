@@ -28,10 +28,11 @@ The codebase inside `:enforcer` is structured into three clear enforcement layer
 
 ## Installation
 
-Add `mazewall-enforcer` to your project via **JitPack**.
+Add `mazewall-enforcer` to your project via **JitPack** or **GitHub Packages**.
 
 ### Gradle (Kotlin)
 
+**Via JitPack:**
 ```kotlin
 repositories {
     mavenCentral()
@@ -43,7 +44,23 @@ dependencies {
 }
 ```
 
-> **Note:** JitPack coordinates for multi-module projects follow the pattern `com.github.User.Repo:Module:Tag`.
+**Via GitHub Packages (Recommended):**
+```kotlin
+repositories {
+    mavenCentral()
+    maven {
+        url = uri("https://maven.pkg.github.com/Pilleo/jseccomp")
+        credentials {
+            username = "GITHUB_USER"
+            password = "GITHUB_TOKEN"
+        }
+    }
+}
+
+dependencies {
+    implementation("io.mazewall:enforcer:0.1.0-SNAPSHOT")
+}
+```
 
 ---
 

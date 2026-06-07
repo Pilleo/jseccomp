@@ -9,8 +9,10 @@ on:
 jobs:
     test:
         name: Build and Test
-        # ubuntu-24.04 provides a 6.8+ kernel which supports Landlock and FFM
         runs-on: ubuntu-24.04
+        permissions:
+            contents: read
+            packages: write
 
         steps:
             - name: Checkout Code
@@ -27,11 +29,16 @@ jobs:
               run: chmod +x gradlew
 
             - name: Run Build and Tests
-              # We don't need to skip tests here because GitHub runners have modern kernels.
-              # We also pass a flag to ensure JIT warmup doesn't time out in CI.
               run: ./gradlew check --info
               env:
                   IO_MAZEWALL_TEST: "true"
+
+            - name: Publish to GitHub Packages
+              # Only publish on main/master branch pushes, not for PRs
+              if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+              run: ./gradlew publishAllPublicationsToGitHubPackagesRepository
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Upload Build Artifacts (JARs)
               if: success()
@@ -42,6 +49,7 @@ jobs:
                       enforcer/build/libs/*.jar
                       profiler/build/libs/*.jar
                   retention-days: 5
+
             - name: Upload Test Report
               if: always()
               uses: actions/upload-artifact@v4

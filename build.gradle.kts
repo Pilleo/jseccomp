@@ -7,7 +7,6 @@ plugins {
     id("org.owasp.dependencycheck") version "10.0.4"
     id("maven-publish")
     id("base")
-    id("java")
 }
 
 group = "io.mazewall"
@@ -18,8 +17,14 @@ allprojects {
     apply(plugin = "maven-publish")
     apply(plugin = "org.jlleitschuh.gradle.ktlint")
 
-    // Satisfy JitPack's broken 'listDeps' task by exposing 'configurations' as an extra property
-    extra["configurations"] = configurations
+    // JitPack Shim: Satisfy JitPack's broken 'listDeps' task by injecting
+    // the missing 'configurations' property into the task instance.
+    tasks.whenTaskAdded {
+        if (name == "listDeps") {
+            // Using extensions/extra to satisfy Groovy property resolution
+            (this as? ExtensionAware)?.extra?.set("configurations", project.configurations)
+        }
+    }
 
     // Aggressively skip tests on JitPack because the host kernel (4.4)
     // is too old for Seccomp/Landlock/FFM and will cause failures.
@@ -37,6 +42,19 @@ allprojects {
     // Also format Kotlin scripts (like build.gradle.kts)
     tasks.matching { it.name == "kotlinSourcesJar" }.configureEach {
         dependsOn("ktlintFormat")
+    }
+
+    publishing {
+        repositories {
+            maven {
+                name = "GitHubPackages"
+                url = uri("https://maven.pkg.github.com/Pilleo/jseccomp")
+                credentials {
+                    username = System.getenv("GITHUB_ACTOR")
+                    password = System.getenv("GITHUB_TOKEN")
+                }
+            }
+        }
     }
 }
 
@@ -152,7 +170,7 @@ subprojects {
                     limit {
                         counter = "INSTRUCTION"
                         value = "COVEREDRATIO"
-                        minimum = "0.70".toBigDecimal()
+                        minimum = "0.75".toBigDecimal()
                     }
                 }
                 // PureJavaBpfEngine must meet 70% instruction coverage (actual: 73.13%)
