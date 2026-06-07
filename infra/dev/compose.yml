@@ -5,6 +5,7 @@ services:
             dockerfile: infra/dev/Containerfile
         volumes:
             - ../..:/workspace
+            - ${GRADLE_USER_HOME:-~/.gradle}:/root/.gradle
         # Audit subsystem requires sharing the host network namespace and initial user namespace.
         # This is necessary for the Profiler to ingest asynchronous io_uring operations.
         network_mode: host

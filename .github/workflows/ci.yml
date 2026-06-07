@@ -46,6 +46,7 @@ jobs:
               run: podman compose -f infra/dev/compose.yml run --rm mazewall ./gradlew check --info
               env:
                   IO_MAZEWALL_TEST: "true"
+                  GRADLE_USER_HOME: /home/runner/.gradle
 
             - name: Publish to GitHub Packages
               # Only publish on main/master branch pushes, not for PRs
