@@ -48,7 +48,7 @@ To prevent hyperfocus on low-level mechanics at the expense of developer usage a
 
 Follow this algorithmic workflow systematically:
 
-1. **Phase 0: Backlog Pruning & Contextual Research:** Start by reviewing the current `docs/internals/code_issues_backlog.md`. For each existing entry, research the codebase to determine if the issue has already been addressed. If an issue is resolved, mark it as `[RESOLVED]` in the backlog—do not remove it entirely.
+1. **Phase 0: Backlog Pruning & Contextual Research:** Start by running the automated check script `./scripts/check_backlog_resolved.sh`. Review the output for "POTENTIALLY STALE" items. Then, perform a manual deep-dive of `docs/internals/code_issues_backlog.md`. For each existing entry, research the codebase to determine if the issue has already been addressed. If an issue is resolved, mark it as `[RESOLVED]` in the backlog—do not remove it entirely.
 2. **Phase 1: Multi-Dimensional Hypotheses:** Generate three diverse hypotheses spanning different dimensions (e.g., one on Performance-induced risks, one on Kernel invariants, one on Defaults).
 3. **Phase 2: Targeted Recon:** Use `glob` and `grep_search` to map out the interfaces and bindings relevant to your hypotheses.
 4. **Phase 3: Exhaustive Code Audit:** Use `read_file` to read the ENTIRETY of the relevant files. **Do not skim with grep.** Trace the data flow line-by-line. Compare the target against related tests and documentation.

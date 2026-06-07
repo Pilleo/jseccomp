@@ -111,11 +111,17 @@ Thread-scoped seccomp is **not** an absolute security boundary against an attack
 
 ## 5. Testing and Verification Guidelines
 
+*   **Prioritize TDD (Test-Driven Development):** Whenever possible, follow a TDD workflow.
+    *   **For Bug Fixes:** You MUST empirically reproduce the reported issue by writing a failing test case before applying any code changes.
+    *   **For New Features:** Define the expected behavior with tests before implementing the logic.
 *   **Testing is Mandatory:** Any bugfix, behavioral change, or new parameter **must** be accompanied by an automated test.
-*   **Running Tests:** Always run using the nested-seccomp OCI profile:
+*   **Running Tests:** Always run using the nested-seccomp OCI profile. Use the provided helper scripts for a faster workflow:
+    - `./scripts/run_tests.sh` — Runs the full test suite in the container.
+    - `./scripts/check_coverage.sh` — Verifies Jacoco thresholds.
+    - `./scripts/lint.sh` — Runs static analysis (Detekt, SpotBugs, ktlint).
+    - `./scripts/tail_logs.sh` — Tails the container logs for debugging.
     ```bash
-    podman compose up -d
-    podman compose exec mazewall ./gradlew test
+    ./scripts/run_tests.sh
     ```
 *   **Module Check Tasks:** Verify your changes specifically pass module checks before pushing:
     *   `:enforcer:check` (Landlock $\ge 65\%$, LinuxNative $\ge 78\%$, core classes $\ge 80\%$ Jacoco instruction coverage)
