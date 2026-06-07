@@ -75,7 +75,7 @@ When presenting a fix or creating a PR, use the following format:
 
 *   **Never Implement Silent Bypasses:** Do not catch exceptions silently or downgrade a failed seccomp/Landlock installation to a warning-and-bypass unless that fallback is explicitly configured by the operator.
 *   **Fail Closed by Default:** The **default `FallbackBehavior` is `FAIL`** (see `Platform.configuredFallback()` — it returns `FallbackBehavior.FAIL` unless the operator explicitly overrides via `-Dio.mazewall.fallback=WARN_AND_BYPASS` or `IO_MAZEWALL_FALLBACK=WARN_AND_BYPASS`). This is intentional and must not be changed.
-*   **No Unconsulted Fallbacks:** Do not write automatic recovery loops or mock environments (like simulating a syscall return value via register manipulation) wit---
+*   **No Unconsulted Fallbacks:** Do not write automatic recovery loops or mock environments (like simulating a syscall return value via register manipulation) without explicit operator consent, even if the immediate effect appears safe.
 
 ## 3. Directory Structure & Technical Delegations
 
@@ -133,3 +133,8 @@ Before modifying components, read the relevant design document:
 | [profiler_design.md](file:///home/leanid/Documents/code/java/jseccomp/docs/internals/profiler_design.md)                 | USER_NOTIF architecture, socket SCM_RIGHTS, ACK loop protocol.           |
 | [SECURITY_CONSIDERATIONS.md](file:///home/leanid/Documents/code/java/jseccomp/docs/internals/SECURITY_CONSIDERATIONS.md) | Full threat model, ACE escape caveats, K8s custom profiles, Yama scopes. |
 
+## 7. Cross-Module Change Protocol
+If a change touches both `:enforcer` and `:profiler`:
+1. Complete and verify `:enforcer` changes first.
+2. Run `:enforcer:check` before starting `:profiler` work.
+3. Update `Syscall.kt` and `Arch.kt` in `:enforcer` before referencing the new enum in profiler.

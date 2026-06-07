@@ -43,7 +43,7 @@ jobs:
               run: cd ./infra/dev && podman compose build
 
             - name: Run tests in container
-              run: podman compose run --rm mazewall ./gradlew check --info
+              run: podman compose -f infra/dev/compose.yml run --rm mazewall ./gradlew check --info
               env:
                   IO_MAZEWALL_TEST: "true"
 
