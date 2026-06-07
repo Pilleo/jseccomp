@@ -14,7 +14,6 @@ RUN apt-get update && apt-get install -y \
 
 # The project uses Gradle Toolchains to download Java 25.
 # Ensure the container has enough permissions to download and install toolchains.
-ENV GRADLE_USER_HOME=/workspace/.gradle_home
 
 # Default command
 CMD ["./gradlew", "test"]
