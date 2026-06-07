@@ -38,9 +38,10 @@ jobs:
               uses: actions/upload-artifact@v4
               with:
                   name: mazewall-artifacts
-                  path: "**/build/libs/*.jar"
+                  path: |
+                      enforcer/build/libs/*.jar
+                      profiler/build/libs/*.jar
                   retention-days: 5
-
             - name: Upload Test Report
               if: always()
               uses: actions/upload-artifact@v4
