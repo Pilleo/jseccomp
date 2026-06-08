@@ -20,6 +20,7 @@ class ThreadPoolWhitelistTest {
             val ex = java.util.zip.DataFormatException("test")
             val dummy = kotlin.Result.success(1)
             val dummy2 = kotlin.Result.failure<Int>(Exception("warmup"))
+            ContainedExecutors.installOnCurrentThread(Policy.builder().build())
         }.get()
 
         val policy = Policy
