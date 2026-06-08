@@ -14,6 +14,7 @@ class ThreadPoolWhitelistTest {
         val executor = Executors.newSingleThreadExecutor()
         val policy = Policy
             .builder()
+            .allowJvmClasspath()
             .defaultAction(SeccompAction.ACT_ERRNO)
             .allow(Syscall.READ, Syscall.WRITE)
             .build()
