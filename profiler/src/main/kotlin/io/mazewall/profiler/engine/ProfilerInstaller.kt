@@ -7,6 +7,7 @@ import io.mazewall.Policy
 import io.mazewall.profiler.Profiler
 import java.io.IOException
 import java.lang.foreign.Arena
+import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
@@ -120,15 +121,32 @@ internal object ProfilerInstaller {
         }
     }
 
+    private const val EINTR = 4
+
     private fun verifyDaemonAck(socketFd: Int) {
         // Wait for ACK byte from daemon
         Arena.ofConfined().use { arena ->
             val ackBuf = arena.allocate(1)
-            val res = LinuxNative.read(socketFd, ackBuf, 1)
-            if (res.returnValue != 1L || ackBuf.get(ValueLayout.JAVA_BYTE, 0) != 0xAC.toByte()) {
-                throw IllegalStateException("Daemon failed to ACK listener receipt")
+            while (true) {
+                val res = LinuxNative.read(socketFd, ackBuf, 1)
+                val status = checkReadResult(res, ackBuf)
+                if (status == 1) return
+                if (status == 0) continue
             }
         }
+    }
+
+    private fun checkReadResult(
+        res: LinuxNative.SyscallResult,
+        ackBuf: MemorySegment,
+    ): Int {
+        if (res.returnValue == 1L) {
+            if (ackBuf.get(ValueLayout.JAVA_BYTE, 0L) == 0xAC.toByte()) return 1
+            throw IllegalStateException("Daemon sent invalid ACK: ${ackBuf.get(ValueLayout.JAVA_BYTE, 0L)}")
+        }
+        if (res.returnValue < 0 && res.errno == EINTR) return 0
+        val detail = if (res.returnValue == 0L) "EOF" else "errno=${res.errno}"
+        throw IllegalStateException("Daemon failed to ACK listener receipt: $detail")
     }
 
     private fun ensureNoNewPrivs() {
