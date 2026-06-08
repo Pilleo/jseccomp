@@ -15,8 +15,8 @@ class ThreadPoolWhitelistTest {
 
         val policy = Policy
             .builder()
-            .allowJvmClasspath() // Added back allowJvmClasspath
             .defaultAction(SeccompAction.ACT_ERRNO)
+            .allowJvmClasspath() // Crucial for preventing lazy classloading deadlocks
             .allow(Syscall.READ, Syscall.WRITE)
             .build()
 
