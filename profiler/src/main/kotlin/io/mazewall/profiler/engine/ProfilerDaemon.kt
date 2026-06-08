@@ -580,16 +580,13 @@ object ProfilerDaemon {
         pid: Int,
     ): String? {
         if (res.returnValue < 0) {
-            if (res.errno == 1) { // EPERM
-                if (warnedPids.add(pid)) {
-                    logger.log(Level.WARNING, "Permission denied reading memory from PID $pid. (Yama ptrace_scope?)")
-                }
+            if (res.errno == 1 && warnedPids.add(pid)) {
+                logger.log(Level.WARNING, "Permission denied reading memory from PID $pid. (Yama ptrace_scope?)")
             }
             return null
         }
-        val bytesRead = res.returnValue.toInt()
-        if (bytesRead == 0) return ""
 
+        val bytesRead = res.returnValue.toInt()
         var len = 0
         while (len < bytesRead && localBuf.get(ValueLayout.JAVA_BYTE, len.toLong()) != 0.toByte()) {
             len++
