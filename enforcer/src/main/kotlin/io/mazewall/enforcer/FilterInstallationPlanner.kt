@@ -106,9 +106,9 @@ internal object FilterInstallationPlanner {
             for ((sys, action) in newBlocksMap) {
                 builder.addAction(action, sys)
             }
-            if (policy.allowMmapExec) builder.allowMmapExec()
-            if (policy.allowNonThreadClone) builder.allowNonThreadClone()
-            if (policy.allowUnsafePrctl) builder.allowUnsafePrctl()
+            if (policy.allowMmapExec || !state.currentlyAllowsMmapExec) builder.allowMmapExec()
+            if (policy.allowNonThreadClone || !state.currentlyAllowsNonThreadClone) builder.allowNonThreadClone()
+            if (policy.allowUnsafePrctl || !state.currentlyAllowsUnsafePrctl) builder.allowUnsafePrctl()
             builder.build()
         }
 

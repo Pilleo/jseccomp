@@ -474,7 +474,7 @@ object Landlock {
         isFallback: Boolean,
         resolvedPath: String,
     ): Long {
-        if (!isFallback && File(resolvedPath).isFile) {
+        if (isFallback || File(resolvedPath).isFile) {
             val dirOnlyFlags =
                 LANDLOCK_ACCESS_FS_READ_DIR or LANDLOCK_ACCESS_FS_MAKE_DIR or LANDLOCK_ACCESS_FS_REMOVE_DIR
             return allowedAccess and dirOnlyFlags.inv()
