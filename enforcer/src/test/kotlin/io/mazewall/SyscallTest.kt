@@ -123,6 +123,7 @@ class SyscallTest {
         mapOf(
         Syscall.MMAP to arch.mmap,
         Syscall.MPROTECT to arch.mprotect,
+        Syscall.PKEY_MPROTECT to arch.pkeyMprotect,
         Syscall.MADVISE to arch.madvise,
         Syscall.MUNMAP to arch.munmap,
         Syscall.BRK to arch.brk,

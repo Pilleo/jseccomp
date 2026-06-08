@@ -26,6 +26,7 @@ enum class Syscall {
     OPENAT2,
     MMAP,
     MPROTECT,
+    PKEY_MPROTECT,
     MADVISE,
     PTRACE,
     SOCKET,
@@ -147,7 +148,7 @@ internal object SyscallMapper {
             ->
                 FsSyscallMapper.numberForOps(syscall, arch)
 
-            Syscall.MMAP, Syscall.MPROTECT, Syscall.MADVISE, Syscall.MEMFD_CREATE, Syscall.MUNMAP, Syscall.BRK ->
+            Syscall.MMAP, Syscall.MPROTECT, Syscall.PKEY_MPROTECT, Syscall.MADVISE, Syscall.MEMFD_CREATE, Syscall.MUNMAP, Syscall.BRK ->
                 MemorySyscallMapper.numberFor(syscall, arch)
 
             else -> OtherSyscallMapper.numberFor(syscall, arch)
@@ -369,6 +370,7 @@ internal object MemorySyscallMapper {
         when (syscall) {
             Syscall.MMAP -> arch.mmap
             Syscall.MPROTECT -> arch.mprotect
+            Syscall.PKEY_MPROTECT -> arch.pkeyMprotect
             Syscall.MADVISE -> arch.madvise
             Syscall.MUNMAP -> arch.munmap
             Syscall.BRK -> arch.brk

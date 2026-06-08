@@ -105,7 +105,7 @@ object BpfFilter {
 
         // mmap & mprotect
         if (!allowMmapExec) {
-            listOf(arch.mmap, arch.mprotect).forEach { nr ->
+            listOf(arch.mmap, arch.mprotect, arch.pkeyMprotect).forEach { nr ->
                 if (nr >= 0) {
                     handledNrs.add(nr)
                     filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 4, nr))
