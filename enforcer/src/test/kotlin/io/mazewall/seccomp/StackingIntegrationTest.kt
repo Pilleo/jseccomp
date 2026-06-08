@@ -52,7 +52,6 @@ class StackingIntegrationTest {
                 Syscall.GETEUID,
                 Syscall.GETGID,
                 Syscall.GETEGID,
-                Syscall.GETTID,
                 Syscall.GETCWD,
                 Syscall.UMASK,
             )

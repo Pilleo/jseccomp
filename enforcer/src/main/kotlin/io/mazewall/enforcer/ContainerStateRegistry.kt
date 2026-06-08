@@ -26,6 +26,7 @@ internal object ContainerStateRegistry {
     val THREAD_ALLOWS_MMAP_EXEC = ThreadLocal.withInitial { true }
     val THREAD_ALLOWS_NON_THREAD_CLONE = ThreadLocal.withInitial { true }
     val THREAD_ALLOWS_UNSAFE_PRCTL = ThreadLocal.withInitial { true }
+    val THREAD_ALLOWED_SYSCALLS = ThreadLocal.withInitial<Set<Syscall>?> { null }
     val FILTER_DEPTH = ThreadLocal.withInitial { 0 }
     val THREAD_LANDLOCK_APPLIED_READS = ThreadLocal.withInitial<Set<String>?> { null }
     val THREAD_LANDLOCK_APPLIED_WRITES = ThreadLocal.withInitial<Set<String>?> { null }
@@ -35,6 +36,7 @@ internal object ContainerStateRegistry {
     val PROCESS_ALLOWS_MMAP_EXEC = AtomicBoolean(true)
     val PROCESS_ALLOWS_NON_THREAD_CLONE = AtomicBoolean(true)
     val PROCESS_ALLOWS_UNSAFE_PRCTL = AtomicBoolean(true)
+    val PROCESS_ALLOWED_SYSCALLS = AtomicReference<Set<Syscall>?>(null)
 
     // Global seccomp filter depth (number of stacked filters applied to the process)
     val PROCESS_FILTER_DEPTH = AtomicInteger(0)
