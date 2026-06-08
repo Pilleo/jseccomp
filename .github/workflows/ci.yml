@@ -51,9 +51,11 @@ jobs:
             - name: Publish to GitHub Packages
               # Only publish on main/master branch pushes, not for PRs
               if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-              run: ./gradlew publishAllPublicationsToGitHubPackagesRepository
+              run: podman compose -f infra/dev/compose.yml run --rm mazewall ./gradlew publishAllPublicationsToGitHubPackagesRepository --info
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GITHUB_ACTOR: ${{ github.actor }}
+                  GRADLE_USER_HOME: /home/runner/.gradle
 
             - name: Upload Build Artifacts (JARs)
               if: success()

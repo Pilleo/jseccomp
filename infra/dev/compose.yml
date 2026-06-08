@@ -6,6 +6,10 @@ services:
         volumes:
             - ../..:/workspace
             - ${GRADLE_USER_HOME:-~/.gradle}:/root/.gradle
+        environment:
+            - GRADLE_USER_HOME=/root/.gradle
+            - GITHUB_ACTOR
+            - GITHUB_TOKEN
         # Audit subsystem requires sharing the host network namespace and initial user namespace.
         # This is necessary for the Profiler to ingest asynchronous io_uring operations.
         network_mode: host
