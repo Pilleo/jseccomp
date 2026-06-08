@@ -1,5 +1,7 @@
 package io.mazewall
 
+import io.mazewall.ffi.Layouts
+import java.lang.foreign.MemoryLayout
 import java.util.logging.Logger
 
 /**
@@ -20,10 +22,14 @@ object BpfFilter {
     private const val BPF_ALU = 0x04
     private const val BPF_AND = 0x50
 
-    private const val SECCOMP_DATA_NR_OFFSET = 0
-    private const val SECCOMP_DATA_ARCH_OFFSET = 4
-    private const val SECCOMP_DATA_ARGS_OFFSET = 16
-    private const val SECCOMP_ARGS2_OFFSET = SECCOMP_DATA_ARGS_OFFSET + 16 // args[2] byte offset
+    private val SECCOMP_DATA_NR_OFFSET = Layouts.SECCOMP_DATA.byteOffset(MemoryLayout.PathElement.groupElement("nr")).toInt()
+    private val SECCOMP_DATA_ARCH_OFFSET = Layouts.SECCOMP_DATA.byteOffset(MemoryLayout.PathElement.groupElement("arch")).toInt()
+    private val SECCOMP_DATA_ARGS_OFFSET = Layouts.SECCOMP_DATA.byteOffset(MemoryLayout.PathElement.groupElement("args")).toInt()
+    private val SECCOMP_ARGS2_OFFSET = Layouts.SECCOMP_DATA
+        .byteOffset(
+        MemoryLayout.PathElement.groupElement("args"),
+        MemoryLayout.PathElement.sequenceElement(2),
+    ).toInt()
 
     fun build(
         arch: Arch,
