@@ -1,5 +1,0 @@
-1. We modified `ContainerStateRegistry.kt` to introduce `THREAD_ALLOWED_SYSCALLS` and `PROCESS_ALLOWED_SYSCALLS` variables.
-2. We modified `ContainedExecutors.kt` to load `currentlyAllowedSyscalls` from the registry and compute the intersection of `toInstallAllowed` with current constraints inside `updateThreadState` and `updateProcessState`.
-3. We modified `FilterInstallationPlanner.kt` to intelligently evaluate `currentlyAllowedSyscalls` against `toInstallAllowed` to correctly skip new filter installation for identical or superset whitelist policies.
-4. We verified our changes via tests.
-5. All done!
