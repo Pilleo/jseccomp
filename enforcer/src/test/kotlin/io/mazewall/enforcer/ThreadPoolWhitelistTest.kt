@@ -31,6 +31,7 @@ class ThreadPoolWhitelistTest {
             val dummy = kotlin.Result.success(1)
             val dummy2 = kotlin.Result.failure<Int>(Exception("warmup"))
             val dummy3 = io.mazewall.Platform.isSupported()
+            val dummy4 = kotlin.Unit
         }.get()
 
         val wrapped = ContainedExecutors.wrap(executor, policy)
