@@ -35,12 +35,9 @@ However, `PURE_COMPUTE_UNSAFE` does **not** block `Syscall.IOCTL` (likely becaus
 **Context:** The AGENTS.md documentation strictly specifies using word boundary regexes (?i)\bOperation not permitted\b... for Priority 2 matching to prevent false positives. However, containsDeniedPhrase uses msg.contains(it, ignoreCase = true), which performs unbounded substring matching.
 **Needed:** Update DENIED_PHRASES matching to use a compiled Regex with \b boundaries as specified in the documentation.
 
-### 🔴 [Severity: HIGH]: Missing `creat` and `mknod` syscalls bypass `PURE_COMPUTE_UNSAFE` filesystem restrictions
+### 🟢 [RESOLVED]: Missing `creat` and `mknod` syscalls bypass `PURE_COMPUTE_UNSAFE` filesystem restrictions
 **Target:** `io.mazewall.Syscall`, `io.mazewall.Arch`, `io.mazewall.Policy.PURE_COMPUTE_UNSAFE`
-**Failure Hypothesis:** A blacklist-based policy (`ACT_ALLOW` default) intended to block all filesystem modifications fails to account for legacy or niche syscalls that achieve the same result. Specifically, `creat` and `mknod` are omitted.
-**Context & Proof:** `Policy.PURE_COMPUTE_UNSAFE` attempts to prevent file access and creation by explicitly blocking `OPEN`, `OPENAT`, `OPENAT2`, `MKDIR`, `LINK`, etc. However, it fails to block the `creat` (syscall 85 on x86_64) and `mknod`/`mknodat` system calls. Because `PURE_COMPUTE_UNSAFE` operates on a default-allow basis (`defaultAction = ACT_ALLOW`), an attacker with FFM access or RCE can directly invoke `syscall(85, "/target/path", 0644)`. This will successfully create a new file or truncate an existing file to 0 bytes, bypassing the intended sandbox restrictions.
-**Vulnerability Chain Potential:** High. Allows arbitrary file creation and truncation (of accessible files) from a thread that is supposed to be restricted to pure compute.
-**Needed:** Add `CREAT`, `MKNOD`, and `MKNODAT` to `Syscall.kt`. Map them in `Arch.kt` (e.g., `creat` is 85 on x86_64, -1 on aarch64; `mknod` is 133, `mknodat` is 259). Add these syscalls to the blocklist in `Policy.PURE_COMPUTE_UNSAFE` and `Policy.NO_EXEC`.
+**Fix:** Added `CREAT`, `MKNOD`, and `MKNODAT` to `Syscall` enum and mapped them in `Arch.kt` for amd64 and aarch64. Added these syscalls to the blocklists in `Policy.PURE_COMPUTE_UNSAFE` and `Policy.NO_EXEC`.
 
 ### 🔴 [Severity: HIGH]: Blacklist policies trigger silent, catastrophic Landlock filesystem lockdown due to `io_uring` check
 **Target:** `io.mazewall.landlock.Landlock.kt` (specifically `shouldApplyLandlock`) and `io.mazewall.enforcer.ContainedExecutors.kt`
@@ -313,3 +310,28 @@ Consequently, if a workload relies on `io_uring` for file access, `StraceProfile
 **Target:** `io.mazewall.enforcer.ContainedExecutors.kt` (specifically `needsLandlock` calculation)
 **Context:** In `ContainedExecutors.kt`, `needsLandlock` is implicitly triggered if `io_uring_setup` is allowed, even if no filesystem paths are specified. This causes Landlock to be applied with an empty ruleset, permanently locking down the filesystem for the thread. This trigger is currently undocumented in the code, making it difficult for agents to diagnose the root cause of the "silent lockdown" symptom observed in `Landlock.kt`.
 **Needed:** Add a cross-reference comment to the `io_uring` trigger in `ContainedExecutors.kt`. Long-term, decouple the `io_uring` safety check from the automatic filesystem lockdown or provide a clear warning/opt-out mechanism.
+
+### 🔴 [Severity: CRITICAL]: `ContainedExecutors` Thread-Local State Persistence and Poisoning
+**Target:** `io.mazewall.enforcer.ContainedExecutors.kt` and `ContainerStateRegistry.kt`
+**Context:** `ContainedExecutorWrapper` calls `applyContainment()` (which sets `ThreadLocal` actions and flags) on every task execution, but it never clears these `ThreadLocals` in a `finally` block. Because worker threads are reused in a pool, any subsequent task scheduled on the same OS thread will inherit the `mazewall` state of the previous task, even if it's supposed to be uncontained or have a different policy.
+**Needed:** Implement a robust `try-finally` cleanup in `ContainedExecutorWrapper` that clears all registers in `ContainerStateRegistry` when a contained task completes.
+
+### 🔴 [Severity: HIGH]: `Landlock.applyRestrictiveBarrier()` Silent Fail-Open
+**Target:** `io.mazewall.landlock.Landlock.kt`
+**Context:** The method ignores the return values of `prctl(PR_SET_NO_NEW_PRIVS)` and the `landlock_restrict_self` syscall. If the kernel fails to apply the ruleset (e.g. invalid FD, EPERM), the method returns silently, and the `IterativeProfiler` continues running WITHOUT filesystem containment, leading to zero discovered paths.
+**Needed:** Add strict result verification and throw an exception on failure.
+
+### 🔴 [Severity: HIGH]: `ProfilerDaemon` `SYMLINKAT` Mapping Error
+**Target:** `io.mazewall.profiler.engine.ProfilerDaemon.kt` (specifically `getPathArgs`)
+**Context:** `SYMLINKAT` parameters are mapped as `(oldDirFd, oldPath, newDirFd, newPath)`, but the Linux kernel signature is `(target, newdirfd, linkpath)`. This causes the profiler to attempt to read memory from registers that do not contain string pointers, resulting in failed path resolution for symlink creation.
+**Needed:** Correct the argument mapping for `SYMLINKAT` to match the `(target, newdirfd, linkpath)` signature.
+
+### 🔴 [Severity: MEDIUM]: `SbobParser` Unicode Escape Parsing Failure
+**Target:** `io.mazewall.SbobParser.kt` (specifically `JsonTokenizer`)
+**Context:** The lightweight JSON tokenizer handles standard escapes like `\n` or `\t` but lacks support for `\uXXXX` Unicode escapes. This causes corruption or parsing failures when SBoB files contain non-ASCII characters in paths.
+**Needed:** Implement `\uXXXX` escape sequence parsing in `JsonTokenizer.parseString`.
+
+### 🔴 [Severity: MEDIUM]: `SbobParser` Syntactic Pruning Inaccuracy
+**Target:** `io.mazewall.SbobParser.kt` (specifically `pruneSubpaths`)
+**Context:** Pruning relies on syntactic `normalize()` and `startsWith()` checks. If a parent path is a symlink to a different filesystem branch, syntactic pruning is invalid and can lead to incorrect permission grants.
+**Needed:** Document this limitation or switch to a more robust pruning strategy that considers the physical inode structure.

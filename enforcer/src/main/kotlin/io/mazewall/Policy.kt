@@ -91,7 +91,7 @@ class Policy private constructor(
                 .block(Syscall.CONNECT, Syscall.SENDTO, Syscall.SENDMSG, Syscall.SOCKET)
                 .block(Syscall.BIND, Syscall.LISTEN, Syscall.ACCEPT, Syscall.ACCEPT4)
                 .block(Syscall.EXECVE, Syscall.EXECVEAT)
-                .block(Syscall.OPEN, Syscall.OPENAT, Syscall.OPENAT2)
+                .block(Syscall.OPEN, Syscall.OPENAT, Syscall.OPENAT2, Syscall.CREAT, Syscall.MKNOD, Syscall.MKNODAT)
                 .block(Syscall.RENAME, Syscall.RENAMEAT, Syscall.RENAMEAT2)
                 .block(Syscall.LINK, Syscall.LINKAT, Syscall.UNLINK, Syscall.UNLINKAT)
                 .block(Syscall.SYMLINK, Syscall.SYMLINKAT, Syscall.READLINK, Syscall.READLINKAT)
@@ -135,7 +135,7 @@ class Policy private constructor(
                 .defaultAction(SeccompAction.ACT_ALLOW)
                 .block(Syscall.EXECVE, Syscall.EXECVEAT)
                 .block(Syscall.FORK, Syscall.VFORK)
-                .block(Syscall.MEMFD_CREATE, Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER, Syscall.PTRACE)
+                .block(Syscall.MEMFD_CREATE, Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER, Syscall.PTRACE, Syscall.CREAT, Syscall.MKNOD, Syscall.MKNODAT)
                 .block(Syscall.INIT_MODULE, Syscall.FINIT_MODULE)
                 .build()
 

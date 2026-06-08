@@ -1,6 +1,7 @@
 package io.mazewall.profiler.internal
 
 import io.mazewall.LinuxNative
+import java.io.IOException
 import java.io.InputStream
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
@@ -19,14 +20,24 @@ internal class NativeSocketInputStream(
         private const val BUFFER_SIZE = 8192
         private const val BYTE_MASK = 0xFF
         private const val EINTR = 4
+        private const val EAGAIN = 11
+        private const val EWOULDBLOCK = 11
+        private const val RETRY_DELAY_MS = 1L
     }
 
     override fun read(): Int {
         while (true) {
             val res = nativeRead(socketFd, readBuf, 1)
             if (res.returnValue <= 0) {
-                if (res.returnValue < 0 && res.errno == EINTR) continue
-                return -1
+                if (res.returnValue < 0) {
+                    val errno = res.errno
+                    if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
+                        Thread.sleep(RETRY_DELAY_MS)
+                        continue
+                    }
+                    throw IOException("Native read failed with errno $errno")
+                }
+                return -1 // Clean EOF
             }
             return readBuf.get(ValueLayout.JAVA_BYTE, 0L).toInt() and BYTE_MASK
         }
@@ -50,8 +61,15 @@ internal class NativeSocketInputStream(
         while (true) {
             val res = nativeRead(socketFd, multiBuf, count)
             if (res.returnValue <= 0) {
-                if (res.returnValue < 0 && res.errno == EINTR) continue
-                return -1
+                if (res.returnValue < 0) {
+                    val errno = res.errno
+                    if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
+                        Thread.sleep(RETRY_DELAY_MS)
+                        continue
+                    }
+                    throw IOException("Native bulk read failed with errno $errno")
+                }
+                return -1 // Clean EOF
             }
             val actualLen = res.returnValue.toInt()
             MemorySegment.copy(multiBuf, ValueLayout.JAVA_BYTE, 0L, b, off, actualLen)

@@ -22,6 +22,9 @@ enum class Syscall {
     OPEN,
     OPENAT,
     OPENAT2,
+    CREAT,
+    MKNOD,
+    MKNODAT,
     MMAP,
     MPROTECT,
     MADVISE,
@@ -129,7 +132,7 @@ internal object SyscallMapper {
             Syscall.CONNECT, Syscall.BIND, Syscall.LISTEN, Syscall.ACCEPT, Syscall.ACCEPT4, Syscall.SENDTO, Syscall.SENDMSG, Syscall.SOCKET ->
                 NetworkSyscallMapper.numberFor(syscall, arch)
 
-            Syscall.OPEN, Syscall.OPENAT, Syscall.OPENAT2, Syscall.READ, Syscall.WRITE, Syscall.CLOSE, Syscall.FSTAT, Syscall.LSEEK,
+            Syscall.OPEN, Syscall.OPENAT, Syscall.OPENAT2, Syscall.CREAT, Syscall.READ, Syscall.WRITE, Syscall.CLOSE, Syscall.FSTAT, Syscall.LSEEK,
             Syscall.PREAD64, Syscall.PWRITE64, Syscall.FCNTL, Syscall.FSYNC, Syscall.FDATASYNC,
             ->
                 FsSyscallMapper.numberForBasic(syscall, arch)
@@ -140,6 +143,7 @@ internal object SyscallMapper {
                 FsSyscallMapper.numberForAttr(syscall, arch)
 
             Syscall.RENAME, Syscall.RENAMEAT, Syscall.RENAMEAT2, Syscall.LINK, Syscall.LINKAT, Syscall.UNLINK, Syscall.UNLINKAT,
+            Syscall.MKNOD, Syscall.MKNODAT,
             Syscall.SYMLINK, Syscall.SYMLINKAT, Syscall.READLINK, Syscall.READLINKAT, Syscall.CHMOD, Syscall.FCHMOD, Syscall.FCHMODAT,
             Syscall.FSTATAT, Syscall.STATX,
             ->
@@ -228,7 +232,7 @@ internal object FsSyscallMapper {
         arch: Arch,
     ): Int =
         when (syscall) {
-            Syscall.OPEN, Syscall.OPENAT, Syscall.OPENAT2 -> numberForOpen(syscall, arch)
+            Syscall.OPEN, Syscall.OPENAT, Syscall.OPENAT2, Syscall.CREAT -> numberForOpen(syscall, arch)
             Syscall.READ, Syscall.WRITE, Syscall.CLOSE, Syscall.FSTAT, Syscall.LSEEK -> numberForIO(syscall, arch)
             else -> numberForMisc(syscall, arch)
         }
@@ -241,6 +245,7 @@ internal object FsSyscallMapper {
             Syscall.OPEN -> arch.open
             Syscall.OPENAT -> arch.openat
             Syscall.OPENAT2 -> arch.openat2
+            Syscall.CREAT -> arch.creat
             else -> -1
         }
 
@@ -316,7 +321,9 @@ internal object FsSyscallMapper {
         arch: Arch,
     ): Int =
         when (syscall) {
-            Syscall.RENAME, Syscall.RENAMEAT, Syscall.RENAMEAT2, Syscall.LINK, Syscall.LINKAT, Syscall.UNLINK, Syscall.UNLINKAT -> numberForPath(
+            Syscall.RENAME, Syscall.RENAMEAT, Syscall.RENAMEAT2, Syscall.LINK, Syscall.LINKAT, Syscall.UNLINK, Syscall.UNLINKAT,
+            Syscall.MKNOD, Syscall.MKNODAT,
+            -> numberForPath(
                 syscall,
                 arch,
             )
@@ -336,6 +343,8 @@ internal object FsSyscallMapper {
             Syscall.LINKAT -> arch.linkat
             Syscall.UNLINK -> arch.unlink
             Syscall.UNLINKAT -> arch.unlinkat
+            Syscall.MKNOD -> arch.mknod
+            Syscall.MKNODAT -> arch.mknodat
             else -> -1
         }
 

@@ -79,7 +79,7 @@ Use the following standardized format for all entries:
 ## 🛑 Termination Condition & Anti-Fatigue Rules
 
 - **Do not prematurely summarize.** If you have not logged an observation or finding in the last 3 turns, you must dig deeper into lower-level FFM layouts or OS interactions.
-- You MUST repeat the **Continuous Execution Loop** at least **10 times** (Phase 1 through Phase 6) before concluding your audit.
+- You MUST repeat the **Continuous Execution Loop** at least **20 times** (Phase 1 through Phase 6) before concluding your audit.
 - You may only stop and ask for user input if you have:
   1. Hand-verified every FFM ABI mapping against Linux headers.
   2. Checked every Kotlin file and Gradle configuration.

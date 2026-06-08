@@ -6,7 +6,6 @@ import java.lang.foreign.Arena
 import java.lang.foreign.ValueLayout
 import java.nio.charset.StandardCharsets
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 
 class ProfilerDaemonTest {
     @Test
@@ -30,7 +29,7 @@ class ProfilerDaemonTest {
 
     @Test
     @EnabledIfLinuxAndSupported
-    fun `test readStringFromProcess returns null when string lacks null-terminator`() {
+    fun `test readStringFromProcess returns best-effort string when null-terminator is missing`() {
         Arena.ofConfined().use { arena ->
             val testStr = "Not null-terminated"
             val bytes = testStr.toByteArray(StandardCharsets.UTF_8)
@@ -42,9 +41,9 @@ class ProfilerDaemonTest {
 
             val selfPid = ProcessHandle.current().pid().toInt()
             // We pass maxLen = bytes.size so that processVmReadv reads exactly bytes.size bytes.
-            // Since there is no null terminator in those bytes, it must return null.
+            // Since there is no null terminator in those bytes, it should return the best-effort string.
             val result = ProfilerDaemon.readStringFromProcess(selfPid, segment.address(), bytes.size)
-            assertNull(result, "Expected null due to missing null-terminator within bounds")
+            assertEquals(testStr, result, "Expected best-effort string due to missing null-terminator within bounds")
         }
     }
 
