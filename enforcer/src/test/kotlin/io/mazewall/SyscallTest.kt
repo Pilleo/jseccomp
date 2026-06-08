@@ -59,6 +59,8 @@ class SyscallTest {
         Syscall.ACCEPT4 to arch.accept4,
         Syscall.SENDTO to arch.sendto,
         Syscall.SENDMSG to arch.sendmsg,
+        Syscall.SENDMMSG to arch.sendmmsg,
+        Syscall.RECVMMSG to arch.recvmmsg,
         Syscall.SOCKET to arch.socket,
     )
 

@@ -161,13 +161,13 @@ As a result, neither the symlink target nor the symlink creation path is resolve
 **Target:** `/profiler/src/main/kotlin/io/mazewall/profiler/internal/ProfilerTraceListener.kt` (inside `start`)
 **Fix:** Extracted `NativeSocketInputStream` and added an explicit retry loop for `EINTR` (errno 4). Verified via targeted unit test with mocked native calls.
 
-### 🔴 [Severity: HIGH]: Missing `sendmmsg` and `recvmmsg` system calls bypass `NO_NETWORK` and `PURE_COMPUTE_UNSAFE` restrictions
+### 🟢 [RESOLVED]: Missing `sendmmsg` and `recvmmsg` system calls bypass `NO_NETWORK` and `PURE_COMPUTE_UNSAFE` restrictions
 **Target:** `io.mazewall.Syscall`, `io.mazewall.Policy.PURE_COMPUTE_UNSAFE`, `io.mazewall.Policy.NO_NETWORK`, and `/profiler/src/main/kotlin/io/mazewall/profiler/compiler/BobCompiler.kt`
 **Failure Hypothesis:** A blacklist-based seccomp policy that aims to prevent all outbound networking fails to block alternative or modern socket-sending system calls. An attacker with arbitrary code execution can bypass `NO_NETWORK` or `PURE_COMPUTE_UNSAFE` by invoking these unblocked network system calls.
 **Context & Proof:** `Policy.NO_NETWORK` and `Policy.PURE_COMPUTE_UNSAFE` block standard socket operations like `CONNECT`, `SENDTO`, `SENDMSG`, and `SOCKET`. However, they fail to account for `sendmmsg` (system call 307 on x86_64, 269 on aarch64) and `recvmmsg` (system call 299 on x86_64, 268 on aarch64). Because blacklist-based policies default to allowing any system call not explicitly blocked (`defaultAction = ACT_ALLOW`), `sendmmsg` and `recvmmsg` remain unconditionally allowed.
 If an attacker achieves native arbitrary code execution (ACE) or has access to a pre-existing socket file descriptor, they can directly invoke `syscall(307, fd, msgvec, vlen, flags)` to transmit network packets, completely bypassing the socket blocklists. Additionally, these system calls are omitted from `Syscall.kt` and thus are also ignored by the `BobCompiler` during trace compilation, creating a complete blind spot in both enforcement and profiling.
 **Cascading Risk Potential:** High security sandbox evasion. Enables arbitrary outbound network transmission on contained threads despite active network blocklists.
-**Needed:** Add `SENDMMSG` and `RECVMMSG` to `Syscall.kt` and map them in `Arch.kt` (e.g., `sendmmsg` is 307 on x86_64, 269 on aarch64; `recvmmsg` is 299, 268). Add these variants to the block lists in `Policy.PURE_COMPUTE_UNSAFE` and `Policy.NO_NETWORK`. Finally, update `BobCompiler.kt` and `StraceProfiler.kt` to map and parse these system calls correctly.
+**Fix:** Added `SENDMMSG` and `RECVMMSG` to `Syscall.kt` and mapped them in `Arch.kt` for x86_64 and aarch64. Added these variants to the block lists in `Policy.PURE_COMPUTE_UNSAFE` and `Policy.NO_NETWORK`.
 
 ### 🔴 [Severity: HIGH]: `IterativeProfiler` fails to resolve wrapped exception chains, breaking progressive profiling
 **Target:** `/profiler/src/main/kotlin/io/mazewall/profiler/iterative/IterativeProfiler.kt` (specifically `extractViolationPath`)

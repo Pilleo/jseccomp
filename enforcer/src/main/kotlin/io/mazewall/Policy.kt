@@ -88,7 +88,7 @@ class Policy private constructor(
         val PURE_COMPUTE_UNSAFE: Policy =
             builder()
                 .defaultAction(SeccompAction.ACT_ALLOW)
-                .block(Syscall.CONNECT, Syscall.SENDTO, Syscall.SENDMSG, Syscall.SOCKET)
+                .block(Syscall.CONNECT, Syscall.SENDTO, Syscall.SENDMSG, Syscall.SENDMMSG, Syscall.RECVMMSG, Syscall.SOCKET)
                 .block(Syscall.BIND, Syscall.LISTEN, Syscall.ACCEPT, Syscall.ACCEPT4)
                 .block(Syscall.EXECVE, Syscall.EXECVEAT)
                 .block(Syscall.OPEN, Syscall.OPENAT, Syscall.OPENAT2)
@@ -112,7 +112,7 @@ class Policy private constructor(
         val NO_NETWORK: Policy =
             builder()
                 .defaultAction(SeccompAction.ACT_ALLOW)
-                .block(Syscall.CONNECT, Syscall.SENDTO, Syscall.SENDMSG, Syscall.SOCKET)
+                .block(Syscall.CONNECT, Syscall.SENDTO, Syscall.SENDMSG, Syscall.SENDMMSG, Syscall.RECVMMSG, Syscall.SOCKET)
                 .block(Syscall.BIND, Syscall.LISTEN, Syscall.ACCEPT, Syscall.ACCEPT4)
                 .block(Syscall.IO_URING_SETUP, Syscall.IO_URING_ENTER)
                 .build()
