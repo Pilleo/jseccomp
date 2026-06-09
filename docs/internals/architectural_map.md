@@ -8,7 +8,7 @@ This document provides a high-level "Knowledge Graph" of the `mazewall` system. 
 |-----------|----------------|----------------|-----------|
 | **Enforcer Engine** | BPF compilation and filter installation. | Target JVM (Worker Thread) | Final / Immutable once applied. |
 | **Container Registry** | Tracks thread-scoped seccomp/Landlock state. | Target JVM (ThreadLocal) | Transient JVM state. |
-| **Profiler Daemon** | Out-of-process `USER_NOTIF` handling & memory reading. | Child Process (Native) | Long-lived per session. |
+| **Profiler Daemon** | Out-of-process `USER_NOTIF` handling & memory reading. | Child Process (Java/JVM) | Long-lived per session. |
 | **Trace Listener** | Bridge between Daemon and JVM Thread Registry. | Target JVM (Dedicated Thread) | Bound to session. |
 | **BobCompiler** | Generates `BillOfBehavior` JSON from trace events. | Target JVM (Tooling) | Static/Post-process. |
 
@@ -27,9 +27,9 @@ sequenceDiagram
     K->>K: Suspends W (Waiting for NOTIF ACK)
     K->>D: Sends SECCOMP_USER_NOTIF via FD
     D->>D: Resolve Paths via process_vm_readv
-    D->>L: Sends TraceEvent via UNIX Socket
+    D-->>L: Sends TraceEvent via UNIX Socket
     L->>L: Capture JVM Stack Trace (ThreadRegistry)
-    L-->>D: Event Received (Optional)
+    L-->>D: Sends ACK byte (Mandatory)
     D->>K: Sends SECCOMP_USER_NOTIF_FLAG_CONTINUE
     K->>W: Resumes W
     W->>W: Syscall completes in user-space
@@ -55,21 +55,22 @@ Mazewall operates in Tiers. An agent must know which Tier a change affects.
 
 ```mermaid
 graph TD
-    subgraph ":enforcer"
+    subgraph enforcer [":enforcer"]
         A[Policy.kt] --> B[BpfFilter.kt]
         B --> C[LinuxNative.kt]
         D[ContainedExecutors.kt] --> A
         D --> E[ContainerStateRegistry.kt]
+        H[SbobParser.kt]
     end
 
-    subgraph ":profiler"
+    subgraph profiler [":profiler"]
         F[Profiler.kt] --> G[ProfilerDaemon.kt]
-        G --> H[SbobParser.kt]
         I[IterativeProfiler.kt] --> D
+        J[Trace Listener]
     end
 
     G -- "UNIX Socket (FD Passing)" --> F
-    F -- "Thread Registry" --> J[Trace Listener]
+    F -- "Thread Registry" --> J
 ```
 
 ## 5. Critical Memory Layouts (FFM)

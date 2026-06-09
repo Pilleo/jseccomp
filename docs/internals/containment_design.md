@@ -83,12 +83,12 @@ protections.
 For `mmap`/`mprotect`, `prot` is the 3rd argument → `args[2]` → **byte offset 32**.
 
 ```
-BPF_JEQ(syscall_nr == mmap, match, skip_5)  # if not mmap, skip 4 instructions
+BPF_JEQ(syscall_nr == mmap, match, skip_4)
 BPF_LD offset=32                             # load args[2] (prot) lower 32 bits
 BPF_JSET 0x04, match, skip_1               # (BPF_JMP|0x40|BPF_K): if PROT_EXEC bit set, jt=0 (deny); else jf=1 (skip deny)
 BPF_RET(DENY)
 BPF_LD offset=0                              # restore NR for subsequent checks
-# identical 5-instruction sequence for mprotect (syscall_nr == mprotect)
+# identical 4-instruction sequence for mprotect (syscall_nr == mprotect)
 ```
 
 > **`JSET` semantics:** `jt=0, jf=1` — if `(ACC & 0x04) != 0` (PROT_EXEC IS set): jt=0, execute `RET_DENY` immediately; else: jf=1, skip over `RET_DENY`.
@@ -190,7 +190,7 @@ executor wrapping or the profiler) without wasting filter slots.
 | `FILTER_DEPTH`                         | `ThreadLocal<Int>`             | Count of thread-local filter installations         |
 | `PROCESS_FILTER_DEPTH`                 | `AtomicInteger`                | Count of process-wide filter installations         |
 | `THREAD_ALLOWS_MMAP_EXEC`              | `ThreadLocal<Boolean>`         | Whether mmap PROT_EXEC inspection is still pending |
-| `PROCESS_ALLOWS_MMAP_EXEC`             | `@Volatile Boolean`            | Same, process-wide                                 |
+| `PROCESS_ALLOWS_MMAP_EXEC`             | `AtomicBoolean`                | Same, process-wide                                 |
 | *(identical pattern for clone, prctl)* |                                |                                                    |
 
 Before installing, `installInternal` computes:
