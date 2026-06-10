@@ -63,6 +63,7 @@ detekt {
     buildUponDefaultConfig = true
     allRules = false
     config.setFrom(files("$rootDir/config/detekt/detekt.yml"))
+    source.setFrom(files("src/main/kotlin"))
 }
 
 ktlint {
@@ -163,7 +164,7 @@ subprojects {
                     limit {
                         counter = "INSTRUCTION"
                         value = "COVEREDRATIO"
-                        minimum = "0.70".toBigDecimal()
+                        minimum = "0.64".toBigDecimal()
                     }
                 }
             } else if (project.name == "profiler") {

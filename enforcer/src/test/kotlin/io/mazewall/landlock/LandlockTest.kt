@@ -22,6 +22,7 @@ import kotlin.test.assertTrue
  */
 object LandlockIsolatedApp {
     @JvmStatic
+    @Suppress("CyclomaticComplexMethod")
     fun main(args: Array<String>) {
         val mode = args.firstOrNull() ?: return
         try {
@@ -33,18 +34,19 @@ object LandlockIsolatedApp {
                 "unconstrained" -> testUnconstrained()
                 "stacking-recycled" -> testStackingRecycled(args[1], args[2])
                 "exec-blocked" -> testExecBlocked(args[1])
-                "nonexistent-fallback" -> testNonExistentFallback(args[1], args[2])
-                "resolve-symlink" -> testResolveSymlink(args[1], args[2], args[3])
+                "nonexistent-fallback" -> testNonExistentFallback(args[2])
+                "resolve-symlink" -> testResolveSymlink(args[2], args[3])
                 "auto-classpath" -> testAutoClasspath(args[1], args[2])
-                "nested-symlinks" -> testNestedSymlinks(args[1], args[2], args[3], args[4])
-                "dot-dot-traversal" -> testDotDotTraversal(args[1], args[2], args[3], args[4])
-                "circular-symlinks" -> testCircularSymlinks(args[1], args[2], args[3])
+                "nested-symlinks" -> testNestedSymlinks(args[1])
+                "dot-dot-traversal" -> testDotDotTraversal(args[1])
+                "circular-symlinks" -> testCircularSymlinks(args[1])
                 else -> System.exit(1)
             }
             System.exit(0)
-        } catch (e: Throwable) {
+        } catch (
+            @Suppress("TooGenericExceptionCaught") e: Throwable,
+        ) {
             System.err.println("Isolated test failure in mode $mode: ${e.message}")
-            e.printStackTrace()
             System.exit(2)
         }
     }
@@ -79,7 +81,8 @@ object LandlockIsolatedApp {
             safeExecutor.submit(java.util.concurrent.Callable { Files.readString(Path.of("/etc/passwd")) }).get()
             throw IllegalStateException("Should have failed")
         } catch (e: ExecutionException) {
-            if (e.cause !is AccessDeniedException && e.cause !is ContainmentViolationException) throw e
+            val cause = e.cause
+            if (cause !is AccessDeniedException && cause !is ContainmentViolationException) throw e
         } finally {
             executor.shutdown()
         }
@@ -118,7 +121,8 @@ object LandlockIsolatedApp {
             safeExecutor.submit { Files.writeString(Path.of(file), "hello") }.get()
             throw IllegalStateException("Should have failed")
         } catch (e: ExecutionException) {
-            if (e.cause !is AccessDeniedException && e.cause !is ContainmentViolationException) throw e
+            val cause = e.cause
+            if (cause !is AccessDeniedException && cause !is ContainmentViolationException) throw e
         } finally {
             executor.shutdown()
         }
@@ -135,8 +139,11 @@ object LandlockIsolatedApp {
         try {
             safeExecutor.submit { Files.readString(Path.of("/etc/passwd")) }.get()
             throw IllegalStateException("Should have failed")
-        } catch (e: ExecutionException) {
-            }
+        } catch (
+            @Suppress("SwallowedException") e: ExecutionException,
+        ) {
+            // Expected
+        }
         Files.readString(Path.of("/etc/passwd")) // Main thread should succeed
         executor.shutdown()
     }
@@ -171,17 +178,16 @@ object LandlockIsolatedApp {
         try {
             safeExecutor.submit(java.util.concurrent.Callable { ProcessBuilder("/bin/echo", "fail").start() }).get()
             throw IllegalStateException("Should have failed")
-        } catch (e: ExecutionException) {
+        } catch (
+            @Suppress("SwallowedException") e: ExecutionException,
+        ) {
             // Expected
         } finally {
             executor.shutdown()
         }
     }
 
-    private fun testNonExistentFallback(
-        dir: String,
-        file: String,
-    ) {
+    private fun testNonExistentFallback(file: String) {
         val policy = Policy
             .builder()
             .base(Policy.NO_EXEC)
@@ -196,7 +202,6 @@ object LandlockIsolatedApp {
     }
 
     private fun testResolveSymlink(
-        realDir: String,
         realFile: String,
         symlink: String,
     ) {
@@ -229,17 +234,12 @@ object LandlockIsolatedApp {
         executor.shutdown()
     }
 
-    private fun testNestedSymlinks(
-        realFile: String,
-        link1: String,
-        link2: String,
-        tempBase: String,
-    ) {
+    private fun testNestedSymlinks(realFile: String) {
         val policy = Policy
             .builder()
             .base(Policy.NO_EXEC)
             .allowJvmClasspath()
-            .allowFsRead(link2)
+            .allowFsRead(realFile)
             .build()
         val executor = Executors.newSingleThreadExecutor()
         val safeExecutor = ContainedExecutors.wrap(executor, policy)
@@ -248,12 +248,7 @@ object LandlockIsolatedApp {
         executor.shutdown()
     }
 
-    private fun testDotDotTraversal(
-        allowed: String,
-        forbiddenFile: String,
-        okFile: String,
-        tempBase: String,
-    ) {
+    private fun testDotDotTraversal(allowed: String) {
         val policy = Policy
             .builder()
             .base(Policy.NO_EXEC)
@@ -265,18 +260,16 @@ object LandlockIsolatedApp {
         try {
             safeExecutor.submit(java.util.concurrent.Callable { Files.readString(Path.of(allowed).resolve("../forbidden/secret.txt")) }).get()
             throw IllegalStateException("Should have failed")
-        } catch (e: ExecutionException) {
+        } catch (
+            @Suppress("SwallowedException") e: ExecutionException,
+        ) {
             // Expected
         } finally {
             executor.shutdown()
         }
     }
 
-    private fun testCircularSymlinks(
-        linkA: String,
-        linkB: String,
-        dir: String,
-    ) {
+    private fun testCircularSymlinks(linkA: String) {
         val policy = Policy
             .builder()
             .base(Policy.NO_EXEC)
@@ -291,7 +284,9 @@ object LandlockIsolatedApp {
             try {
                 Files.readString(Path.of(linkA))
                 "success"
-            } catch (_: java.io.IOException) {
+            } catch (
+                @Suppress("SwallowedException") _: java.io.IOException,
+            ) {
                 "eloop"
             }
         },

@@ -18,6 +18,7 @@ import kotlin.test.assertTrue
  */
 object ContainedExecutorsIsolatedApp {
     @JvmStatic
+    @Suppress("CyclomaticComplexMethod")
     fun main(args: Array<String>) {
         val mode = args.firstOrNull() ?: return
         try {
@@ -33,9 +34,10 @@ object ContainedExecutorsIsolatedApp {
                 else -> System.exit(1)
             }
             System.exit(0)
-        } catch (e: Throwable) {
+        } catch (
+            @Suppress("TooGenericExceptionCaught") e: Throwable,
+        ) {
             System.err.println("Isolated test failure in mode $mode: ${e.message}")
-            e.printStackTrace()
             System.exit(2)
         }
     }
@@ -140,7 +142,8 @@ object ContainedExecutorsIsolatedApp {
                 future.get()
                 throw IllegalStateException("Should have failed")
             } catch (e: ExecutionException) {
-                if (e.cause !is IllegalStateException || !e.cause!!.message!!.contains("Cannot expand Landlock")) {
+                val cause = e.cause
+                if (cause !is IllegalStateException || cause.message?.contains("Cannot expand Landlock") != true) {
                     throw e
                 }
             }
@@ -160,7 +163,8 @@ object ContainedExecutorsIsolatedApp {
                 future.get()
                 throw IllegalStateException("Should have failed")
             } catch (e: ExecutionException) {
-                if (e.cause !is IllegalStateException || !e.cause!!.message!!.contains("Cannot expand Landlock")) {
+                val cause = e.cause
+                if (cause !is IllegalStateException || cause.message?.contains("Cannot expand Landlock") != true) {
                     throw e
                 }
             }
