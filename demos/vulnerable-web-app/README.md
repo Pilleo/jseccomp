@@ -51,7 +51,7 @@ If you prefer to perform each step manually:
 
 ### 1. Build the Application
 ```bash
-./gradlew :demo:vulnerable-app:bootJar
+./gradlew :demos:vulnerable-web-app:bootJar
 ```
 
 ### 2. Start the Environment

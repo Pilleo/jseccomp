@@ -223,17 +223,16 @@ fun runProfileAndEnforce() {
             // whitelisted scope, the VFS layer rejects the open regardless of whether it came from a
             // synchronous syscall or an io_uring submission queue entry.
             Arena.ofConfined().use { arena ->
+                val fs = LinuxNative.getFileSystem()
                 val openResult =
-                    LinuxNative.open(
+                    fs.open(
                         arena.allocateFrom(sensitiveFile.canonicalPath),
                         0, // O_RDONLY
                     )
 
-                // EPERM (1)  = Seccomp blocked the syscall entirely
-                // EACCES (13) = Landlock denied the path access at the VFS layer
-                val EPERM = 1
-                val EACCES = 13
-                if (openResult.returnValue < 0 && (openResult.errno == EPERM || openResult.errno == EACCES)) {
+                // EPERM = Seccomp blocked the syscall entirely
+                // EACCES = Landlock denied the path access at the VFS layer
+                if (openResult.returnValue < 0 && (openResult.errno == 1 || openResult.errno == 13)) {
                     println("  [Kernel io-wq Worker] Landlock LSM hook intercepted '/etc/hosts' access inside kernel workqueue!")
                     throw java.io.IOException("Permission denied (io_uring async worker blocked by Landlock)")
                 }
@@ -305,7 +304,7 @@ fun runProfileAndEnforce() {
     println("==========================================================")
     println("  Phase 1: Profiling (Tier S / USER_NOTIF)  ✅ COMPLETED")
     println("  Phase 2: Bill of Behavior DSL generation   ✅ COMPLETED")
-    println("  Phase 3: Enforcement (legit workload)      ✅ BLOCKED by Seccomp + Landlock")
+    println("  Phase 3: Enforcement (legit workload)      ✅ SUCCESSFUL execution")
     println("  Phase 4: Sync path traversal breach        🛡  BLOCKED by Landlock VFS")
     println("  Phase 5: io_uring async evasion attempt    🛡  BLOCKED by Landlock VFS (io-wq inherits ruleset)")
     println("  Phase 6: Thread-hopping bypass             ⚠  BYPASSED (intentional — Tier 2 limitation)")
