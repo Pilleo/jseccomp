@@ -21,6 +21,7 @@ dependencies {
     testImplementation(libs.archunit.junit5)
     testImplementation(libs.kotest.assertions)
     testImplementation(libs.kotest.property)
+    testImplementation(libs.kotest.runner)
     testImplementation(libs.kotlinxCoroutines)
     testRuntimeOnly(libs.junit.jupiter.engine)
 }
