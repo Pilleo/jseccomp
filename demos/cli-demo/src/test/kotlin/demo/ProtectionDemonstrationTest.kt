@@ -1,10 +1,11 @@
 package demo
 
-import io.mazewall.Arch
 import io.mazewall.LinuxNative
 import io.mazewall.Policy
+import io.mazewall.core.Arch
 import io.mazewall.enforcer.ContainedExecutors
 import io.mazewall.enforcer.ContainmentViolationException
+import io.mazewall.ffi.NativeConstants
 import org.junit.jupiter.api.Test
 import java.io.File
 import java.lang.foreign.*
@@ -61,7 +62,7 @@ class ProtectionDemonstrationTest {
                                 0L,
                             )
                         assertTrue(res.returnValue < 0, "memfd_create should be blocked by NO_EXEC")
-                        assertTrue(res.errno == LinuxNative.EPERM, "Expected EPERM, got ${res.errno}")
+                        assertTrue(res.errno == NativeConstants.EPERM, "Expected EPERM, got ${res.errno}")
                     }
                 }.get()
         } finally {

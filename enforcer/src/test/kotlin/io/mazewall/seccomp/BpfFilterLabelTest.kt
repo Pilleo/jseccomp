@@ -1,9 +1,9 @@
 package io.mazewall.seccomp
 
-import io.mazewall.Arch
 import io.mazewall.BpfFilter
 import io.mazewall.Policy
-import io.mazewall.Syscall
+import io.mazewall.core.Arch
+import io.mazewall.core.Syscall
 import org.junit.jupiter.api.Test
 import kotlin.test.assertTrue
 

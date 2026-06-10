@@ -1,5 +1,7 @@
 package io.mazewall
 
+import io.mazewall.core.Arch
+import io.mazewall.core.Syscall
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource

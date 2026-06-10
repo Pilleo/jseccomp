@@ -1,4 +1,7 @@
 package io.mazewall
+import io.mazewall.core.Arch
+import io.mazewall.core.SeccompAction
+import io.mazewall.core.Syscall
 
 /**
  * Defines which syscalls to block. Create via [builder] or use the built-in presets.

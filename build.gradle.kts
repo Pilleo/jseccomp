@@ -1,13 +1,13 @@
 import org.gradle.api.publish.PublishingExtension
 
 plugins {
-    kotlin("jvm") version "2.4.0" apply false
+    alias(libs.plugins.kotlin) apply false
+    alias(libs.plugins.detekt)
+    alias(libs.plugins.ktlint)
+    alias(libs.plugins.spotbugs)
+    alias(libs.plugins.dependencyCheck)
+    alias(libs.plugins.pitest) apply false
     id("jacoco")
-    id("dev.detekt") version "2.0.0-alpha.3"
-    id("org.jlleitschuh.gradle.ktlint") version "14.2.0"
-    id("com.github.spotbugs") version "6.5.5"
-    id("org.owasp.dependencycheck") version "10.0.4"
-    id("info.solidsoft.pitest") version "1.19.0" apply false
     id("base")
 }
 
@@ -38,8 +38,12 @@ allprojects {
         }
     }
 
-    // Ensure code is formatted before compilation to prevent build failures
+    // Ensure code is formatted before compilation or check to prevent build failures
     tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+        dependsOn("ktlintFormat")
+    }
+
+    tasks.matching { it.name == "ktlintCheck" || it.name == "ktlintTestSourceSetCheck" || it.name == "ktlintMainSourceSetCheck" }.configureEach {
         dependsOn("ktlintFormat")
     }
 
@@ -59,7 +63,6 @@ detekt {
     buildUponDefaultConfig = true
     allRules = false
     config.setFrom(files("$rootDir/config/detekt/detekt.yml"))
-    baseline = file("detekt-baseline.xml")
 }
 
 ktlint {
@@ -79,6 +82,10 @@ subprojects {
     apply(plugin = "jacoco")
     apply(plugin = "dev.detekt")
     apply(plugin = "com.github.spotbugs")
+
+    detekt {
+        baseline = file("$rootDir/config/detekt/${project.name}-baseline.xml")
+    }
 
     extensions.configure<PublishingExtension> {
         repositories {
@@ -105,11 +112,23 @@ subprojects {
     }
 
     dependencies {
-        "spotbugsPlugins"("com.h3xstream.findsecbugs:findsecbugs-plugin:1.13.0")
+        "spotbugsPlugins"(
+            rootProject.extensions
+                .getByType<VersionCatalogsExtension>()
+                .named("libs")
+                .findLibrary("findsecbugs")
+                .get(),
+        )
     }
 
     extensions.configure<JacocoPluginExtension> {
-        toolVersion = "0.8.14"
+        toolVersion =
+            rootProject.extensions
+                .getByType<VersionCatalogsExtension>()
+                .named("libs")
+                .findVersion("jacoco")
+                .get()
+                .requiredVersion
     }
 
     tasks.withType<Test>().configureEach {

@@ -144,7 +144,7 @@ To load a seccomp filter without root privileges (`CAP_SYS_ADMIN`), the Linux ke
 
 ```kotlin
 // Enforced by Linux before loading unprivileged seccomp filters:
-LinuxNative.prctl(LinuxNative.PR_SET_NO_NEW_PRIVS, 1L, 0L, 0L, 0L)
+LinuxNative.prctl(NativeConstants.PR_SET_NO_NEW_PRIVS, 1L, 0L, 0L, 0L)
 ```
 
 This flag tells the kernel: *"From this moment on, this process and all of its descendants can never transition to a higher privilege level via `execve()`."*

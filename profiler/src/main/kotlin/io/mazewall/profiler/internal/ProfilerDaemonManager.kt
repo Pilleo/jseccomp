@@ -1,6 +1,7 @@
 package io.mazewall.profiler.internal
 
 import io.mazewall.LinuxNative
+import io.mazewall.ffi.NativeConstants
 import java.io.IOException
 import java.lang.foreign.Arena
 import java.lang.foreign.ValueLayout
@@ -28,7 +29,7 @@ internal object ProfilerDaemonManager {
         synchronized(daemonLock) {
             val existing = sharedDaemonContext
             if (existing != null && existing.daemonProcess.isAlive) {
-                LinuxNative.prctl(LinuxNative.PR_SET_PTRACER, existing.daemonProcess.pid(), 0, 0, 0)
+                LinuxNative.prctl(NativeConstants.PR_SET_PTRACER, existing.daemonProcess.pid(), 0, 0, 0)
                 return existing
             }
             val newContext = spawnDaemon()
@@ -88,7 +89,7 @@ internal object ProfilerDaemonManager {
         val daemonProcess = pb.start()
         val daemonPid = daemonProcess.pid()
 
-        LinuxNative.prctl(LinuxNative.PR_SET_PTRACER, daemonPid, 0, 0, 0)
+        LinuxNative.prctl(NativeConstants.PR_SET_PTRACER, daemonPid, 0, 0, 0)
 
         Thread {
             daemonProcess.errorStream.bufferedReader().useLines { lines ->

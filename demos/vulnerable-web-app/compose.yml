@@ -2,30 +2,24 @@ services:
     unprotected:
         build:
             context: ../../
-            dockerfile: demo/vulnerable-app/Containerfile
+            dockerfile: demos/vulnerable-web-app/Containerfile
         ports:
             - "8082:8080"
         environment:
             - MAZEWALL_ENABLED=false
         annotations:
-            io.podman.annotations.seccomp: ${PWD}/../../podman-seccomp.json
+            io.podman.annotations.seccomp: ${PWD}/../../infra/dev/podman-seccomp.json
 
     protected:
         build:
             context: ../../
-            dockerfile: demo/vulnerable-app/Containerfile
+            dockerfile: demos/vulnerable-web-app/Containerfile
         environment:
             - MAZEWALL_ENABLED=true
             - MAZEWALL_PROFILE=true
             - SERVER_PORT=8081
             - JAVA_TOOL_OPTIONS=-Dmazewall.sbob.path=/app/output/sbob.json
         volumes:
-            - ../../demo/output:/app/output:rw
+            - ../output:/app/output:rw
         annotations:
-            io.podman.annotations.seccomp: ${PWD}/../../podman-seccomp.json
-        cap_add:
-            - SYS_ADMIN
-            - AUDIT_READ
-            - SYS_PTRACE
-        network_mode: host
-        userns_mode: host
+            io.podman.annotations.seccomp: ${PWD}/../../infra/dev/podman-seccomp.json

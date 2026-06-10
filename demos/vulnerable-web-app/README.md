@@ -41,7 +41,7 @@ The easiest way to execute the entire real-world CVE exploitation demo is to run
 ./run_vulnerable_app_demo.sh
 ```
 
-This single script will build the application, start the Podman/Docker Compose environment, wait for both services to be healthy and active, run all 11 exploits against both instances, generate the Markdown verification report (`demo/vulnerable-app/report.md`), output a beautiful color-coded console summary, and cleanly terminate the OCI containers on exit.
+This single script will build the application, start the Podman/Docker Compose environment, wait for both services to be healthy and active, run all 11 exploits against both instances, generate the Markdown verification report (`demos/vulnerable-web-app/report.md`), output a beautiful color-coded console summary, and cleanly terminate the OCI containers on exit.
 
 ---
 
@@ -60,7 +60,7 @@ This starts two instances of the same application:
 - **Protected** (`http://localhost:8081`): Scoped Mazewall filters applied to vulnerable threads.
 
 ```bash
-podman compose -f demo/vulnerable-app/compose.yml up -d
+podman compose -f demos/vulnerable-web-app/compose.yml up -d
 ```
 
 ### 3. Run Automated Exploits
@@ -87,7 +87,7 @@ Capture results into JSON and generate a Markdown summary:
 ```bash
 python3 exploits/run_all.py http://localhost:8082 > unprotected.json
 python3 exploits/run_all.py http://localhost:8081 > protected.json
-python3 exploits/verify_results.py unprotected.json protected.json demo/vulnerable-app/report.md
+python3 exploits/verify_results.py unprotected.json protected.json demos/vulnerable-web-app/report.md
 ```
 
 ## How It Works

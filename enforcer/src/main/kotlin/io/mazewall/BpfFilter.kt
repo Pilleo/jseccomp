@@ -1,6 +1,10 @@
 package io.mazewall
 
+import io.mazewall.core.Arch
+import io.mazewall.core.SeccompAction
+import io.mazewall.core.Syscall
 import io.mazewall.ffi.Layouts
+import io.mazewall.ffi.NativeConstants
 import java.lang.foreign.MemoryLayout
 import java.util.logging.Logger
 
@@ -51,17 +55,17 @@ object BpfFilter {
         profilingMode: Boolean,
     ): Int {
         return when (action) {
-            SeccompAction.ACT_KILL_PROCESS -> LinuxNative.SECCOMP_RET_KILL_PROCESS
-            SeccompAction.ACT_KILL_THREAD -> LinuxNative.SECCOMP_RET_KILL_THREAD
-            SeccompAction.ACT_TRAP -> LinuxNative.SECCOMP_RET_TRAP
+            SeccompAction.ACT_KILL_PROCESS -> NativeConstants.SECCOMP_RET_KILL_PROCESS
+            SeccompAction.ACT_KILL_THREAD -> NativeConstants.SECCOMP_RET_KILL_THREAD
+            SeccompAction.ACT_TRAP -> NativeConstants.SECCOMP_RET_TRAP
             SeccompAction.ACT_ERRNO -> if (profilingMode) {
-                LinuxNative.SECCOMP_RET_USER_NOTIF
+                NativeConstants.SECCOMP_RET_USER_NOTIF
             } else {
-                (LinuxNative.SECCOMP_RET_ERRNO or LinuxNative.EPERM)
+                (NativeConstants.SECCOMP_RET_ERRNO or NativeConstants.EPERM)
             }
-            SeccompAction.ACT_NOTIFY -> LinuxNative.SECCOMP_RET_USER_NOTIF
-            SeccompAction.ACT_LOG -> LinuxNative.SECCOMP_RET_LOG
-            SeccompAction.ACT_ALLOW -> LinuxNative.SECCOMP_RET_ALLOW
+            SeccompAction.ACT_NOTIFY -> NativeConstants.SECCOMP_RET_USER_NOTIF
+            SeccompAction.ACT_LOG -> NativeConstants.SECCOMP_RET_LOG
+            SeccompAction.ACT_ALLOW -> NativeConstants.SECCOMP_RET_ALLOW
         }
     }
 
@@ -131,7 +135,7 @@ object BpfFilter {
         filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_DATA_ARCH_OFFSET))
         // If arch matches, skip 1 instruction (the ret kill)
         filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 1, 0, arch.audit))
-        filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, LinuxNative.SECCOMP_RET_KILL_THREAD))
+        filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, NativeConstants.SECCOMP_RET_KILL_THREAD))
     }
 
     private fun emitMmapInspections(
@@ -178,7 +182,7 @@ object BpfFilter {
 
         // clone3 -> Always ENOSYS
         if (arch.clone3 >= 0) {
-            val enosysAction = LinuxNative.SECCOMP_RET_ERRNO or 38
+            val enosysAction = NativeConstants.SECCOMP_RET_ERRNO or 38
             handledNrs.add(arch.clone3)
             filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 1, arch.clone3))
             filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, enosysAction))
@@ -247,12 +251,12 @@ object BpfFilter {
         }
 
         // Inject the JVM Immutable Base for restrictive default actions (Whitelists)
-        if (defaultNativeAction != LinuxNative.SECCOMP_RET_ALLOW) {
+        if (defaultNativeAction != NativeConstants.SECCOMP_RET_ALLOW) {
             for (nr in jvmCriticalNrs.sorted()) {
                 if (nr in handledNrs) continue
                 handledNrs.add(nr)
                 filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 1, nr))
-                filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, LinuxNative.SECCOMP_RET_ALLOW))
+                filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, NativeConstants.SECCOMP_RET_ALLOW))
             }
         }
     }

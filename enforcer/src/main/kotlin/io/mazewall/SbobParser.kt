@@ -1,5 +1,7 @@
 package io.mazewall
 
+import io.mazewall.core.SeccompAction
+import io.mazewall.core.Syscall
 import java.io.InputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files

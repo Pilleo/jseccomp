@@ -1,5 +1,8 @@
 package io.mazewall
 
+import io.mazewall.core.Arch
+import io.mazewall.core.SeccompAction
+import io.mazewall.core.Syscall
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith

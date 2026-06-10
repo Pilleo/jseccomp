@@ -1,5 +1,6 @@
 package io.mazewall
 
+import io.mazewall.ffi.Layouts
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 
@@ -156,6 +157,6 @@ class MockNativeEngine : NativeEngine {
         arena: Arena,
         filters: Array<SockFilter>,
     ): MemorySegment {
-        return arena.allocate(LinuxNative.SOCK_FPROG_LAYOUT)
+        return arena.allocate(Layouts.SOCK_FPROG)
     }
 }

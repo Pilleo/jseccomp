@@ -4,7 +4,7 @@ import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.IsolatedProcessTester
 import io.mazewall.Platform
 import io.mazewall.Policy
-import io.mazewall.Syscall
+import io.mazewall.core.Syscall
 import io.mazewall.enforcer.ContainedExecutors
 import io.mazewall.enforcer.ContainmentViolationDetector
 import org.junit.jupiter.api.Test

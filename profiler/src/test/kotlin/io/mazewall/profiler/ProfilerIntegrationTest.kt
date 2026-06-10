@@ -1,10 +1,10 @@
 package io.mazewall.profiler
 
-import io.mazewall.Arch
 import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.LinuxNative
 import io.mazewall.Policy
-import io.mazewall.Syscall
+import io.mazewall.core.Arch
+import io.mazewall.core.Syscall
 import io.mazewall.profiler.compiler.BobCompiler
 import org.junit.jupiter.api.Test
 import java.io.File

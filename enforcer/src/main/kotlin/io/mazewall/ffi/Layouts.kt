@@ -1,5 +1,6 @@
 package io.mazewall.ffi
 
+import java.lang.foreign.Linker
 import java.lang.foreign.MemoryLayout
 import java.lang.foreign.StructLayout
 import java.lang.foreign.ValueLayout
@@ -13,6 +14,12 @@ import java.lang.foreign.ValueLayout
  */
 object Layouts {
     /**
+     * Layout for capturing errno after a native call.
+     */
+    val ERRNO: StructLayout = Linker.Option.captureStateLayout()
+    val ERRNO_OFFSET: Long = ERRNO.byteOffset(MemoryLayout.PathElement.groupElement("errno"))
+
+    /**
      * Corresponds to `struct sock_filter` in `<linux/filter.h>`.
      * Used for BPF filter instructions.
      */
@@ -22,6 +29,7 @@ object Layouts {
         ValueLayout.JAVA_BYTE.withName("jf"),
         ValueLayout.JAVA_INT.withName("k"),
     )
+    val SOCK_FILTER_SIZE: Long = SOCK_FILTER.byteSize()
 
     /**
      * Corresponds to `struct sock_fprog` in `<linux/filter.h>`.
@@ -32,6 +40,8 @@ object Layouts {
         MemoryLayout.paddingLayout(6), // Align pointer to 8 bytes
         ValueLayout.ADDRESS.withName("filter"),
     )
+    val SOCK_FPROG_LEN_OFFSET: Long = SOCK_FPROG.byteOffset(MemoryLayout.PathElement.groupElement("len"))
+    val SOCK_FPROG_FILTER_OFFSET: Long = SOCK_FPROG.byteOffset(MemoryLayout.PathElement.groupElement("filter"))
 
     /**
      * Corresponds to `struct seccomp_data` in `<linux/seccomp.h>`.
@@ -122,6 +132,10 @@ object Layouts {
         ValueLayout.JAVA_LONG.withName("handled_access_fs"),
         ValueLayout.JAVA_LONG.withName("handled_access_net"),
     )
+    val LANDLOCK_RULESET_ATTR_FS_OFFSET: Long =
+        LANDLOCK_RULESET_ATTR.byteOffset(MemoryLayout.PathElement.groupElement("handled_access_fs"))
+    val LANDLOCK_RULESET_ATTR_NET_OFFSET: Long =
+        LANDLOCK_RULESET_ATTR.byteOffset(MemoryLayout.PathElement.groupElement("handled_access_net"))
 
     /**
      * Corresponds to `struct landlock_path_beneath_attr` in `<linux/landlock.h>`.
@@ -130,4 +144,8 @@ object Layouts {
         ValueLayout.JAVA_LONG.withByteAlignment(1).withName("allowed_access"),
         ValueLayout.JAVA_INT.withByteAlignment(1).withName("parent_fd"),
     )
+    val LANDLOCK_PATH_BENEATH_ATTR_ACCESS_OFFSET: Long =
+        LANDLOCK_PATH_BENEATH_ATTR.byteOffset(MemoryLayout.PathElement.groupElement("allowed_access"))
+    val LANDLOCK_PATH_BENEATH_ATTR_FD_OFFSET: Long =
+        LANDLOCK_PATH_BENEATH_ATTR.byteOffset(MemoryLayout.PathElement.groupElement("parent_fd"))
 }

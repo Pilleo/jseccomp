@@ -5,7 +5,7 @@
 This skill provides a rigorous checklist for adding a new system call to the `mazewall` engine and profiler.
 
 ### 1. Definition Phase
-- [ ] **Syscall.kt:** Add the new enum value to `io.mazewall.Syscall`. Use uppercase naming (e.g., `IO_URING_SETUP`).
+- [ ] **Syscall.kt:** Add the new enum value to `io.mazewall.core.Syscall`. Use uppercase naming (e.g., `IO_URING_SETUP`).
 - [ ] **Arch.kt:** Map the enum value to the correct Linux system call numbers for both `x86_64` and `aarch64`. Verify numbers against the official Linux syscall tables (e.g., `man syscalls`).
 
 ### 2. Policy Integration

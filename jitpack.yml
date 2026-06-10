@@ -1,4 +1,4 @@
 jdk:
-    - openjdk17
+    - openjdk22
 install:
     - ./gradlew publishToMavenLocal -x listDeps

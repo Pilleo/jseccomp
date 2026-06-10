@@ -1,7 +1,7 @@
 package io.mazewall.enforcer
 
-import io.mazewall.SeccompAction
-import io.mazewall.Syscall
+import io.mazewall.core.SeccompAction
+import io.mazewall.core.Syscall
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference

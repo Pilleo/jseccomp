@@ -56,10 +56,20 @@ Mazewall operates in Tiers. An agent must know which Tier a change affects.
 ```mermaid
 graph TD
     subgraph enforcer [":enforcer"]
-        A[Policy.kt] --> B[BpfFilter.kt]
+        direction TB
+        subgraph core ["io.mazewall.core"]
+            S[Syscall.kt]
+            A[Arch.kt]
+            SA[SeccompAction.kt]
+        end
+        P[Policy.kt] --> B[BpfFilter.kt]
+        B --> S
+        B --> A
         B --> C[NativeEngine.kt]
         C -- traits --> LN[LinuxNative.kt]
-        D[ContainedExecutors.kt] --> A
+        LN --> NC[NativeConstants.kt]
+        LN --> L[Layouts.kt]
+        D[ContainedExecutors.kt] --> P
         D --> E[ContainerStateRegistry.kt]
         H[SbobParser.kt]
     end
@@ -71,8 +81,16 @@ graph TD
         J[Trace Listener]
     end
 
+    subgraph demos ["demos"]
+        D1[cli-demo]
+        D2[vulnerable-web-app]
+    end
+
     G -- "UNIX Socket (FD Passing)" --> F
     F -- "Thread Registry" --> J
+    D1 --> enforcer
+    D1 --> profiler
+    D2 --> enforcer
 ```
 
 ## 5. Critical Memory Layouts (FFM)

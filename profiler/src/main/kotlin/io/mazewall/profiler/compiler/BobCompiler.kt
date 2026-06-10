@@ -1,6 +1,6 @@
 package io.mazewall.profiler.compiler
 
-import io.mazewall.Syscall
+import io.mazewall.core.Syscall
 import io.mazewall.profiler.BillOfBehavior
 import io.mazewall.profiler.engine.TraceEvent
 import java.util.*

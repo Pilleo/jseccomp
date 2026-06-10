@@ -1,6 +1,8 @@
 package io.mazewall.profiler.engine
 
 import io.mazewall.LinuxNative
+import io.mazewall.ffi.Layouts
+import io.mazewall.ffi.NativeConstants
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -36,7 +38,7 @@ class ProfilerDaemonTest {
             pollCount.incrementAndGet()
             // In the wait-for-ack loop, we need to set the revents
             if (nfds == 1L) {
-                 fds.set(ValueLayout.JAVA_SHORT, POLLFD_REVENTS_OFF, LinuxNative.POLLIN)
+                 fds.set(ValueLayout.JAVA_SHORT, POLLFD_REVENTS_OFF, NativeConstants.POLLIN)
             }
             return nextPollResult
         }
@@ -104,12 +106,12 @@ class ProfilerDaemonTest {
         }
 
         Arena.ofConfined().use { arena ->
-            val notif = arena.allocate(LinuxNative.SECCOMP_NOTIF_LAYOUT)
+            val notif = arena.allocate(Layouts.SECCOMP_NOTIF)
             notif.set(ValueLayout.JAVA_LONG, NOTIF_ID_OFF, 123L) // ID
             notif.set(ValueLayout.JAVA_INT, NOTIF_PID_OFF, 456) // PID
             notif.set(ValueLayout.JAVA_INT, NOTIF_NR_OFF, 2) // NR (open)
 
-            val resp = arena.allocate(LinuxNative.SECCOMP_NOTIF_RESP_LAYOUT)
+            val resp = arena.allocate(Layouts.SECCOMP_NOTIF_RESP)
             val ackBuf = arena.allocate(1L)
 
             val pollFds = setupMockPoll(arena)
@@ -128,9 +130,9 @@ class ProfilerDaemonTest {
     }
 
     private fun setupMockPoll(arena: Arena): MemorySegment {
-        val pollFds = arena.allocate(MemoryLayout.sequenceLayout(2, LinuxNative.POLLFD_LAYOUT))
+        val pollFds = arena.allocate(MemoryLayout.sequenceLayout(2, Layouts.POLLFD))
         // [0]: Seccomp listener FD - set POLLIN
-        pollFds.set(ValueLayout.JAVA_SHORT, POLLFD_REVENTS_OFF, LinuxNative.POLLIN)
+        pollFds.set(ValueLayout.JAVA_SHORT, POLLFD_REVENTS_OFF, NativeConstants.POLLIN)
         return pollFds
     }
 }

@@ -1,5 +1,7 @@
 package io.mazewall
 
+import io.mazewall.core.SeccompAction
+import io.mazewall.core.Syscall
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test

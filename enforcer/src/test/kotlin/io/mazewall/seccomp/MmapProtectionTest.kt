@@ -2,7 +2,8 @@ package io.mazewall.seccomp
 
 import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.Policy
-import io.mazewall.Syscall
+import io.mazewall.core.Arch
+import io.mazewall.core.Syscall
 import io.mazewall.enforcer.ContainedExecutors
 import io.mazewall.enforcer.ContainmentViolationException
 import org.junit.jupiter.api.Test
@@ -224,7 +225,8 @@ class MmapProtectionTest {
                     // 2. Try to make it executable using pkey_mprotect
                     // pkey_mprotect syscall takes (addr, len, prot, pkey)
                     // We map it manually since it's not in libc yet
-                    val arch = io.mazewall.Arch.current()
+                    val arch = io.mazewall.core.Arch
+                        .current()
                     val nr = arch.pkeyMprotect
                     val res = io.mazewall.LinuxNative.syscall(nr.toLong(), addr.address(), 4096L, (PROT_READ or PROT_EXEC).toLong(), 0L)
 

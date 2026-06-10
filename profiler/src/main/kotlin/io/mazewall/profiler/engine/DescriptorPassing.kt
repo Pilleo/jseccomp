@@ -1,6 +1,6 @@
 package io.mazewall.profiler.engine
 
-import io.mazewall.LinuxNative
+import io.mazewall.ffi.Layouts
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout
@@ -28,11 +28,11 @@ internal object DescriptorPassing {
         dummyByte: MemorySegment,
         controlBuf: MemorySegment,
     ): MemorySegment {
-        val iov = arena.allocate(LinuxNative.IOVEC_LAYOUT)
+        val iov = arena.allocate(Layouts.IOVEC)
         iov.set(ValueLayout.ADDRESS, 0L, dummyByte)
         iov.set(ValueLayout.JAVA_LONG, IOV_LEN_OFF, 1L)
 
-        val msg = arena.allocate(LinuxNative.MSGHDR_LAYOUT)
+        val msg = arena.allocate(Layouts.MSGHDR)
         msg.fill(0)
         // Offset 16: msg_iov (pointer)
         msg.set(ValueLayout.ADDRESS, MSG_IOV_OFF, iov)

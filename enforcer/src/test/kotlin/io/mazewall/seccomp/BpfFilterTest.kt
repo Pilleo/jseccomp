@@ -1,10 +1,11 @@
 package io.mazewall.seccomp
 
-import io.mazewall.Arch
 import io.mazewall.BpfFilter
-import io.mazewall.LinuxNative
 import io.mazewall.Policy
-import io.mazewall.Syscall
+import io.mazewall.core.Arch
+import io.mazewall.core.SeccompAction
+import io.mazewall.core.Syscall
+import io.mazewall.ffi.NativeConstants
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -39,16 +40,16 @@ class BpfFilterTest {
         // The last instruction should be RET ALLOW
         val last = filter.last()
         assertEquals(0x06.toShort(), last.code, "Last instruction should be RET")
-        assertEquals(LinuxNative.SECCOMP_RET_ALLOW, last.k, "Last instruction should return ALLOW")
+        assertEquals(NativeConstants.SECCOMP_RET_ALLOW, last.k, "Last instruction should return ALLOW")
     }
 
     @Test
     fun `ALLOW_LIST mode has RET DENY as default`() {
-        val policy = Policy.builder().defaultAction(io.mazewall.SeccompAction.ACT_ERRNO).build()
+        val policy = Policy.builder().defaultAction(io.mazewall.core.SeccompAction.ACT_ERRNO).build()
         val filter = BpfFilter.build(arch, policy)
         val last = filter.last()
         assertEquals(0x06.toShort(), last.code)
-        assertEquals(LinuxNative.SECCOMP_RET_ERRNO or LinuxNative.EPERM, last.k)
+        assertEquals(NativeConstants.SECCOMP_RET_ERRNO or NativeConstants.EPERM, last.k)
     }
 
     @Test
@@ -56,7 +57,7 @@ class BpfFilterTest {
         val policy =
             Policy
                 .builder()
-                .defaultAction(io.mazewall.SeccompAction.ACT_ERRNO)
+                .defaultAction(io.mazewall.core.SeccompAction.ACT_ERRNO)
                 .allow(Syscall.READ)
                 .build()
         val filter = BpfFilter.build(arch, policy)
@@ -69,7 +70,7 @@ class BpfFilterTest {
             if (f.code == 0x15.toShort() && f.k == readNr) {
                 // jt=0 (match), next instruction should be RET ALLOW
                 val next = filter[i + 1]
-                if (next.code == 0x06.toShort() && next.k == LinuxNative.SECCOMP_RET_ALLOW) {
+                if (next.code == 0x06.toShort() && next.k == NativeConstants.SECCOMP_RET_ALLOW) {
                     found = true
                     break
                 }
@@ -80,7 +81,7 @@ class BpfFilterTest {
 
     @Test
     fun `clone3 always returns ENOSYS even in ALLOW_LIST`() {
-        val policy = Policy.builder().defaultAction(io.mazewall.SeccompAction.ACT_ERRNO).build()
+        val policy = Policy.builder().defaultAction(io.mazewall.core.SeccompAction.ACT_ERRNO).build()
         val filter = BpfFilter.build(arch, policy)
 
         val clone3Nr = arch.clone3
@@ -89,7 +90,7 @@ class BpfFilterTest {
             val f = filter[i]
             if (f.code == 0x15.toShort() && f.k == clone3Nr) {
                 val next = filter[i + 1]
-                if (next.code == 0x06.toShort() && next.k == (LinuxNative.SECCOMP_RET_ERRNO or 38)) {
+                if (next.code == 0x06.toShort() && next.k == (NativeConstants.SECCOMP_RET_ERRNO or 38)) {
                     found = true
                     break
                 }

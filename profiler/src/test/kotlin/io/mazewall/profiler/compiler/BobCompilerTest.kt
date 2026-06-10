@@ -1,8 +1,8 @@
 package io.mazewall.profiler.compiler
 
-import io.mazewall.Arch
 import io.mazewall.Policy
-import io.mazewall.Syscall
+import io.mazewall.core.Arch
+import io.mazewall.core.Syscall
 import io.mazewall.profiler.engine.TraceEvent
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals

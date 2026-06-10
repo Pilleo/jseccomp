@@ -1,4 +1,4 @@
-package io.mazewall
+package io.mazewall.core
 
 data class Arch(
     val name: String,

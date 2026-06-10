@@ -1,6 +1,6 @@
 package io.mazewall.enforcer.internal
 
-import io.mazewall.Arch
+import io.mazewall.core.Arch
 import io.mazewall.enforcer.ContainmentViolationDetector
 
 /**

@@ -1,8 +1,8 @@
 package io.mazewall.enforcer
 
 import io.mazewall.Policy
-import io.mazewall.SeccompAction
-import io.mazewall.Syscall
+import io.mazewall.core.SeccompAction
+import io.mazewall.core.Syscall
 import java.util.logging.Logger
 
 /**

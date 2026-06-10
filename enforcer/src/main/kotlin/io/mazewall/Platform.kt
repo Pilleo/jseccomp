@@ -1,5 +1,7 @@
 package io.mazewall
 
+import io.mazewall.core.Arch
+import io.mazewall.ffi.NativeConstants
 import java.util.logging.Logger
 
 /**
@@ -28,14 +30,14 @@ object Platform {
             isSeccompSanityCheckPassing() &&
             isArchitectureSupported()
 
-    private fun hasKernelSeccompSupport(): Boolean = LinuxNative.prctl(LinuxNative.PR_GET_SECCOMP, 0, 0, 0, 0).returnValue >= 0
+    private fun hasKernelSeccompSupport(): Boolean = LinuxNative.prctl(NativeConstants.PR_GET_SECCOMP, 0, 0, 0, 0).returnValue >= 0
 
     private fun isSeccompSanityCheckPassing(): Boolean {
         // Bogus Sanity Check: Ensure the kernel actively enforces seccomp.
         // We call prctl(PR_SET_SECCOMP) with an invalid mode (-1).
         // A healthy kernel should return -1 and set errno to EINVAL (22).
         // Some container environments or broken kernels might silently return 0 or a different error.
-        val bogusCheck = LinuxNative.prctl(LinuxNative.PR_SET_SECCOMP, -1L, 0L, 0, 0)
+        val bogusCheck = LinuxNative.prctl(NativeConstants.PR_SET_SECCOMP, -1L, 0L, 0, 0)
         val passed = bogusCheck.returnValue != 0L && bogusCheck.errno == ERRNO_EINVAL
         if (!passed) {
             logger.warning(
@@ -120,7 +122,7 @@ object Platform {
 
         if (isLinux) {
             try {
-                val nnpVal = LinuxNative.prctl(LinuxNative.PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0)
+                val nnpVal = LinuxNative.prctl(NativeConstants.PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0)
                 if (nnpVal.returnValue >= 0) {
                     isNoNewPrivsEnabled = nnpVal.returnValue == 1L
                 }
@@ -128,7 +130,7 @@ object Platform {
             }
 
             try {
-                val seccompVal = LinuxNative.prctl(LinuxNative.PR_GET_SECCOMP, 0, 0, 0, 0)
+                val seccompVal = LinuxNative.prctl(NativeConstants.PR_GET_SECCOMP, 0, 0, 0, 0)
                 seccompMode = seccompVal.returnValue
             } catch (ignored: Exception) {
             }

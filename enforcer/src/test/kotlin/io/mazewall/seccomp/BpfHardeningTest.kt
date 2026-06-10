@@ -3,7 +3,8 @@ package io.mazewall.seccomp
 import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.LinuxNative
 import io.mazewall.Policy
-import io.mazewall.Syscall
+import io.mazewall.core.Arch
+import io.mazewall.core.Syscall
 import io.mazewall.enforcer.ContainedExecutors
 import org.junit.jupiter.api.Test
 import java.util.concurrent.atomic.AtomicReference
@@ -62,7 +63,8 @@ class BpfHardeningTest {
                     ContainedExecutors.installOnCurrentThread(policy)
                     // We don't call mmap directly via FFM here because it's hard to set up the arguments safely,
                     // so we use the generic syscall(2) downcall.
-                    val arch = io.mazewall.Arch.current()
+                    val arch = io.mazewall.core.Arch
+                        .current()
                     val res = LinuxNative.syscall(arch.mmap.toLong(), 0, 4096, 1, 2, -1, 0)
                     result.set(res)
                 } catch (t: Throwable) {

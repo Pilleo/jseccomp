@@ -1,5 +1,7 @@
 package io.mazewall
 
+import io.mazewall.ffi.Layouts
+import io.mazewall.ffi.NativeConstants
 import org.junit.jupiter.api.Test
 import java.lang.foreign.Arena
 import java.lang.foreign.ValueLayout
@@ -11,7 +13,7 @@ import kotlin.test.assertTrue
 class LinuxNativeTest {
     @Test
     fun testPrctlGetSeccomp() {
-        val result = LinuxNative.prctl(LinuxNative.PR_GET_SECCOMP, 0, 0, 0, 0)
+        val result = LinuxNative.prctl(NativeConstants.PR_GET_SECCOMP, 0, 0, 0, 0)
         // Usually returns 0 or 2, unless error
         assertTrue(result.returnValue >= 0)
     }
@@ -20,7 +22,7 @@ class LinuxNativeTest {
     fun testToLongError() {
         assertFailsWith<IllegalArgumentException> {
             // String is not a supported type for toLong()
-            LinuxNative.prctl(LinuxNative.PR_SET_NAME, "string-not-allowed")
+            LinuxNative.prctl(NativeConstants.PR_SET_NAME, "string-not-allowed")
         }
     }
 
@@ -65,18 +67,18 @@ class LinuxNativeTest {
 
     @Test
     fun testLayoutAccessors() {
-        LinuxNative.ERRNO_LAYOUT
-        LinuxNative.SOCK_FILTER_LAYOUT
-        LinuxNative.SOCK_FPROG_LAYOUT
-        LinuxNative.IOVEC_LAYOUT
-        LinuxNative.MSGHDR_LAYOUT
-        LinuxNative.CMSGHDR_LAYOUT
-        LinuxNative.SOCKADDR_UN_LAYOUT
-        LinuxNative.SECCOMP_DATA_LAYOUT
-        LinuxNative.SECCOMP_NOTIF_LAYOUT
-        LinuxNative.SECCOMP_NOTIF_RESP_LAYOUT
-        LinuxNative.LANDLOCK_RULESET_ATTR_LAYOUT
-        LinuxNative.LANDLOCK_PATH_BENEATH_ATTR_LAYOUT
+        Layouts.ERRNO
+        Layouts.SOCK_FILTER
+        Layouts.SOCK_FPROG
+        Layouts.IOVEC
+        Layouts.MSGHDR
+        Layouts.CMSGHDR
+        Layouts.SOCKADDR_UN
+        Layouts.SECCOMP_DATA
+        Layouts.SECCOMP_NOTIF
+        Layouts.SECCOMP_NOTIF_RESP
+        Layouts.LANDLOCK_RULESET_ATTR
+        Layouts.LANDLOCK_PATH_BENEATH_ATTR
     }
 
     @Test
@@ -116,11 +118,11 @@ class LinuxNativeTest {
             val localBuf = arena.allocate(10)
             localBuf.set(ValueLayout.JAVA_BYTE, 0, 123)
 
-            val remoteIovec = arena.allocate(LinuxNative.IOVEC_LAYOUT)
+            val remoteIovec = arena.allocate(Layouts.IOVEC)
             remoteIovec.set(ValueLayout.ADDRESS, 0, localBuf)
             remoteIovec.set(ValueLayout.JAVA_LONG, 8, 10)
 
-            val localIovec = arena.allocate(LinuxNative.IOVEC_LAYOUT)
+            val localIovec = arena.allocate(Layouts.IOVEC)
             val destBuf = arena.allocate(10)
             localIovec.set(ValueLayout.ADDRESS, 0, destBuf)
             localIovec.set(ValueLayout.JAVA_LONG, 8, 10)
@@ -168,9 +170,9 @@ class LinuxNativeTest {
     @Test
     fun testPoll() {
         Arena.ofConfined().use { arena ->
-            val pollFd = arena.allocate(LinuxNative.POLLFD_LAYOUT)
+            val pollFd = arena.allocate(Layouts.POLLFD)
             pollFd.set(ValueLayout.JAVA_INT, 0L, -1) // Invalid FD
-            pollFd.set(ValueLayout.JAVA_SHORT, 4L, LinuxNative.POLLIN)
+            pollFd.set(ValueLayout.JAVA_SHORT, 4L, NativeConstants.POLLIN)
             pollFd.set(ValueLayout.JAVA_SHORT, 6L, 0.toShort())
 
             val result = LinuxNative.poll(pollFd, 1L, 0) // 0 timeout

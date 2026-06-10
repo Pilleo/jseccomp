@@ -1,6 +1,7 @@
 package io.mazewall.profiler
 
-import io.mazewall.Syscall
+import io.mazewall.core.SeccompAction
+import io.mazewall.core.Syscall
 import io.mazewall.profiler.engine.TraceEvent
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
@@ -80,13 +81,13 @@ class BillOfBehaviorTest {
         val policy = bob.toPolicy(
             io.mazewall.Policy
                 .builder()
-                .defaultAction(io.mazewall.SeccompAction.ACT_ERRNO)
+                .defaultAction(io.mazewall.core.SeccompAction.ACT_ERRNO)
                 .build(),
         )
-        assertEquals(io.mazewall.SeccompAction.ACT_ERRNO, policy.defaultAction)
+        assertEquals(io.mazewall.core.SeccompAction.ACT_ERRNO, policy.defaultAction)
 
         val policyDenyList = bob.toPolicy()
-        assertEquals(io.mazewall.SeccompAction.ACT_ALLOW, policyDenyList.defaultAction)
+        assertEquals(io.mazewall.core.SeccompAction.ACT_ALLOW, policyDenyList.defaultAction)
         assertTrue(policyDenyList.isSyscallAllowed(Syscall.OPEN))
         assertTrue(policyDenyList.isSyscallAllowed(Syscall.CONNECT))
     }
@@ -112,7 +113,7 @@ class BillOfBehaviorTest {
         val allowBase =
             io.mazewall.Policy
                 .builder()
-                .defaultAction(io.mazewall.SeccompAction.ACT_ERRNO)
+                .defaultAction(io.mazewall.core.SeccompAction.ACT_ERRNO)
                 .build()
         val dslAllow = bob.toDsl("Policy.builder().defaultAction(SeccompAction.ACT_ERRNO).build()", allowBase)
         assertTrue(dslAllow.contains(".allow("))

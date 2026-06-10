@@ -1,6 +1,7 @@
 package io.mazewall.profiler.internal
 
 import io.mazewall.LinuxNative
+import io.mazewall.ffi.Layouts
 import io.mazewall.profiler.engine.DescriptorPassing
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
@@ -75,7 +76,7 @@ internal object ProfilerSocket {
         arena: Arena,
         socketPath: String,
     ): MemorySegment {
-        val addr = arena.allocate(LinuxNative.SOCKADDR_UN_LAYOUT)
+        val addr = arena.allocate(Layouts.SOCKADDR_UN)
         addr.fill(0)
         addr.set(ValueLayout.JAVA_SHORT, 0L, AF_UNIX.toShort())
         val pathBytes = socketPath.toByteArray(Charsets.UTF_8)

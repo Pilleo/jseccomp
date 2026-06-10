@@ -1,6 +1,6 @@
 package io.mazewall.profiler.strace
 
-import io.mazewall.Syscall
+import io.mazewall.core.Syscall
 import io.mazewall.profiler.BillOfBehavior
 import io.mazewall.profiler.TraceableWorkload
 import java.io.File

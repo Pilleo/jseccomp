@@ -1,12 +1,13 @@
 package io.mazewall.seccomp
 
-import io.mazewall.Arch
 import io.mazewall.BpfFilter
 import io.mazewall.LinuxNative
 import io.mazewall.Platform
 import io.mazewall.Policy
-import io.mazewall.SeccompAction
-import io.mazewall.Syscall
+import io.mazewall.core.Arch
+import io.mazewall.core.SeccompAction
+import io.mazewall.core.Syscall
+import io.mazewall.ffi.NativeConstants
 import java.lang.foreign.Arena
 
 /**
@@ -44,7 +45,7 @@ object PureJavaBpfEngine : SeccompEngine {
 
     private fun setNoNewPrivs() {
         // Step 1: Set no_new_privs (mandatory for non-root seccomp)
-        val r1 = LinuxNative.prctl(LinuxNative.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
+        val r1 = LinuxNative.prctl(NativeConstants.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
         if (r1.returnValue != 0L) {
             throw IllegalStateException("prctl(PR_SET_NO_NEW_PRIVS) failed with errno ${r1.errno}")
         }
@@ -56,11 +57,11 @@ object PureJavaBpfEngine : SeccompEngine {
         useTsync: Boolean,
     ) {
         // Try modern seccomp(2) syscall first
-        val flags = if (useTsync) LinuxNative.SECCOMP_FILTER_FLAG_TSYNC.toLong() else 0L
+        val flags = if (useTsync) NativeConstants.SECCOMP_FILTER_FLAG_TSYNC.toLong() else 0L
         val r3 =
             LinuxNative.syscall(
                 arch.seccompSyscallNumber.toLong(),
-                LinuxNative.SECCOMP_SET_MODE_FILTER.toLong(),
+                NativeConstants.SECCOMP_SET_MODE_FILTER.toLong(),
                 flags,
                 prog,
             )
@@ -80,8 +81,8 @@ object PureJavaBpfEngine : SeccompEngine {
 
             val r4 =
                 LinuxNative.prctl(
-                    LinuxNative.PR_SET_SECCOMP,
-                    LinuxNative.SECCOMP_MODE_FILTER.toLong(),
+                    NativeConstants.PR_SET_SECCOMP,
+                    NativeConstants.SECCOMP_MODE_FILTER.toLong(),
                     prog,
                     0,
                     0,
@@ -104,7 +105,7 @@ object PureJavaBpfEngine : SeccompEngine {
         }
 
         // Verify filter is actually installed
-        val r5 = LinuxNative.prctl(LinuxNative.PR_GET_SECCOMP, 0, 0, 0, 0)
+        val r5 = LinuxNative.prctl(NativeConstants.PR_GET_SECCOMP, 0, 0, 0, 0)
         if (r5.returnValue != 2L) {
             throw IllegalStateException(
                 "Seccomp filter verification failed: expected mode 2, got ${r5.returnValue}",

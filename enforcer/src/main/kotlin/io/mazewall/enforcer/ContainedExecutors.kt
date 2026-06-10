@@ -2,8 +2,8 @@ package io.mazewall.enforcer
 
 import io.mazewall.Platform
 import io.mazewall.Policy
-import io.mazewall.SeccompAction
-import io.mazewall.Syscall
+import io.mazewall.core.SeccompAction
+import io.mazewall.core.Syscall
 import io.mazewall.enforcer.internal.ContainedExecutorWrapper
 import io.mazewall.enforcer.internal.JitWarmup
 import io.mazewall.landlock.Landlock

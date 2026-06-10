@@ -1,6 +1,6 @@
 package io.mazewall.profiler.engine
 
-import io.mazewall.LinuxNative
+import io.mazewall.ffi.Layouts
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import java.lang.foreign.Arena
@@ -26,7 +26,7 @@ class DescriptorPassingTest {
             assertEquals(1L, msgIovLen, "msg_iovlen should be 1")
 
             // Reinterpret iovPointer to check iovec contents
-            val iovSegment = iovPointer.reinterpret(LinuxNative.IOVEC_LAYOUT.byteSize())
+            val iovSegment = iovPointer.reinterpret(Layouts.IOVEC.byteSize())
             val iovBase = iovSegment.get(ValueLayout.ADDRESS, 0L)
             val iovLen = iovSegment.get(ValueLayout.JAVA_LONG, 8L)
             assertEquals(dummyByte.address(), iovBase.address(), "iov_base should point to dummyByte")

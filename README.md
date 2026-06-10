@@ -17,7 +17,7 @@
 | I want to… | Go to |
 |------------|-------|
 | Understand what mazewall is and why it exists | Keep reading ↓ |
-| Run the live exploit demo | [Demo README](demo/README.md) |
+| Run the live exploit demo | [Demo README](demos/vulnerable-web-app/README.md) |
 | Integrate mazewall into my Spring/Quarkus app | [enforcer README](enforcer/README.md) → Quick Start |
 | Understand the kernel internals and threat model | [Article Series](#technical-articles) |
 | Contribute or modify the codebase | [CONTRIBUTING.md](CONTRIBUTING.md) |
@@ -243,7 +243,7 @@ podman compose -f infra/dev/compose.yml exec mazewall ./gradlew test
 > **Note on Container Security:** Rather than running completely unconfined (which is insecure), `mazewall` includes a custom [podman-seccomp.json](infra/dev/podman-seccomp.json) profile that is automatically configured in [infra/dev/compose.yml](infra/dev/compose.yml). This profile whitelists `seccomp(2)` filter stacking, enabling the JVM inside the container to apply nested thread-level policies while keeping the container fully isolated from the host.
 >
 > > [!NOTE]
-> > **Container Profiles:** This command uses the development profile (`infra/dev/compose.yml`) which runs the test environment. Do not confuse it with the CVE demo profile (`demo/vulnerable-app/compose.yml`) used to run the vulnerable Spring Boot app.
+> > **Container Profiles:** This command uses the development profile (`infra/dev/compose.yml`) which runs the test environment. Do not confuse it with the CVE demo profile (`demos/vulnerable-web-app/compose.yml`) used to run the vulnerable Spring Boot app.
 
 ### 2. Configure a Path-Restricted Thread Pool (Landlock)
 
@@ -275,10 +275,10 @@ executor.submit {
 
 ## Demos
 
-### 🛡️ [Real-World CVE Exploitation Demo](demo/vulnerable-app/README.md)
+### 🛡️ [Real-World CVE Exploitation Demo](demos/vulnerable-web-app/README.md)
 A comprehensive Spring Boot 3.x integration showing how `mazewall` blocks real-world exploits (Log4Shell, SSRF, XXE, etc.). The demo includes a fully-automated orchestration script [scripts/run_vulnerable_app_demo.sh](scripts/run_vulnerable_app_demo.sh) that executes all 11 exploit vectors and compiles a comparative report.
 
-### 🧩 [Interactive Core Showcase](demo/README.md)
+### 🧩 [Interactive Core Showcase](demos/cli-demo/README.md)
 The interactive showcase demonstrating:
 - **`unsafe` vs `safe`:** Direct comparison of an exploit's impact with and without `mazewall` containment.
 - **`profile` & Enforce:** Automated `USER_NOTIF` profiling of a complex workload.

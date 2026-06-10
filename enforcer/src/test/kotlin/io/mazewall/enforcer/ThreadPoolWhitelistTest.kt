@@ -2,8 +2,8 @@ package io.mazewall.enforcer
 
 import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.Policy
-import io.mazewall.SeccompAction
-import io.mazewall.Syscall
+import io.mazewall.core.SeccompAction
+import io.mazewall.core.Syscall
 import org.junit.jupiter.api.Test
 import java.util.concurrent.Executors
 

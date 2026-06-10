@@ -1,10 +1,11 @@
 package io.mazewall.seccomp
 
-import io.mazewall.Arch
 import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.LinuxNative
 import io.mazewall.Policy
-import io.mazewall.Syscall
+import io.mazewall.core.Arch
+import io.mazewall.core.SeccompAction
+import io.mazewall.core.Syscall
 import io.mazewall.enforcer.ContainedExecutors
 import org.junit.jupiter.api.Test
 import java.util.concurrent.Executors
@@ -60,7 +61,7 @@ class AllowListTest {
                     val policy =
                         Policy
                             .builder()
-                            .defaultAction(io.mazewall.SeccompAction.ACT_ERRNO)
+                            .defaultAction(io.mazewall.core.SeccompAction.ACT_ERRNO)
                             .allow(*jvmFloor())
                             .build()
 
@@ -88,7 +89,7 @@ class AllowListTest {
                     val policy =
                         Policy
                             .builder()
-                            .defaultAction(io.mazewall.SeccompAction.ACT_ERRNO)
+                            .defaultAction(io.mazewall.core.SeccompAction.ACT_ERRNO)
                             .allow(*jvmFloor())
                             .build()
 

@@ -1,11 +1,12 @@
 package io.mazewall.seccomp
 
-import io.mazewall.Arch
 import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.LinuxNative
 import io.mazewall.Policy
-import io.mazewall.Syscall
+import io.mazewall.core.Arch
+import io.mazewall.core.Syscall
 import io.mazewall.enforcer.ContainedExecutors
+import io.mazewall.ffi.NativeConstants
 import org.junit.jupiter.api.Test
 import java.util.concurrent.Executors
 import kotlin.test.assertTrue
@@ -33,7 +34,7 @@ class MemfdCreateBypassTest {
                             )
                         }
                     assertTrue(res.returnValue < 0, "memfd_create should be blocked by NO_EXEC")
-                    assertTrue(res.errno == LinuxNative.EPERM, "Expected EPERM, got ${res.errno}")
+                    assertTrue(res.errno == NativeConstants.EPERM, "Expected EPERM, got ${res.errno}")
                 }.get()
         } finally {
             executor.shutdown()
@@ -67,7 +68,7 @@ class MemfdCreateBypassTest {
                             )
                         }
                     assertTrue(res.returnValue < 0, "memfd_create should be blocked")
-                    assertTrue(res.errno == LinuxNative.EPERM, "Expected EPERM, got ${res.errno}")
+                    assertTrue(res.errno == NativeConstants.EPERM, "Expected EPERM, got ${res.errno}")
                 }.get()
         } finally {
             executor.shutdown()

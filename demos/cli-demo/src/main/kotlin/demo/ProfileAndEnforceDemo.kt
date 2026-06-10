@@ -1,9 +1,9 @@
 package demo
 
-import io.mazewall.Arch
 import io.mazewall.LinuxNative
 import io.mazewall.Policy
-import io.mazewall.Syscall
+import io.mazewall.core.Arch
+import io.mazewall.core.Syscall
 import io.mazewall.enforcer.ContainedExecutors
 import io.mazewall.enforcer.ContainmentViolationException
 import io.mazewall.profiler.Profiler
@@ -127,7 +127,7 @@ fun runProfileAndEnforce() {
         while (rootDir.parentFile != null && !File(rootDir, "settings.gradle.kts").exists()) {
             rootDir = rootDir.parentFile
         }
-        val outputDir = File(rootDir, "demo/output")
+        val outputDir = File(rootDir, "demos/output")
         if (!outputDir.exists()) {
             outputDir.mkdirs()
         }

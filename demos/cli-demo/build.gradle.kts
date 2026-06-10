@@ -18,7 +18,7 @@ application {
 dependencies {
     implementation(project(":enforcer"))
     implementation(project(":profiler"))
-    testImplementation("org.junit.jupiter:junit-jupiter:5.10.0")
+    testImplementation(libs.junit.jupiter)
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testImplementation(kotlin("test"))
 }

@@ -77,6 +77,7 @@ tasks.configureEach {
 
 tasks.named<org.springframework.boot.gradle.tasks.bundling.BootJar>("bootJar") {
     mainClass.set("demo.vulnapp.VulnAppApplicationKt")
+    archiveFileName.set("vulnerable-app.jar")
 }
 
 val extractJacocoAgent by tasks.registering(Copy::class) {

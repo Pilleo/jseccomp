@@ -42,7 +42,7 @@ class MazewallProfileManager {
         var current = java.io.File(".").absoluteFile
         while (current.parentFile != null) {
             if (java.io.File(current, "settings.gradle.kts").exists()) {
-                val hostOutputDir = java.io.File(current, "demo/output")
+                val hostOutputDir = java.io.File(current, "demos/output")
                 if (!hostOutputDir.exists()) {
                     hostOutputDir.mkdirs()
                 }

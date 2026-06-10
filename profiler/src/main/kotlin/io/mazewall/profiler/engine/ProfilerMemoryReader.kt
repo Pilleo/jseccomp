@@ -1,6 +1,7 @@
 package io.mazewall.profiler.engine
 
 import io.mazewall.LinuxNative
+import io.mazewall.ffi.Layouts
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout
@@ -37,10 +38,10 @@ object RealMemoryReader : ProfilerMemoryReader {
         Arena.ofConfined().use { arena ->
             val localBuf = arena.allocate(maxLen.toLong())
             localBuf.fill(0)
-            val localIov = arena.allocate(LinuxNative.IOVEC_LAYOUT)
+            val localIov = arena.allocate(Layouts.IOVEC)
             localIov.set(ValueLayout.ADDRESS, 0L, localBuf)
             localIov.set(ValueLayout.JAVA_LONG, IOV_LEN_OFF, maxLen.toLong())
-            val remoteIov = arena.allocate(LinuxNative.IOVEC_LAYOUT)
+            val remoteIov = arena.allocate(Layouts.IOVEC)
             remoteIov.set(ValueLayout.ADDRESS, 0L, MemorySegment.ofAddress(remoteAddress))
             remoteIov.set(ValueLayout.JAVA_LONG, IOV_LEN_OFF, maxLen.toLong())
             val res = LinuxNative.processVmReadv(pid, localIov, 1, remoteIov, 1, 0)

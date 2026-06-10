@@ -1,4 +1,4 @@
-package io.mazewall
+package io.mazewall.core
 
 /**
  * Standard Linux Seccomp-BPF return actions.

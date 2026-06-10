@@ -1,8 +1,10 @@
 package io.mazewall.profiler.engine
 
-import io.mazewall.Arch
 import io.mazewall.LinuxNative
-import io.mazewall.Syscall
+import io.mazewall.core.Arch
+import io.mazewall.core.Syscall
+import io.mazewall.ffi.Layouts
+import io.mazewall.ffi.NativeConstants
 import java.lang.foreign.Arena
 import java.lang.foreign.MemoryLayout
 import java.lang.foreign.MemorySegment
@@ -65,7 +67,7 @@ internal class ProfilerDaemonEngine(
         arena: Arena,
         socketPath: String,
     ): MemorySegment {
-        val addr = arena.allocate(LinuxNative.SOCKADDR_UN_LAYOUT)
+        val addr = arena.allocate(Layouts.SOCKADDR_UN)
         addr.fill(0)
         addr.set(ValueLayout.JAVA_SHORT, 0L, AF_UNIX.toShort())
 
@@ -95,9 +97,9 @@ internal class ProfilerDaemonEngine(
         serverFd: Int,
         arena: Arena,
     ) {
-        val pollFd = arena.allocate(LinuxNative.POLLFD_LAYOUT)
+        val pollFd = arena.allocate(Layouts.POLLFD)
         pollFd.set(ValueLayout.JAVA_INT, POLLFD_FD_OFF, serverFd)
-        pollFd.set(ValueLayout.JAVA_SHORT, POLLFD_EVENTS_OFF, LinuxNative.POLLIN)
+        pollFd.set(ValueLayout.JAVA_SHORT, POLLFD_EVENTS_OFF, NativeConstants.POLLIN)
 
         while (!isGlobalShutdown.get()) {
             val pollRes = transport.poll(pollFd, 1L, POLL_TIMEOUT_MS)
@@ -125,9 +127,9 @@ internal class ProfilerDaemonEngine(
     private fun handleConnection(socketFd: Int) {
         try {
             Arena.ofConfined().use { arena ->
-                val pollFd = arena.allocate(LinuxNative.POLLFD_LAYOUT)
+                val pollFd = arena.allocate(Layouts.POLLFD)
                 pollFd.set(ValueLayout.JAVA_INT, POLLFD_FD_OFF, socketFd)
-                pollFd.set(ValueLayout.JAVA_SHORT, POLLFD_EVENTS_OFF, LinuxNative.POLLIN)
+                pollFd.set(ValueLayout.JAVA_SHORT, POLLFD_EVENTS_OFF, NativeConstants.POLLIN)
 
                 while (!isGlobalShutdown.get()) {
                     val pollRes = transport.poll(pollFd, 1L, POLL_TIMEOUT_MS)
@@ -179,8 +181,8 @@ internal class ProfilerDaemonEngine(
         try {
             Arena.ofConfined().use { arena ->
                 val pollFds = setupSessionPoll(arena, socketFd, listenerFd)
-                val notif = arena.allocate(LinuxNative.SECCOMP_NOTIF_LAYOUT)
-                val resp = arena.allocate(LinuxNative.SECCOMP_NOTIF_RESP_LAYOUT)
+                val notif = arena.allocate(Layouts.SECCOMP_NOTIF)
+                val resp = arena.allocate(Layouts.SECCOMP_NOTIF_RESP)
                 val ackBuf = arena.allocate(ACK_BUF_SIZE)
 
                 while (!isGlobalShutdown.get()) {
@@ -205,13 +207,13 @@ internal class ProfilerDaemonEngine(
         socketFd: Int,
         listenerFd: Int,
     ): MemorySegment {
-        val pollFds = arena.allocate(MemoryLayout.sequenceLayout(2, LinuxNative.POLLFD_LAYOUT))
+        val pollFds = arena.allocate(MemoryLayout.sequenceLayout(2, Layouts.POLLFD))
         // [0]: Seccomp listener FD
         pollFds.set(ValueLayout.JAVA_INT, POLLFD_FD_OFF, listenerFd)
-        pollFds.set(ValueLayout.JAVA_SHORT, POLLFD_EVENTS_OFF, LinuxNative.POLLIN)
+        pollFds.set(ValueLayout.JAVA_SHORT, POLLFD_EVENTS_OFF, NativeConstants.POLLIN)
         // [1]: UNIX socket FD (for parent shutdown/ACK)
         pollFds.set(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG.byteSize(), socketFd)
-        pollFds.set(ValueLayout.JAVA_SHORT, ValueLayout.JAVA_LONG.byteSize() + POLLFD_EVENTS_OFF, LinuxNative.POLLIN)
+        pollFds.set(ValueLayout.JAVA_SHORT, ValueLayout.JAVA_LONG.byteSize() + POLLFD_EVENTS_OFF, NativeConstants.POLLIN)
         return pollFds
     }
 }

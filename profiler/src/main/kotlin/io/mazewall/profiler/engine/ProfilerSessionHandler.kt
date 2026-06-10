@@ -1,6 +1,7 @@
 package io.mazewall.profiler.engine
 
-import io.mazewall.LinuxNative
+import io.mazewall.ffi.Layouts
+import io.mazewall.ffi.NativeConstants
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout
@@ -34,12 +35,12 @@ internal class ProfilerSessionHandler(
         resp: MemorySegment,
     ): LoopAction {
         val socketRevents = pollFds.get(ValueLayout.JAVA_SHORT, POLLFD_REVENT_DATA_OFF)
-        if ((socketRevents.toInt() and LinuxNative.POLLIN.toInt()) != 0) {
+        if ((socketRevents.toInt() and NativeConstants.POLLIN.toInt()) != 0) {
             if (handleShutdownRequest(ackBuf)) return LoopAction.Shutdown
         }
 
         val listenerRevents = pollFds.get(ValueLayout.JAVA_SHORT, POLLFD_REVENTS_OFF)
-        if ((listenerRevents.toInt() and LinuxNative.POLLIN.toInt()) != 0) {
+        if ((listenerRevents.toInt() and NativeConstants.POLLIN.toInt()) != 0) {
             notif.fill(0)
             val recvRes = transport.ioctl(listenerFd, SECCOMP_IOCTL_NOTIF_RECV, notif)
             if (recvRes.returnValue == 0L) {
@@ -68,9 +69,9 @@ internal class ProfilerSessionHandler(
         ackBuf: MemorySegment,
     ): Boolean {
         Arena.ofConfined().use { arena ->
-            val pollFd = arena.allocate(LinuxNative.POLLFD_LAYOUT)
+            val pollFd = arena.allocate(Layouts.POLLFD)
             pollFd.set(ValueLayout.JAVA_INT, POLLFD_FD_OFF, socketFd)
-            pollFd.set(ValueLayout.JAVA_SHORT, POLLFD_EVENTS_OFF, LinuxNative.POLLIN)
+            pollFd.set(ValueLayout.JAVA_SHORT, POLLFD_EVENTS_OFF, NativeConstants.POLLIN)
 
             val id = notif.get(ValueLayout.JAVA_LONG, NOTIF_ID_OFF)
             val pid = notif.get(ValueLayout.JAVA_INT, NOTIF_PID_OFF)
@@ -105,7 +106,7 @@ internal class ProfilerSessionHandler(
                 continue
             }
             val revents = pollFd.get(ValueLayout.JAVA_SHORT, POLLFD_REVENTS_OFF)
-            if ((revents.toInt() and LinuxNative.POLLIN.toInt()) != 0) {
+            if ((revents.toInt() and NativeConstants.POLLIN.toInt()) != 0) {
                 val readRes = transport.read(socketFd, ackBuf, ACK_BUF_SIZE)
                 if (readRes.returnValue > 0) {
                     val command = ackBuf.get(ValueLayout.JAVA_BYTE, 0L)
@@ -127,7 +128,7 @@ internal class ProfilerSessionHandler(
         resp.set(ValueLayout.JAVA_LONG, RESP_ID_OFF, id)
         resp.set(ValueLayout.JAVA_LONG, RESP_VAL_OFF, 0L)
         resp.set(ValueLayout.JAVA_INT, RESP_ERR_OFF, 0)
-        resp.set(ValueLayout.JAVA_INT, RESP_FLAGS_OFF, LinuxNative.SECCOMP_USER_NOTIF_FLAG_CONTINUE.toInt())
+        resp.set(ValueLayout.JAVA_INT, RESP_FLAGS_OFF, NativeConstants.SECCOMP_USER_NOTIF_FLAG_CONTINUE.toInt())
         transport.ioctl(listenerFd, SECCOMP_IOCTL_NOTIF_SEND, resp)
     }
 }

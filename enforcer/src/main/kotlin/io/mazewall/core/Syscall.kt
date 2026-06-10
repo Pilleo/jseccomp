@@ -1,4 +1,4 @@
-package io.mazewall
+package io.mazewall.core
 
 /**
  * High-level syscall identifiers. Each variant resolves to an architecture-specific

@@ -1,9 +1,10 @@
 package io.mazewall.profiler.engine
 
-import io.mazewall.Arch
 import io.mazewall.BpfFilter
 import io.mazewall.LinuxNative
 import io.mazewall.Policy
+import io.mazewall.core.Arch
+import io.mazewall.ffi.NativeConstants
 import io.mazewall.profiler.Profiler
 import java.io.IOException
 import java.lang.foreign.Arena
@@ -132,7 +133,7 @@ internal object ProfilerInstaller {
     }
 
     private fun ensureNoNewPrivs() {
-        val r = LinuxNative.prctl(LinuxNative.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
+        val r = LinuxNative.prctl(NativeConstants.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
         if (r.returnValue != 0L) {
             throw IllegalStateException("prctl(PR_SET_NO_NEW_PRIVS) failed with errno ${r.errno}")
         }
@@ -148,8 +149,8 @@ internal object ProfilerInstaller {
             val r =
                 LinuxNative.syscall(
                     arch.seccompSyscallNumber.toLong(),
-                    LinuxNative.SECCOMP_SET_MODE_FILTER.toLong(),
-                    LinuxNative.SECCOMP_FILTER_FLAG_NEW_LISTENER,
+                    NativeConstants.SECCOMP_SET_MODE_FILTER.toLong(),
+                    NativeConstants.SECCOMP_FILTER_FLAG_NEW_LISTENER,
                     prog,
                 )
 
