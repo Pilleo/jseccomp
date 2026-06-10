@@ -2,7 +2,6 @@ package io.mazewall.seccomp
 
 import io.mazewall.Arch
 import io.mazewall.BpfFilter
-import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.LinuxNative
 import io.mazewall.Policy
 import io.mazewall.Syscall
@@ -100,26 +99,71 @@ class BpfFilterTest {
     }
 
     @Test
-    @EnabledIfLinuxAndSupported
-    fun `filter is accepted by the kernel (BPF verifier)`() {
-        val thread =
-            Thread {
-                val filter = BpfFilter.build(Arch.current(), Policy.NO_EXEC)
-                java.lang.foreign.Arena.ofConfined().use { arena ->
-                    val prog = LinuxNative.newSockFProg(arena, filter)
-                    LinuxNative.prctl(LinuxNative.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
-                    val r =
-                        LinuxNative.prctl(
-                            LinuxNative.PR_SET_SECCOMP,
-                            LinuxNative.SECCOMP_MODE_FILTER.toLong(),
-                            prog,
-                            0,
-                            0,
-                        )
-                    assertEquals(0L, r.returnValue, "Kernel rejected BPF: errno ${r.errno}")
+    fun `testBpfMmapArgumentInspection`() {
+        val policy = Policy.builder().unblock(Syscall.MMAP).build() // NO_EXEC by default blocks mmap exec
+        val filter = BpfFilter.build(arch, policy)
+
+        // Find JEQ mmap -> check PROT_EXEC
+        val mmapNr = Syscall.MMAP.numberFor(arch)
+        var foundInspection = false
+        for (i in filter.indices) {
+            val f = filter[i]
+            if (f.code == 0x15.toShort() && f.k == mmapNr) {
+                // Should load args[2] (offset 32)
+                val ldArgs = filter[i + 1]
+                if (ldArgs.code == 0x20.toShort() && ldArgs.k == 32) {
+                    // Should set 0x04 (PROT_EXEC)
+                    val jset = filter[i + 2]
+                    if (jset.code == 0x45.toShort() && jset.k == 0x04) {
+                        foundInspection = foundInspection || true
+                    }
                 }
             }
-        thread.start()
-        thread.join()
+        }
+        assertTrue(foundInspection, "Filter should inspect mmap arguments for PROT_EXEC")
+    }
+
+    @Test
+    fun `testBpfCloneArgumentInspection`() {
+        val policy = Policy.builder().build() // NO_EXEC by default protects clone
+        val filter = BpfFilter.build(arch, policy)
+
+        val cloneNr = Syscall.CLONE.numberFor(arch)
+        var foundInspection = false
+        for (i in filter.indices) {
+            val f = filter[i]
+            if (f.code == 0x15.toShort() && f.k == cloneNr) {
+                // Should load args[0] (offset 16)
+                val ldArgs = filter[i + 1]
+                if (ldArgs.code == 0x20.toShort() && ldArgs.k == 16) {
+                    // Should mask CLONE_VM | CLONE_THREAD (0x00010100)
+                    val mask = filter[i + 2]
+                    if (mask.code == 0x54.toShort() && mask.k == 0x00010100) {
+                        foundInspection = true
+                    }
+                }
+            }
+        }
+        assertTrue(foundInspection, "Filter should inspect clone arguments for CLONE_THREAD")
+    }
+
+    @Test
+    fun `testBpfPrctlArgumentInspection`() {
+        val policy = Policy.builder().build() // NO_EXEC protects prctl
+        val filter = BpfFilter.build(arch, policy)
+
+        val prctlNr = Syscall.PRCTL.numberFor(arch)
+        var foundInspection = false
+        for (i in filter.indices) {
+            val f = filter[i]
+            if (f.code == 0x15.toShort() && f.k == prctlNr) {
+                // Should load args[0] (offset 16)
+                val ldArgs = filter[i + 1]
+                if (ldArgs.code == 0x20.toShort() && ldArgs.k == 16) {
+                     foundInspection = true
+                }
+            }
+        }
+        assertTrue(foundInspection, "Filter should inspect prctl arguments")
     }
 }

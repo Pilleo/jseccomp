@@ -6,7 +6,6 @@ package io.mazewall
  * The priority is used when combining multiple policies. Higher priority
  * actions (more restrictive) will override lower priority ones for the same syscall.
  */
-@Suppress("MagicNumber")
 enum class SeccompAction(
     val priority: Int,
 ) {

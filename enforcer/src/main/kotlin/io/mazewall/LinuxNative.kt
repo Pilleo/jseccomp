@@ -24,35 +24,172 @@ data class SockFilter(
     }
 }
 
-object LinuxNative {
-    private val linker: Linker = Linker.nativeLinker()
-    private val stdlib: SymbolLookup = linker.defaultLookup()
+object LinuxNative : NativeEngine {
+    @Volatile
+    private var engine: NativeEngine = RealNativeEngine
 
-    private val PRCTL: MethodHandle
-    private val SYSCALL: MethodHandle
-    private val OPEN: MethodHandle
-    private val CLOSE: MethodHandle
-    private val SOCKETPAIR: MethodHandle
-    private val SOCKET: MethodHandle
-    private val BIND: MethodHandle
-    private val LISTEN: MethodHandle
-    private val ACCEPT: MethodHandle
-    private val CONNECT: MethodHandle
-    private val SENDMSG: MethodHandle
-    private val RECVMSG: MethodHandle
-    private val IOCTL_ADDR: MethodHandle
-    private val IOCTL_LONG: MethodHandle
-    private val PROCESS_VM_READV: MethodHandle
-    private val READLINK: MethodHandle
-    private val READ: MethodHandle
-    private val WRITE: MethodHandle
-    private val RECV: MethodHandle
-    private val FCNTL: MethodHandle
-    private val GETTID: MethodHandle
-    private val POLL: MethodHandle
+    /**
+     * Swaps the active native engine. Used for testing and fault injection.
+     */
+    @Suppress("spotbugs:ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD")
+    fun setEngine(newEngine: NativeEngine) {
+        engine = newEngine
+    }
 
+    override fun prctl(
+        option: Int,
+        arg2: Any?,
+        arg3: Any?,
+        arg4: Any?,
+        arg5: Any?,
+    ) = engine.prctl(option, arg2, arg3, arg4, arg5)
+
+    override fun syscall(
+        nr: Long,
+        a1: Any?,
+        a2: Any?,
+        a3: Any?,
+        a4: Any?,
+        a5: Any?,
+        a6: Any?,
+    ) = engine.syscall(nr, a1, a2, a3, a4, a5, a6)
+
+    override fun syscall4(
+        nr: Long,
+        a1: Any?,
+        a2: Any?,
+        a3: Any?,
+        a4: Any?,
+    ) = engine.syscall4(nr, a1, a2, a3, a4)
+
+    override fun open(
+        path: MemorySegment,
+        flags: Int,
+    ) = engine.open(path, flags)
+
+    override fun close(fd: Int) = engine.close(fd)
+
+    override fun socketpair(
+        domain: Int,
+        type: Int,
+        protocol: Int,
+        sv: MemorySegment,
+    ) = engine.socketpair(domain, type, protocol, sv)
+
+    override fun socket(
+        domain: Int,
+        type: Int,
+        protocol: Int,
+    ) = engine.socket(domain, type, protocol)
+
+    override fun bind(
+        sockfd: Int,
+        addr: MemorySegment,
+        addrlen: Int,
+    ) = engine.bind(sockfd, addr, addrlen)
+
+    override fun listen(
+        sockfd: Int,
+        backlog: Int,
+    ) = engine.listen(sockfd, backlog)
+
+    override fun accept(
+        sockfd: Int,
+        addr: MemorySegment,
+        addrlen: MemorySegment,
+    ) = engine.accept(sockfd, addr, addrlen)
+
+    override fun connect(
+        sockfd: Int,
+        addr: MemorySegment,
+        addrlen: Int,
+    ) = engine.connect(sockfd, addr, addrlen)
+
+    override fun sendmsg(
+        sockfd: Int,
+        msg: MemorySegment,
+        flags: Int,
+    ) = engine.sendmsg(sockfd, msg, flags)
+
+    override fun recvmsg(
+        sockfd: Int,
+        msg: MemorySegment,
+        flags: Int,
+    ) = engine.recvmsg(sockfd, msg, flags)
+
+    override fun ioctl(
+        fd: Int,
+        request: Long,
+        arg: MemorySegment,
+    ) = engine.ioctl(fd, request, arg)
+
+    override fun ioctl(
+        fd: Int,
+        request: Long,
+        arg: Long,
+    ) = engine.ioctl(fd, request, arg)
+
+    override fun processVmReadv(
+        pid: Int,
+        localIov: MemorySegment,
+        liovcnt: Long,
+        remoteIov: MemorySegment,
+        riovcnt: Long,
+        flags: Long,
+    ) = engine.processVmReadv(pid, localIov, liovcnt, remoteIov, riovcnt, flags)
+
+    override fun readlink(
+        path: MemorySegment,
+        buf: MemorySegment,
+        bufsiz: Long,
+    ) = engine.readlink(path, buf, bufsiz)
+
+    override fun read(
+        fd: Int,
+        buf: MemorySegment,
+        count: Long,
+    ) = engine.read(fd, buf, count)
+
+    override fun write(
+        fd: Int,
+        buf: MemorySegment,
+        count: Long,
+    ) = engine.write(fd, buf, count)
+
+    override fun recv(
+        sockfd: Int,
+        buf: MemorySegment,
+        len: Long,
+        flags: Int,
+    ) = engine.recv(sockfd, buf, len, flags)
+
+    override fun fcntl(
+        fd: Int,
+        cmd: Int,
+        arg: Long,
+    ) = engine.fcntl(fd, cmd, arg)
+
+    override fun gettid() = engine.gettid()
+
+    override fun poll(
+        fds: MemorySegment,
+        nfds: Long,
+        timeout: Int,
+    ) = engine.poll(fds, nfds, timeout)
+
+    override fun newSockFProg(
+        arena: Arena,
+        filters: Array<SockFilter>,
+    ) = engine.newSockFProg(arena, filters)
+
+    data class SyscallResult(
+        val returnValue: Long,
+        val errno: Int,
+    )
+
+    // Common constants and layouts remain in LinuxNative for global access
     val ERRNO_LAYOUT: StructLayout = Linker.Option.captureStateLayout()
-    private val ERRNO_OFFSET: Long = ERRNO_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("errno"))
+    val ERRNO_OFFSET: Long = ERRNO_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("errno"))
 
     val SOCK_FILTER_LAYOUT: StructLayout =
         MemoryLayout.structLayout(
@@ -61,7 +198,7 @@ object LinuxNative {
             ValueLayout.JAVA_BYTE.withName("jf"),
             ValueLayout.JAVA_INT.withName("k"),
         )
-    private val SOCK_FILTER_SIZE: Long = SOCK_FILTER_LAYOUT.byteSize()
+    val SOCK_FILTER_SIZE: Long = SOCK_FILTER_LAYOUT.byteSize()
 
     val SOCK_FPROG_LAYOUT: StructLayout =
         MemoryLayout.structLayout(
@@ -69,8 +206,8 @@ object LinuxNative {
             MemoryLayout.paddingLayout(6), // Align pointer to 8 bytes
             ValueLayout.ADDRESS.withName("filter"),
         )
-    private val SOCK_FPROG_LEN_OFFSET: Long = SOCK_FPROG_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("len"))
-    private val SOCK_FPROG_FILTER_OFFSET: Long =
+    val SOCK_FPROG_LEN_OFFSET: Long = SOCK_FPROG_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("len"))
+    val SOCK_FPROG_FILTER_OFFSET: Long =
         SOCK_FPROG_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("filter"))
 
     // Socket message layouts
@@ -106,7 +243,6 @@ object LinuxNative {
             MemoryLayout.sequenceLayout(108, ValueLayout.JAVA_BYTE).withName("sun_path"),
         )
 
-    // Seccomp User Notification Layouts
     val SECCOMP_DATA_LAYOUT: StructLayout =
         MemoryLayout.structLayout(
             ValueLayout.JAVA_INT.withName("nr"),
@@ -139,6 +275,96 @@ object LinuxNative {
         )
     const val POLLIN: Short = 1
 
+    // Landlock Layouts
+    val LANDLOCK_RULESET_ATTR_LAYOUT: StructLayout =
+        MemoryLayout.structLayout(
+            ValueLayout.JAVA_LONG.withName("handled_access_fs"),
+            ValueLayout.JAVA_LONG.withName("handled_access_net"),
+        )
+    val LANDLOCK_RULESET_ATTR_FS_OFFSET: Long =
+        LANDLOCK_RULESET_ATTR_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("handled_access_fs"))
+    val LANDLOCK_RULESET_ATTR_NET_OFFSET: Long =
+        LANDLOCK_RULESET_ATTR_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("handled_access_net"))
+
+    val LANDLOCK_PATH_BENEATH_ATTR_LAYOUT: StructLayout =
+        MemoryLayout.structLayout(
+            ValueLayout.JAVA_LONG.withByteAlignment(1).withName("allowed_access"),
+            ValueLayout.JAVA_INT.withByteAlignment(1).withName("parent_fd"),
+        )
+    val LANDLOCK_PATH_BENEATH_ATTR_ACCESS_OFFSET: Long =
+        LANDLOCK_PATH_BENEATH_ATTR_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("allowed_access"))
+    val LANDLOCK_PATH_BENEATH_ATTR_FD_OFFSET: Long =
+        LANDLOCK_PATH_BENEATH_ATTR_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("parent_fd"))
+
+    const val LANDLOCK_CREATE_RULESET_NR = 444L
+    const val LANDLOCK_ADD_RULE_NR = 445L
+    const val LANDLOCK_RESTRICT_SELF_NR = 446L
+    const val LANDLOCK_RULE_PATH_BENEATH = 1
+    const val LANDLOCK_CREATE_RULESET_VERSION = (1L shl 0)
+
+    const val PR_SET_NO_NEW_PRIVS = 38
+    const val PR_GET_NO_NEW_PRIVS = 39
+    const val PR_SET_NAME = 15
+    const val PR_GET_NAME = 16
+    const val PR_SET_PTRACER = 0x59616d61
+    const val SECCOMP_SET_MODE_FILTER = 1
+    const val SECCOMP_FILTER_FLAG_NEW_LISTENER = (1L shl 3)
+    const val SECCOMP_USER_NOTIF_FLAG_CONTINUE = (1L shl 0)
+
+    const val SECCOMP_IOCTL_NOTIF_RECV = 0xc0502100L
+    const val SECCOMP_IOCTL_NOTIF_SEND = 0xc0182101L
+    const val SECCOMP_IOCTL_NOTIF_ID_VALID = 0x40082102L
+
+    const val EPERM = 1
+
+    const val PR_SET_SECCOMP = 22
+    const val PR_GET_SECCOMP = 21
+    const val SECCOMP_MODE_FILTER = 2
+    const val SECCOMP_FILTER_FLAG_TSYNC = 1
+
+    const val SECCOMP_RET_KILL_PROCESS = 0x80000000.toInt()
+    const val SECCOMP_RET_KILL_THREAD = 0x00000000
+    const val SECCOMP_RET_TRAP = 0x00030000
+    const val SECCOMP_RET_ERRNO = 0x00050000
+    const val SECCOMP_RET_USER_NOTIF = 0x7fc00000
+    const val SECCOMP_RET_LOG = 0x7ffc0000
+    const val SECCOMP_RET_ALLOW = 0x7fff0000
+
+    const val O_PATH = 0x01000000
+    const val O_CLOEXEC = 0x00080000
+    const val O_NOFOLLOW = 0x00020000
+}
+
+/**
+ * Real implementation of NativeEngine using FFM to call Linux system calls.
+ */
+internal object RealNativeEngine : NativeEngine {
+    private val linker: Linker = Linker.nativeLinker()
+    private val stdlib: SymbolLookup = linker.defaultLookup()
+
+    private val PRCTL: MethodHandle
+    private val SYSCALL: MethodHandle
+    private val OPEN: MethodHandle
+    private val CLOSE: MethodHandle
+    private val SOCKETPAIR: MethodHandle
+    private val SOCKET: MethodHandle
+    private val BIND: MethodHandle
+    private val LISTEN: MethodHandle
+    private val ACCEPT: MethodHandle
+    private val CONNECT: MethodHandle
+    private val SENDMSG: MethodHandle
+    private val RECVMSG: MethodHandle
+    private val IOCTL_ADDR: MethodHandle
+    private val IOCTL_LONG: MethodHandle
+    private val PROCESS_VM_READV: MethodHandle
+    private val READLINK: MethodHandle
+    private val READ: MethodHandle
+    private val WRITE: MethodHandle
+    private val RECV: MethodHandle
+    private val FCNTL: MethodHandle
+    private val GETTID: MethodHandle
+    private val POLL: MethodHandle
+
     init {
         PRCTL =
             downcall(
@@ -153,20 +379,18 @@ object LinuxNative {
                 ),
                 Linker.Option.captureCallState("errno"),
             )
-        // Correct syscall(2) downcall: fixed signature with 7 long arguments.
-        // number + 6 args. This is more reliable for kernel calls than variadic FFM.
         SYSCALL =
             downcall(
                 "syscall",
                 FunctionDescriptor.of(
                     ValueLayout.JAVA_LONG,
-                    ValueLayout.JAVA_LONG, // nr
-                    ValueLayout.JAVA_LONG, // a1
-                    ValueLayout.JAVA_LONG, // a2
-                    ValueLayout.JAVA_LONG, // a3
-                    ValueLayout.JAVA_LONG, // a4
-                    ValueLayout.JAVA_LONG, // a5
-                    ValueLayout.JAVA_LONG, // a6
+                    ValueLayout.JAVA_LONG,
+                    ValueLayout.JAVA_LONG,
+                    ValueLayout.JAVA_LONG,
+                    ValueLayout.JAVA_LONG,
+                    ValueLayout.JAVA_LONG,
+                    ValueLayout.JAVA_LONG,
+                    ValueLayout.JAVA_LONG,
                 ),
                 Linker.Option.captureCallState("errno"),
             )
@@ -372,11 +596,6 @@ object LinuxNative {
             )
     }
 
-    data class SyscallResult(
-        val returnValue: Long,
-        val errno: Int,
-    )
-
     private fun Any?.toLong(): Long =
         when (this) {
             is Number -> this.toLong()
@@ -385,15 +604,15 @@ object LinuxNative {
             else -> throw IllegalArgumentException("Unsupported native call argument type: ${this.javaClass.name}")
         }
 
-    fun prctl(
+    override fun prctl(
         option: Int,
-        arg2: Any? = 0L,
-        arg3: Any? = 0L,
-        arg4: Any? = 0L,
-        arg5: Any? = 0L,
-    ): SyscallResult {
+        arg2: Any?,
+        arg3: Any?,
+        arg4: Any?,
+        arg5: Any?,
+    ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
-            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val capturedState = arena.allocate(LinuxNative.ERRNO_LAYOUT)
             val ret =
                 PRCTL.invokeExact(
                     capturedState,
@@ -403,22 +622,22 @@ object LinuxNative {
                     arg4.toLong(),
                     arg5.toLong(),
                 ) as Int
-            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
-            return SyscallResult(ret.toLong(), errno)
+            val errno = capturedState.get(ValueLayout.JAVA_INT, LinuxNative.ERRNO_OFFSET)
+            return LinuxNative.SyscallResult(ret.toLong(), errno)
         }
     }
 
-    fun syscall(
+    override fun syscall(
         nr: Long,
-        a1: Any? = 0L,
-        a2: Any? = 0L,
-        a3: Any? = 0L,
-        a4: Any? = 0L,
-        a5: Any? = 0L,
-        a6: Any? = 0L,
-    ): SyscallResult {
+        a1: Any?,
+        a2: Any?,
+        a3: Any?,
+        a4: Any?,
+        a5: Any?,
+        a6: Any?,
+    ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
-            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val capturedState = arena.allocate(LinuxNative.ERRNO_LAYOUT)
             val ret =
                 SYSCALL.invokeExact(
                     capturedState,
@@ -430,290 +649,290 @@ object LinuxNative {
                     a5.toLong(),
                     a6.toLong(),
                 ) as Long
-            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
-            return SyscallResult(ret, errno)
+            val errno = capturedState.get(ValueLayout.JAVA_INT, LinuxNative.ERRNO_OFFSET)
+            return LinuxNative.SyscallResult(ret, errno)
         }
     }
 
-    fun syscall4(
+    override fun syscall4(
         nr: Long,
         a1: Any?,
         a2: Any?,
         a3: Any?,
         a4: Any?,
-    ): SyscallResult = syscall(nr, a1, a2, a3, a4)
+    ): LinuxNative.SyscallResult = syscall(nr, a1, a2, a3, a4)
 
-    fun open(
+    override fun open(
         path: MemorySegment,
         flags: Int,
-    ): SyscallResult {
+    ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
-            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val capturedState = arena.allocate(LinuxNative.ERRNO_LAYOUT)
             val ret = OPEN.invokeExact(capturedState, path, flags) as Int
-            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
-            return SyscallResult(ret.toLong(), errno)
+            val errno = capturedState.get(ValueLayout.JAVA_INT, LinuxNative.ERRNO_OFFSET)
+            return LinuxNative.SyscallResult(ret.toLong(), errno)
         }
     }
 
-    fun close(fd: Int): SyscallResult {
+    override fun close(fd: Int): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
-            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val capturedState = arena.allocate(LinuxNative.ERRNO_LAYOUT)
             val ret = CLOSE.invokeExact(capturedState, fd) as Int
-            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
-            return SyscallResult(ret.toLong(), errno)
+            val errno = capturedState.get(ValueLayout.JAVA_INT, LinuxNative.ERRNO_OFFSET)
+            return LinuxNative.SyscallResult(ret.toLong(), errno)
         }
     }
 
-    fun socketpair(
+    override fun socketpair(
         domain: Int,
         type: Int,
         protocol: Int,
         sv: MemorySegment,
-    ): SyscallResult {
+    ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
-            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val capturedState = arena.allocate(LinuxNative.ERRNO_LAYOUT)
             val ret = SOCKETPAIR.invokeExact(capturedState, domain, type, protocol, sv) as Int
-            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
-            return SyscallResult(ret.toLong(), errno)
+            val errno = capturedState.get(ValueLayout.JAVA_INT, LinuxNative.ERRNO_OFFSET)
+            return LinuxNative.SyscallResult(ret.toLong(), errno)
         }
     }
 
-    fun socket(
+    override fun socket(
         domain: Int,
         type: Int,
         protocol: Int,
-    ): SyscallResult {
+    ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
-            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val capturedState = arena.allocate(LinuxNative.ERRNO_LAYOUT)
             val ret = SOCKET.invokeExact(capturedState, domain, type, protocol) as Int
-            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
-            return SyscallResult(ret.toLong(), errno)
+            val errno = capturedState.get(ValueLayout.JAVA_INT, LinuxNative.ERRNO_OFFSET)
+            return LinuxNative.SyscallResult(ret.toLong(), errno)
         }
     }
 
-    fun bind(
+    override fun bind(
         sockfd: Int,
         addr: MemorySegment,
         addrlen: Int,
-    ): SyscallResult {
+    ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
-            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val capturedState = arena.allocate(LinuxNative.ERRNO_LAYOUT)
             val ret = BIND.invokeExact(capturedState, sockfd, addr, addrlen) as Int
-            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
-            return SyscallResult(ret.toLong(), errno)
+            val errno = capturedState.get(ValueLayout.JAVA_INT, LinuxNative.ERRNO_OFFSET)
+            return LinuxNative.SyscallResult(ret.toLong(), errno)
         }
     }
 
-    fun listen(
+    override fun listen(
         sockfd: Int,
         backlog: Int,
-    ): SyscallResult {
+    ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
-            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val capturedState = arena.allocate(LinuxNative.ERRNO_LAYOUT)
             val ret = LISTEN.invokeExact(capturedState, sockfd, backlog) as Int
-            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
-            return SyscallResult(ret.toLong(), errno)
+            val errno = capturedState.get(ValueLayout.JAVA_INT, LinuxNative.ERRNO_OFFSET)
+            return LinuxNative.SyscallResult(ret.toLong(), errno)
         }
     }
 
-    fun accept(
+    override fun accept(
         sockfd: Int,
         addr: MemorySegment,
         addrlen: MemorySegment,
-    ): SyscallResult {
+    ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
-            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val capturedState = arena.allocate(LinuxNative.ERRNO_LAYOUT)
             val ret = ACCEPT.invokeExact(capturedState, sockfd, addr, addrlen) as Int
-            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
-            return SyscallResult(ret.toLong(), errno)
+            val errno = capturedState.get(ValueLayout.JAVA_INT, LinuxNative.ERRNO_OFFSET)
+            return LinuxNative.SyscallResult(ret.toLong(), errno)
         }
     }
 
-    fun connect(
+    override fun connect(
         sockfd: Int,
         addr: MemorySegment,
         addrlen: Int,
-    ): SyscallResult {
+    ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
-            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val capturedState = arena.allocate(LinuxNative.ERRNO_LAYOUT)
             val ret = CONNECT.invokeExact(capturedState, sockfd, addr, addrlen) as Int
-            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
-            return SyscallResult(ret.toLong(), errno)
+            val errno = capturedState.get(ValueLayout.JAVA_INT, LinuxNative.ERRNO_OFFSET)
+            return LinuxNative.SyscallResult(ret.toLong(), errno)
         }
     }
 
-    fun sendmsg(
+    override fun sendmsg(
         sockfd: Int,
         msg: MemorySegment,
         flags: Int,
-    ): SyscallResult {
+    ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
-            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val capturedState = arena.allocate(LinuxNative.ERRNO_LAYOUT)
             val ret = SENDMSG.invokeExact(capturedState, sockfd, msg, flags) as Long
-            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
-            return SyscallResult(ret, errno)
+            val errno = capturedState.get(ValueLayout.JAVA_INT, LinuxNative.ERRNO_OFFSET)
+            return LinuxNative.SyscallResult(ret, errno)
         }
     }
 
-    fun recvmsg(
+    override fun recvmsg(
         sockfd: Int,
         msg: MemorySegment,
         flags: Int,
-    ): SyscallResult {
+    ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
-            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val capturedState = arena.allocate(LinuxNative.ERRNO_LAYOUT)
             val ret = RECVMSG.invokeExact(capturedState, sockfd, msg, flags) as Long
-            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
-            return SyscallResult(ret, errno)
+            val errno = capturedState.get(ValueLayout.JAVA_INT, LinuxNative.ERRNO_OFFSET)
+            return LinuxNative.SyscallResult(ret, errno)
         }
     }
 
-    fun ioctl(
+    override fun ioctl(
         fd: Int,
         request: Long,
         arg: MemorySegment,
-    ): SyscallResult {
+    ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
-            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val capturedState = arena.allocate(LinuxNative.ERRNO_LAYOUT)
             val ret = IOCTL_ADDR.invokeExact(capturedState, fd, request, arg) as Int
-            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
-            return SyscallResult(ret.toLong(), errno)
+            val errno = capturedState.get(ValueLayout.JAVA_INT, LinuxNative.ERRNO_OFFSET)
+            return LinuxNative.SyscallResult(ret.toLong(), errno)
         }
     }
 
-    fun ioctl(
+    override fun ioctl(
         fd: Int,
         request: Long,
         arg: Long,
-    ): SyscallResult {
+    ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
-            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val capturedState = arena.allocate(LinuxNative.ERRNO_LAYOUT)
             val ret = IOCTL_LONG.invokeExact(capturedState, fd, request, arg) as Int
-            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
-            return SyscallResult(ret.toLong(), errno)
+            val errno = capturedState.get(ValueLayout.JAVA_INT, LinuxNative.ERRNO_OFFSET)
+            return LinuxNative.SyscallResult(ret.toLong(), errno)
         }
     }
 
-    fun processVmReadv(
+    override fun processVmReadv(
         pid: Int,
         localIov: MemorySegment,
         liovcnt: Long,
         remoteIov: MemorySegment,
         riovcnt: Long,
         flags: Long,
-    ): SyscallResult {
+    ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
-            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val capturedState = arena.allocate(LinuxNative.ERRNO_LAYOUT)
             val ret =
                 PROCESS_VM_READV.invokeExact(capturedState, pid, localIov, liovcnt, remoteIov, riovcnt, flags) as Long
-            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
-            return SyscallResult(ret, errno)
+            val errno = capturedState.get(ValueLayout.JAVA_INT, LinuxNative.ERRNO_OFFSET)
+            return LinuxNative.SyscallResult(ret, errno)
         }
     }
 
-    fun readlink(
+    override fun readlink(
         path: MemorySegment,
         buf: MemorySegment,
         bufsiz: Long,
-    ): SyscallResult {
+    ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
-            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val capturedState = arena.allocate(LinuxNative.ERRNO_LAYOUT)
             val ret = READLINK.invokeExact(capturedState, path, buf, bufsiz) as Long
-            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
-            return SyscallResult(ret, errno)
+            val errno = capturedState.get(ValueLayout.JAVA_INT, LinuxNative.ERRNO_OFFSET)
+            return LinuxNative.SyscallResult(ret, errno)
         }
     }
 
-    fun read(
+    override fun read(
         fd: Int,
         buf: MemorySegment,
         count: Long,
-    ): SyscallResult {
+    ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
-            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val capturedState = arena.allocate(LinuxNative.ERRNO_LAYOUT)
             val ret = READ.invokeExact(capturedState, fd, buf, count) as Long
-            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
-            return SyscallResult(ret, errno)
+            val errno = capturedState.get(ValueLayout.JAVA_INT, LinuxNative.ERRNO_OFFSET)
+            return LinuxNative.SyscallResult(ret, errno)
         }
     }
 
-    fun write(
+    override fun write(
         fd: Int,
         buf: MemorySegment,
         count: Long,
-    ): SyscallResult {
+    ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
-            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val capturedState = arena.allocate(LinuxNative.ERRNO_LAYOUT)
             val ret = WRITE.invokeExact(capturedState, fd, buf, count) as Long
-            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
-            return SyscallResult(ret, errno)
+            val errno = capturedState.get(ValueLayout.JAVA_INT, LinuxNative.ERRNO_OFFSET)
+            return LinuxNative.SyscallResult(ret, errno)
         }
     }
 
-    fun recv(
+    override fun recv(
         sockfd: Int,
         buf: MemorySegment,
         len: Long,
         flags: Int,
-    ): SyscallResult {
+    ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
-            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val capturedState = arena.allocate(LinuxNative.ERRNO_LAYOUT)
             val ret = RECV.invokeExact(capturedState, sockfd, buf, len, flags) as Long
-            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
-            return SyscallResult(ret, errno)
+            val errno = capturedState.get(ValueLayout.JAVA_INT, LinuxNative.ERRNO_OFFSET)
+            return LinuxNative.SyscallResult(ret, errno)
         }
     }
 
-    fun fcntl(
+    override fun fcntl(
         fd: Int,
         cmd: Int,
         arg: Long,
-    ): SyscallResult {
+    ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
-            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val capturedState = arena.allocate(LinuxNative.ERRNO_LAYOUT)
             val ret = FCNTL.invokeExact(capturedState, fd, cmd, arg) as Int
-            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
-            return SyscallResult(ret.toLong(), errno)
+            val errno = capturedState.get(ValueLayout.JAVA_INT, LinuxNative.ERRNO_OFFSET)
+            return LinuxNative.SyscallResult(ret.toLong(), errno)
         }
     }
 
-    fun gettid(): Int {
+    override fun gettid(): Int {
         Arena.ofConfined().use { arena ->
-            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val capturedState = arena.allocate(LinuxNative.ERRNO_LAYOUT)
             val ret = GETTID.invokeExact(capturedState) as Int
             return ret
         }
     }
 
-    fun poll(
+    override fun poll(
         fds: MemorySegment,
         nfds: Long,
         timeout: Int,
-    ): SyscallResult {
+    ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
-            val capturedState = arena.allocate(ERRNO_LAYOUT)
+            val capturedState = arena.allocate(LinuxNative.ERRNO_LAYOUT)
             val ret = POLL.invokeExact(capturedState, fds, nfds, timeout) as Int
-            val errno = capturedState.get(ValueLayout.JAVA_INT, ERRNO_OFFSET)
-            return SyscallResult(ret.toLong(), errno)
+            val errno = capturedState.get(ValueLayout.JAVA_INT, LinuxNative.ERRNO_OFFSET)
+            return LinuxNative.SyscallResult(ret.toLong(), errno)
         }
     }
 
-    fun newSockFProg(
+    override fun newSockFProg(
         arena: Arena,
         filters: Array<SockFilter>,
     ): MemorySegment {
-        val filterArraySeg = arena.allocate(MemoryLayout.sequenceLayout(filters.size.toLong(), SOCK_FILTER_LAYOUT))
+        val filterArraySeg = arena.allocate(MemoryLayout.sequenceLayout(filters.size.toLong(), LinuxNative.SOCK_FILTER_LAYOUT))
         for (i in filters.indices) {
             val f = filters[i]
-            val offset = i * SOCK_FILTER_SIZE
+            val offset = i * LinuxNative.SOCK_FILTER_SIZE
             filterArraySeg.set(ValueLayout.JAVA_SHORT, offset, f.code)
             filterArraySeg.set(ValueLayout.JAVA_BYTE, offset + 2, f.jt.toByte())
             filterArraySeg.set(ValueLayout.JAVA_BYTE, offset + 3, f.jf.toByte())
             filterArraySeg.set(ValueLayout.JAVA_INT, offset + 4, f.k)
         }
-        val prog = arena.allocate(SOCK_FPROG_LAYOUT)
-        prog.set(ValueLayout.JAVA_SHORT, SOCK_FPROG_LEN_OFFSET, filters.size.toShort())
-        prog.set(ValueLayout.ADDRESS, SOCK_FPROG_FILTER_OFFSET, filterArraySeg)
+        val prog = arena.allocate(LinuxNative.SOCK_FPROG_LAYOUT)
+        prog.set(ValueLayout.JAVA_SHORT, LinuxNative.SOCK_FPROG_LEN_OFFSET, filters.size.toShort())
+        prog.set(ValueLayout.ADDRESS, LinuxNative.SOCK_FPROG_FILTER_OFFSET, filterArraySeg)
         return prog
     }
 
@@ -750,67 +969,4 @@ object LinuxNative {
             is ValueLayout.OfDouble -> Double::class.java
             else -> MemorySegment::class.java
         }
-
-    // Landlock Layouts
-    val LANDLOCK_RULESET_ATTR_LAYOUT: StructLayout =
-        MemoryLayout.structLayout(
-            ValueLayout.JAVA_LONG.withName("handled_access_fs"),
-            ValueLayout.JAVA_LONG.withName("handled_access_net"),
-        )
-    val LANDLOCK_RULESET_ATTR_FS_OFFSET: Long =
-        LANDLOCK_RULESET_ATTR_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("handled_access_fs"))
-    val LANDLOCK_RULESET_ATTR_NET_OFFSET: Long =
-        LANDLOCK_RULESET_ATTR_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("handled_access_net"))
-
-    val LANDLOCK_PATH_BENEATH_ATTR_LAYOUT: StructLayout =
-        MemoryLayout.structLayout(
-            ValueLayout.JAVA_LONG.withByteAlignment(1).withName("allowed_access"),
-            ValueLayout.JAVA_INT.withByteAlignment(1).withName("parent_fd"),
-            // unaligned values prevent Java from adding padding, matching kernel packed struct
-        )
-    val LANDLOCK_PATH_BENEATH_ATTR_ACCESS_OFFSET: Long =
-        LANDLOCK_PATH_BENEATH_ATTR_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("allowed_access"))
-    val LANDLOCK_PATH_BENEATH_ATTR_FD_OFFSET: Long =
-        LANDLOCK_PATH_BENEATH_ATTR_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("parent_fd"))
-
-    // Landlock system call numbers & constants
-    const val LANDLOCK_CREATE_RULESET_NR = 444L
-    const val LANDLOCK_ADD_RULE_NR = 445L
-    const val LANDLOCK_RESTRICT_SELF_NR = 446L
-    const val LANDLOCK_RULE_PATH_BENEATH = 1
-    const val LANDLOCK_CREATE_RULESET_VERSION = (1L shl 0)
-
-    const val PR_SET_NO_NEW_PRIVS = 38
-    const val PR_GET_NO_NEW_PRIVS = 39
-    const val PR_SET_NAME = 15
-    const val PR_GET_NAME = 16
-    const val PR_SET_PTRACER = 0x59616d61
-    const val SECCOMP_SET_MODE_FILTER = 1
-    const val SECCOMP_FILTER_FLAG_NEW_LISTENER = (1L shl 3)
-    const val SECCOMP_USER_NOTIF_FLAG_CONTINUE = (1L shl 0)
-
-    // ioctl codes for seccomp notification
-    // _IOW(0x21, 2, __u64) = 0x40082102 (size is 8 bytes = 0x08)
-    const val SECCOMP_IOCTL_NOTIF_RECV = 0xc0502100L
-    const val SECCOMP_IOCTL_NOTIF_SEND = 0xc0182101L
-    const val SECCOMP_IOCTL_NOTIF_ID_VALID = 0x40082102L
-
-    const val EPERM = 1
-
-    const val PR_SET_SECCOMP = 22
-    const val PR_GET_SECCOMP = 21
-    const val SECCOMP_MODE_FILTER = 2
-    const val SECCOMP_FILTER_FLAG_TSYNC = 1
-
-    const val SECCOMP_RET_KILL_PROCESS = 0x80000000.toInt()
-    const val SECCOMP_RET_KILL_THREAD = 0x00000000
-    const val SECCOMP_RET_TRAP = 0x00030000
-    const val SECCOMP_RET_ERRNO = 0x00050000
-    const val SECCOMP_RET_USER_NOTIF = 0x7fc00000
-    const val SECCOMP_RET_LOG = 0x7ffc0000
-    const val SECCOMP_RET_ALLOW = 0x7fff0000
-
-    const val O_PATH = 0x01000000
-    const val O_CLOEXEC = 0x00080000
-    const val O_NOFOLLOW = 0x00020000
 }

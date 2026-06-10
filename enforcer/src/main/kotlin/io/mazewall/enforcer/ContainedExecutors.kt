@@ -1,19 +1,15 @@
 package io.mazewall.enforcer
 
-import io.mazewall.Arch
 import io.mazewall.Platform
 import io.mazewall.Policy
 import io.mazewall.SeccompAction
 import io.mazewall.Syscall
+import io.mazewall.enforcer.internal.ContainedExecutorWrapper
+import io.mazewall.enforcer.internal.JitWarmup
 import io.mazewall.landlock.Landlock
 import io.mazewall.seccomp.PureJavaBpfEngine
-import java.util.concurrent.*
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.ExecutorService
 import java.util.logging.Logger
-
-// SUPPRESSION JUSTIFICATION: This class acts as a unified factory and cohesive coordinator for
-// wrapping Java ExecutorServices in sandboxed environments. Splitting these closely coupled
-// helper and creation methods across multiple files would fragment the security boundary API.
 
 /**
  * Public API for wrapping an existing [java.util.concurrent.ExecutorService] to enforce seccomp containment.
@@ -31,16 +27,13 @@ import java.util.logging.Logger
  * **Mitigation:** Ensure critical classes and native libraries are loaded during application
  * startup before containment is applied.
  */
-@Suppress("TooManyFunctions")
 object ContainedExecutors {
-    private val warmedUp = AtomicBoolean(false)
-
-    init {
-        performJitWarmup()
-    }
-
     private val logger = Logger.getLogger(ContainedExecutors::class.java.name)
     private val processLock = Any()
+
+    init {
+        JitWarmup.perform()
+    }
 
     /**
      * Installs the given policies onto the current thread immediately.
@@ -65,12 +58,29 @@ object ContainedExecutors {
         installInternal(true, *policies)
     }
 
+    /**
+     * Wraps an [java.util.concurrent.ExecutorService] so that any task submitted to it will have the given
+     * [policies] applied before execution.
+     */
+    fun wrap(
+        delegate: ExecutorService,
+        vararg policies: Policy,
+    ): ExecutorService {
+        val combinedPolicy = Policy.combine(*policies)
+        return ContainedExecutorWrapper(delegate, combinedPolicy)
+    }
+
     private fun installInternal(
         processWide: Boolean,
         vararg policies: Policy,
     ) {
-        checkVirtualThread()
-        performJitWarmup()
+        if (Thread.currentThread().isVirtual) {
+            throw IllegalStateException(
+                "Attempted to apply seccomp containment inside a virtual thread. " +
+                        "Use a dedicated platform thread pool and install containment on its carrier threads instead.",
+            )
+        }
+        JitWarmup.perform()
 
         val combinedPolicy = Policy.combine(*policies)
         applyLandlockIfNecessary(processWide, combinedPolicy)
@@ -98,43 +108,11 @@ object ContainedExecutors {
         }
     }
 
-    private fun checkVirtualThread() {
-        if (Thread.currentThread().isVirtual) {
-            throw IllegalStateException(
-                "Attempted to apply seccomp containment inside a virtual thread. " +
-                        "Use a dedicated platform thread pool and install containment on its carrier threads instead.",
-            )
-        }
-    }
-
-    private fun performJitWarmup() {
-        if (warmedUp.compareAndSet(false, true)) {
-            // Force JVM classloading and JIT compilation of core sandboxing components
-            // before containment is applied to prevent the "lazy initialization trap".
-            ContainmentViolationDetector.isContainmentViolation(Throwable(""))
-            Platform.isSupported()
-            try {
-                Arch.current()
-            } catch (ignored: Exception) {
-                // Ignore unsupported architecture; will be handled by platform check
-            }
-        }
-    }
-
     private fun applyLandlockIfNecessary(
         processWide: Boolean,
         policy: Policy,
     ) {
-        val needsLandlock =
-            policy.allowedFsReadPaths.isNotEmpty() ||
-                policy.allowedFsWritePaths.isNotEmpty() ||
-                // NOTE: io_uring bypasses seccomp filters via kernel-side async syscall dispatch.
-                // If io_uring is allowed, we must apply Landlock to contain its filesystem access.
-                // This is an intentional implicit Landlock trigger. See backlog "Blacklist policies
-                // trigger silent Landlock lockdown" for the known UX risk of this design.
-                policy.isSyscallAllowed(Syscall.IO_URING_SETUP)
-
-        if (!needsLandlock) return
+        if (!needsLandlock(policy)) return
 
         if (processWide) {
             throw UnsupportedOperationException(
@@ -162,6 +140,11 @@ object ContainedExecutors {
         }
     }
 
+    private fun needsLandlock(policy: Policy): Boolean =
+        policy.allowedFsReadPaths.isNotEmpty() ||
+                policy.allowedFsWritePaths.isNotEmpty() ||
+                policy.isSyscallAllowed(Syscall.IO_URING_SETUP)
+
     private fun isPathSubset(
         parentPaths: Set<String>,
         childPaths: Set<String>,
@@ -169,18 +152,18 @@ object ContainedExecutors {
         if (childPaths.isEmpty()) return true
         val parents = parentPaths.map {
             java.nio.file.Paths
-                .get(it)
-                .toAbsolutePath()
-                .normalize()
+            .get(it)
+            .toAbsolutePath()
+            .normalize()
         }
         return parents.isNotEmpty() &&
             childPaths.all { childStr ->
-            val child = java.nio.file.Paths
-                .get(childStr)
-                .toAbsolutePath()
-                .normalize()
-            parents.any { parent -> child.startsWith(parent) }
-        }
+                val child = java.nio.file.Paths
+                    .get(childStr)
+                    .toAbsolutePath()
+                    .normalize()
+                parents.any { parent -> child.startsWith(parent) }
+            }
     }
 
     private fun handleUnsupportedPlatform() {
@@ -196,11 +179,6 @@ object ContainedExecutors {
         }
     }
 
-    /**
-     * Resolves the effective sandbox state for the current thread by combining the thread-local
-     * state and the process-wide state. Where rules overlap, the most restrictive rule (highest
-     * [SeccompAction.priority]) takes precedence, matching the Linux kernel BPF evaluation semantics.
-     */
     private fun resolveCurrentState(): FilterInstallationPlanner.ContainerState {
         val threadActions = ContainerStateRegistry.THREAD_SYSCALL_ACTIONS.get()
         val processActions = ContainerStateRegistry.PROCESS_SYSCALL_ACTIONS
@@ -313,97 +291,6 @@ object ContainedExecutors {
             val toInstallAllowed = Syscall.entries.filter { toInstall.isSyscallAllowed(it) }.toSet()
             val currentAllowed = ContainerStateRegistry.THREAD_ALLOWED_SYSCALLS.get()
             ContainerStateRegistry.THREAD_ALLOWED_SYSCALLS.set(currentAllowed?.intersect(toInstallAllowed) ?: toInstallAllowed)
-        }
-    }
-
-    /**
-     * Wraps an [java.util.concurrent.ExecutorService] so that any task submitted to it will have the given
-     * [policies] applied before execution.
-     *
-     * ### Thread Pool Poisoning
-     * Seccomp filters are **immutable and permanent** for the lifetime of an OS thread.
-     * If you wrap a shared [java.util.concurrent.ExecutorService], the worker threads will be permanently
-     * restricted after their first contained task. **Do not share the same pool between
-     * contained and uncontained tasks.**
-     *
-     * For best results, always use a dedicated [java.util.concurrent.ExecutorService] for restricted tasks.
-     */
-    fun wrap(
-        delegate: ExecutorService,
-        vararg policies: Policy,
-    ): ExecutorService {
-        val combinedPolicy = Policy.combine(*policies)
-        val fallback = Platform.configuredFallback()
-        val supported = Platform.isSupported()
-
-        return ContainedExecutorWrapper(delegate, combinedPolicy, supported, fallback)
-    }
-
-    internal class ContainedExecutorWrapper(
-        private val delegate: ExecutorService,
-        private val policy: Policy,
-        private val supported: Boolean,
-        private val fallback: Platform.FallbackBehavior,
-    ) : ExecutorService by delegate {
-        private fun <T> wrapCallable(task: Callable<T>): Callable<T> =
-            Callable {
-                applyContainment()
-                val result = runCatching { task.call() }
-                result.getOrElse { e ->
-                    if (e is Exception && ContainmentViolationDetector.isContainmentViolation(e)) {
-                        throw ContainmentViolationException("Task violated containment policy", e)
-                    }
-                    throw e
-                }
-            }
-
-        private fun wrapRunnable(task: Runnable): Runnable =
-            Runnable {
-                applyContainment()
-                val result = runCatching { task.run() }
-                result.onFailure { e ->
-                    if (e is Exception && ContainmentViolationDetector.isContainmentViolation(e)) {
-                        throw ContainmentViolationException("Task violated containment policy", e)
-                    }
-                    throw e
-                }
-            }
-
-        private fun applyContainment() {
-            installOnCurrentThread(policy)
-        }
-
-        override fun execute(command: Runnable) {
-            delegate.execute(wrapRunnable(command))
-        }
-
-        override fun <T> submit(task: Callable<T>): Future<T> = delegate.submit(wrapCallable(task))
-
-        override fun <T> submit(
-            task: Runnable,
-            result: T,
-        ): Future<T> = delegate.submit(wrapRunnable(task), result)
-
-        override fun submit(task: Runnable): Future<*> = delegate.submit(wrapRunnable(task))
-
-        override fun <T> invokeAll(tasks: Collection<Callable<T>>): List<Future<T>> = delegate.invokeAll(tasks.map { wrapCallable(it) })
-
-        override fun <T> invokeAll(
-            tasks: Collection<Callable<T>>,
-            timeout: Long,
-            unit: TimeUnit,
-        ): List<Future<T>> = delegate.invokeAll(tasks.map { wrapCallable(it) }, timeout, unit)
-
-        override fun <T> invokeAny(tasks: Collection<Callable<T>>): T = delegate.invokeAny(tasks.map { wrapCallable(it) })
-
-        override fun <T> invokeAny(
-            tasks: Collection<Callable<T>>,
-            timeout: Long,
-            unit: TimeUnit,
-        ): T = delegate.invokeAny(tasks.map { wrapCallable(it) }, timeout, unit)
-
-        override fun close() {
-            delegate.close()
         }
     }
 }

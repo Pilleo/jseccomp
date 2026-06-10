@@ -7,6 +7,7 @@ import java.io.BufferedInputStream
 import java.io.DataInputStream
 import java.io.InputStream
 import java.lang.foreign.Arena
+import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.logging.Logger
@@ -47,7 +48,6 @@ internal class ProfilerTraceListener(
         }
     }
 
-    @Suppress("NestedBlockDepth")
     private fun runListenerLoop(
         inputStream: InputStream,
         arena: Arena,
@@ -58,65 +58,88 @@ internal class ProfilerTraceListener(
         val dis = DataInputStream(BufferedInputStream(inputStream))
         try {
             while (true) {
-                val pid = dis.readInt()
-                val syscallNameLen = dis.readInt()
-                val syscallNameBytes = ByteArray(syscallNameLen)
-                dis.readFully(syscallNameBytes)
-                val syscallName = String(syscallNameBytes, Charsets.UTF_8)
-
-                val argsCount = dis.readInt()
-                val args = LongArray(argsCount)
-                for (i in 0 until argsCount) {
-                    args[i] = dis.readLong()
-                }
-
-                val pathsCount = dis.readInt()
-                val paths = mutableListOf<String>()
-                for (i in 0 until pathsCount) {
-                    val pathLen = dis.readInt()
-                    val pathBytes = ByteArray(pathLen)
-                    dis.readFully(pathBytes)
-                    paths.add(String(pathBytes, Charsets.UTF_8))
-                }
-
-                val threadToProfile = Profiler.threadRegistry[pid] ?: workerThreadProvider()
-                val stackTrace = threadToProfile?.stackTrace?.map { it.toString() }
-                val event = TraceEvent(pid, syscallName, args, paths, stackTrace)
-
-                if (paths.isNotEmpty()) {
-                    val cacheKey = "$syscallName:${paths.sorted().joinToString(",")}"
-                    val now = System.currentTimeMillis()
-                    val lastSeen = pathCache[cacheKey] ?: 0L
-                    if (now - lastSeen < DEDUPLICATION_WINDOW_MS) {
-                        logger.fine("[PROFILER] Deduplicated duplicate event for $cacheKey")
-                        if (pid != 0) {
-                            LinuxNative.write(socketFd, ackBuf, 1)
-                        }
-                        continue
-                    }
-                    pathCache[cacheKey] = now
-                }
-
-                if (stackTracesMap != null) {
-                    if (threadToProfile != null) {
-                        val frames = threadToProfile.stackTrace
-                        stackTracesMap
-                            .computeIfAbsent(event) {
-                                CopyOnWriteArrayList<Array<StackTraceElement>>()
-                            }.add(frames)
-                    }
-                }
-
-                accumulatedLogs.add(event)
-
-                if (pid != 0) {
-                    LinuxNative.write(socketFd, ackBuf, 1)
-                }
+                val event = readNextEvent(dis)
+                processEvent(event, ackBuf)
             }
         } catch (e: java.io.EOFException) {
             logger.log(java.util.logging.Level.FINE, "Trace listener socket closed (EOF)", e)
         } catch (e: java.io.IOException) {
             logger.log(java.util.logging.Level.WARNING, "Trace listener error", e)
+        }
+    }
+
+    private fun readNextEvent(dis: DataInputStream): TraceEvent {
+        val pid = dis.readInt()
+        val syscallNameLen = dis.readInt()
+        val syscallNameBytes = ByteArray(syscallNameLen)
+        dis.readFully(syscallNameBytes)
+        val syscallName = String(syscallNameBytes, Charsets.UTF_8)
+
+        val argsCount = dis.readInt()
+        val args = LongArray(argsCount)
+        for (i in 0 until argsCount) {
+            args[i] = dis.readLong()
+        }
+
+        val pathsCount = dis.readInt()
+        val paths = mutableListOf<String>()
+        for (i in 0 until pathsCount) {
+            val pathLen = dis.readInt()
+            val pathBytes = ByteArray(pathLen)
+            dis.readFully(pathBytes)
+            paths.add(String(pathBytes, Charsets.UTF_8))
+        }
+
+        val threadToProfile = Profiler.threadRegistry[pid] ?: workerThreadProvider()
+        val stackTrace = threadToProfile?.stackTrace?.map { it.toString() }
+        return TraceEvent(pid, syscallName, args, paths, stackTrace)
+    }
+
+    private fun processEvent(
+        event: TraceEvent,
+        ackBuf: MemorySegment,
+    ) {
+        if (event.paths.isNotEmpty() && isDuplicate(event)) {
+            sendAckIfNecessary(event.pid, ackBuf)
+            return
+        }
+
+        accumulateStackTrace(event)
+        accumulatedLogs.add(event)
+        sendAckIfNecessary(event.pid, ackBuf)
+    }
+
+    private fun isDuplicate(event: TraceEvent): Boolean {
+        val cacheKey = "${event.syscallName}:${event.paths.sorted().joinToString(",")}"
+        val now = System.currentTimeMillis()
+        val lastSeen = pathCache[cacheKey] ?: 0L
+        return if (now - lastSeen < DEDUPLICATION_WINDOW_MS) {
+            logger.fine("[PROFILER] Deduplicated duplicate event for $cacheKey")
+            true
+        } else {
+            pathCache[cacheKey] = now
+            false
+        }
+    }
+
+    private fun accumulateStackTrace(event: TraceEvent) {
+        if (stackTracesMap == null) return
+        val threadToProfile = Profiler.threadRegistry[event.pid] ?: workerThreadProvider()
+        if (threadToProfile != null) {
+            val frames = threadToProfile.stackTrace
+            stackTracesMap
+                .computeIfAbsent(event) {
+                    CopyOnWriteArrayList<Array<StackTraceElement>>()
+                }.add(frames)
+        }
+    }
+
+    private fun sendAckIfNecessary(
+        pid: Int,
+        ackBuf: MemorySegment,
+    ) {
+        if (pid != 0) {
+            LinuxNative.write(socketFd, ackBuf, 1)
         }
     }
 }

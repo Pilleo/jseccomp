@@ -133,7 +133,6 @@ object SbobParser {
             while (pos < json.length && json[pos].isWhitespace()) pos++
         }
 
-        @Suppress("ReturnCount")
         fun parseString(): String? {
             if (pos >= json.length || json[pos] != '"') return null
             pos++
@@ -145,19 +144,7 @@ object SbobParser {
                     return sb.toString()
                 }
                 if (c == '\\') {
-                    pos++
-                    if (pos < json.length) {
-                        val esc = json[pos]
-                        when (esc) {
-                            '"', '\\', '/' -> sb.append(esc)
-                            'b' -> sb.append('\b')
-                            'f' -> sb.append('\u000C')
-                            'n' -> sb.append('\n')
-                            'r' -> sb.append('\r')
-                            't' -> sb.append('\t')
-                            else -> sb.append(esc)
-                        }
-                    }
+                    handleEscapeSequence(sb)
                 } else {
                     sb.append(c)
                 }
@@ -166,45 +153,66 @@ object SbobParser {
             return null
         }
 
-        @Suppress("CyclomaticComplexMethod")
+        private fun handleEscapeSequence(sb: StringBuilder) {
+            pos++
+            if (pos < json.length) {
+                val esc = json[pos]
+                when (esc) {
+                    '"', '\\', '/' -> sb.append(esc)
+                    'b' -> sb.append('\b')
+                    'f' -> sb.append('\u000C')
+                    'n' -> sb.append('\n')
+                    'r' -> sb.append('\r')
+                    't' -> sb.append('\t')
+                    else -> sb.append(esc)
+                }
+            }
+        }
+
         fun skipValue() {
             skipWhitespace()
             if (pos >= json.length) return
             when (json[pos]) {
                 '"' -> parseString()
-                '[' -> {
-                    pos++
-                    while (pos < json.length) {
-                        skipWhitespace()
-                        if (pos < json.length && json[pos] == ']') {
-                            pos++
-                            break
-                        }
-                        skipValue()
-                        skipWhitespace()
-                        if (pos < json.length && json[pos] == ',') pos++
-                    }
-                }
-                '{' -> {
-                    pos++
-                    while (pos < json.length) {
-                        skipWhitespace()
-                        if (pos < json.length && json[pos] == '}') {
-                            pos++
-                            break
-                        }
-                        parseString() // skip key
-                        skipWhitespace()
-                        if (pos < json.length && json[pos] == ':') pos++
-                        skipValue()
-                        skipWhitespace()
-                        if (pos < json.length && json[pos] == ',') pos++
-                    }
-                }
-                else -> {
-                    while (pos < json.length && !json[pos].isWhitespace() && json[pos] != ',' && json[pos] != '}' && json[pos] != ']') pos++
-                }
+                '[' -> skipArray()
+                '{' -> skipObject()
+                else -> skipPrimitive()
             }
+        }
+
+        private fun skipArray() {
+            pos++
+            while (pos < json.length) {
+                skipWhitespace()
+                if (pos < json.length && json[pos] == ']') {
+                    pos++
+                    break
+                }
+                skipValue()
+                skipWhitespace()
+                if (pos < json.length && json[pos] == ',') pos++
+            }
+        }
+
+        private fun skipObject() {
+            pos++
+            while (pos < json.length) {
+                skipWhitespace()
+                if (pos < json.length && json[pos] == '}') {
+                    pos++
+                    break
+                }
+                parseString() // skip key
+                skipWhitespace()
+                if (pos < json.length && json[pos] == ':') pos++
+                skipValue()
+                skipWhitespace()
+                if (pos < json.length && json[pos] == ',') pos++
+            }
+        }
+
+        private fun skipPrimitive() {
+            while (pos < json.length && !json[pos].isWhitespace() && json[pos] != ',' && json[pos] != '}' && json[pos] != ']') pos++
         }
 
         fun parseStringArray(): Set<String> {

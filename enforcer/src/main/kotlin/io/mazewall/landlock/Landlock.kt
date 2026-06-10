@@ -66,7 +66,6 @@ import java.util.logging.Logger
  * @see io.mazewall.Policy.Builder.allowJvmClasspath
  * @see io.mazewall.enforcer.ContainedExecutors.wrap
  */
-@Suppress("TooManyFunctions")
 object Landlock {
     private val logger = Logger.getLogger(Landlock::class.java.name)
 
@@ -139,20 +138,8 @@ object Landlock {
         val abi = getAbiVersion()
         if (abi < 1) return
 
+        val accessMaskFs = getFullAccessMask(abi)
         val allFsRead = LANDLOCK_ACCESS_FS_READ_FILE or LANDLOCK_ACCESS_FS_READ_DIR
-        var accessMaskFs =
-            allFsRead or
-                    LANDLOCK_ACCESS_FS_EXECUTE or
-                    LANDLOCK_ACCESS_FS_WRITE_FILE or
-                    LANDLOCK_ACCESS_FS_REMOVE_DIR or LANDLOCK_ACCESS_FS_REMOVE_FILE or
-                    LANDLOCK_ACCESS_FS_MAKE_CHAR or LANDLOCK_ACCESS_FS_MAKE_DIR or
-                    LANDLOCK_ACCESS_FS_MAKE_REG or LANDLOCK_ACCESS_FS_MAKE_SOCK or
-                    LANDLOCK_ACCESS_FS_MAKE_FIFO or LANDLOCK_ACCESS_FS_MAKE_BLOCK or
-                    LANDLOCK_ACCESS_FS_MAKE_SYM
-        if (abi >= 2) accessMaskFs = accessMaskFs or LANDLOCK_ACCESS_FS_REFER
-        if (abi >= ABI_V3) accessMaskFs = accessMaskFs or LANDLOCK_ACCESS_FS_TRUNCATE
-        if (abi >= ABI_V5) accessMaskFs = accessMaskFs or LANDLOCK_ACCESS_FS_IOCTL_DEV
-
         val classpathFlags = allFsRead or LANDLOCK_ACCESS_FS_EXECUTE
 
         Arena.ofConfined().use { arena ->
@@ -162,8 +149,7 @@ object Landlock {
             val rulesetFd = rulesetFdResult.returnValue.toInt()
             try {
                 addJvmClasspathRules(rulesetFd, classpathFlags, arena)
-                LinuxNative.prctl(LinuxNative.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
-                LinuxNative.syscall(LinuxNative.LANDLOCK_RESTRICT_SELF_NR, rulesetFd.toLong(), 0, MemorySegment.NULL, 0)
+                enforceRuleset(rulesetFd)
             } finally {
                 LinuxNative.close(rulesetFd)
             }
@@ -172,22 +158,14 @@ object Landlock {
 
     /**
      * Returns `true` if the running kernel supports Landlock (ABI v1+) and the OS is Linux.
-     *
-     * This performs a lightweight probe via `landlock_create_ruleset` with the version flag.
-     * It does **not** create a persistent ruleset.
      */
     fun isSupported(): Boolean {
         if (!System.getProperty("os.name").equals("Linux", ignoreCase = true)) return false
-        val abi = getAbiVersion()
-        return abi >= 1
+        return getAbiVersion() >= 1
     }
 
     /**
      * Queries the kernel for the highest Landlock ABI version it supports.
-     *
-     * @return The ABI version number (e.g. 1, 2, …, 8), or `0` if Landlock is not available
-     *         (kernel too old, `CONFIG_SECURITY_LANDLOCK` disabled, or running in a container
-     *         that blocks the syscall).
      */
     fun getAbiVersion(): Int {
         val abiResult =
@@ -197,59 +175,14 @@ object Landlock {
                 0L,
                 LinuxNative.LANDLOCK_CREATE_RULESET_VERSION,
             )
-        if (abiResult.returnValue < 0) {
-            return 0
-        }
-        return abiResult.returnValue.toInt()
+        return if (abiResult.returnValue < 0) 0 else abiResult.returnValue.toInt()
     }
 
     /**
      * Builds and applies a Landlock ruleset to the calling thread based on the given [policy].
-     *
-     * If the policy contains no filesystem paths (`allowedFsReadPaths` and `allowedFsWritePaths`
-     * are both empty), this method is a no-op.
-     *
-     * ### JVM classpath auto-allowlisting
-     * Landlock restricts filesystem access, but the JVM **must** be able to read `.class` and
-     * `.jar` files at any time for lazy classloading and JIT compilation. Blocking classpath
-     * access would cause `NoClassDefFoundError` crashes that are impossible to predict or
-     * prevent via preloading alone.
-     *
-     * Therefore, this method **automatically adds read rules** for `java.home` and all entries
-     * in `java.class.path`, regardless of whether the user called [io.mazewall.Policy.Builder.allowJvmClasspath].
-     * This is documented as an intentional design decision: classloading is too essential to
-     * the JVM to ever block.
-     *
-     * ### Lifecycle
-     * 1. Creates a ruleset FD via `landlock_create_ruleset`.
-     * 2. Automatically adds read rules for the JVM classpath (see above).
-     * 3. For each user-specified allowed path, opens it with `O_PATH | O_CLOEXEC | O_NOFOLLOW`
-     *    and adds a `LANDLOCK_RULE_PATH_BENEATH` rule.
-     * 4. Sets `PR_SET_NO_NEW_PRIVS` (required by the kernel for unprivileged Landlock).
-     * 5. Calls `landlock_restrict_self` to enforce the ruleset on the calling thread.
-     * 6. Closes the ruleset FD (the restriction persists after the FD is closed).
-     *
-     * ### Important caveats
-     * - **Stacking is intersective.** Calling this method multiple times on the same thread
-     *   narrows the allowed access with each call. After ~16 layers the kernel returns `E2BIG`.
-     *   Use [io.mazewall.enforcer.ContainedExecutors] which tracks this via a `ThreadLocal` flag.
-     * - **Non-existent paths fallback.** If a path does not exist, `addRule` will attempt to
-     *   open the parent directory instead. This allows writing to files that haven't been
-     *   created yet. If the parent also doesn't exist, the rule is skipped with a warning.
-     * - **Symlinks are rejected.** `O_NOFOLLOW` is used, so symlink paths will fail to open.
-     *   This prevents an attacker who controls a symlink target from redirecting a rule to
-     *   an unintended inode. Use the resolved (real) path instead.
-     *
-     * @param policy The [io.mazewall.Policy] whose `allowedFsReadPaths` and `allowedFsWritePaths` will
-     *               be translated into Landlock rules.
-     * @throws UnsupportedOperationException if Landlock is unsupported and the configured
-     *         fallback is [io.mazewall.Platform.FallbackBehavior.FAIL].
-     * @throws IllegalStateException if any Landlock syscall fails unexpectedly.
      */
     fun applyRuleset(policy: Policy) {
-        if (!shouldApplyLandlock(policy)) {
-            return
-        }
+        if (!shouldApplyLandlock(policy)) return
 
         val abi = getAbiVersion()
         if (abi < 1) {
@@ -273,18 +206,27 @@ object Landlock {
         }
     }
 
+    private fun getFullAccessMask(abi: Int): Long {
+        var mask = LANDLOCK_ACCESS_FS_READ_FILE or LANDLOCK_ACCESS_FS_READ_DIR or
+                LANDLOCK_ACCESS_FS_EXECUTE or LANDLOCK_ACCESS_FS_WRITE_FILE or
+                LANDLOCK_ACCESS_FS_REMOVE_DIR or LANDLOCK_ACCESS_FS_REMOVE_FILE or
+                LANDLOCK_ACCESS_FS_MAKE_CHAR or LANDLOCK_ACCESS_FS_MAKE_DIR or
+                LANDLOCK_ACCESS_FS_MAKE_REG or LANDLOCK_ACCESS_FS_MAKE_SOCK or
+                LANDLOCK_ACCESS_FS_MAKE_FIFO or LANDLOCK_ACCESS_FS_MAKE_BLOCK or
+                LANDLOCK_ACCESS_FS_MAKE_SYM
+        if (abi >= 2) mask = mask or LANDLOCK_ACCESS_FS_REFER
+        if (abi >= ABI_V3) mask = mask or LANDLOCK_ACCESS_FS_TRUNCATE
+        if (abi >= ABI_V5) mask = mask or LANDLOCK_ACCESS_FS_IOCTL_DEV
+        return mask
+    }
+
     private fun shouldApplyLandlock(policy: Policy): Boolean =
-    // We apply Landlock if explicitly requested, if there are specific path rules,
-        // or if io_uring is allowed (to prevent the async bypass).
         policy.enforceLandlock ||
                 policy.allowedFsReadPaths.isNotEmpty() ||
                 policy.allowedFsWritePaths.isNotEmpty() ||
                 policy.isSyscallAllowed(Syscall.IO_URING_SETUP) ||
                 policy.isSyscallAllowed(Syscall.IO_URING_ENTER)
 
-    /**
-     * Resolves the fallback behavior when Landlock is requested but not supported.
-     */
     private fun handleUnsupportedLandlock() {
         val fallback = Platform.configuredFallback()
         if (fallback == Platform.FallbackBehavior.FAIL) {
@@ -294,9 +236,6 @@ object Landlock {
         }
     }
 
-    /**
-     * Helper to create a ruleset and throw if it fails.
-     */
     private fun createRulesetOrThrow(
         arena: Arena,
         mask: Long,
@@ -309,45 +248,26 @@ object Landlock {
         return res.returnValue.toInt()
     }
 
-    /**
-     * Adds read rules for the JVM's own classpath so that classloading always works.
-     *
-     * This covers `java.home` (the JDK installation) and every entry in `java.class.path`
-     * (application JARs and class directories). Without these rules, any lazy classloading
-     * after `landlock_restrict_self` would throw `NoClassDefFoundError`.
-     *
-     * Note: These rules use `O_PATH` without `O_NOFOLLOW` because JDK installations
-     * commonly use symlinks (e.g. `/usr/lib/jvm/java` -> `/usr/lib/jvm/java-25-openjdk`).
-     */
     private fun addJvmClasspathRules(
         rulesetFd: Int,
         accessFlags: Long,
         arena: Arena,
     ) {
-        val javaHome = System.getProperty("java.home")
-        if (javaHome != null) {
-            addRuleFollowSymlinks(rulesetFd, javaHome, accessFlags, arena)
-        }
+        System.getProperty("java.home")?.let { addRuleFollowSymlinks(rulesetFd, it, accessFlags, arena) }
 
-        val classPath = System.getProperty("java.class.path")
-        if (classPath != null) {
-            val seen = mutableSetOf<String>()
-            classPath.split(File.pathSeparator).forEach {
-                val file = File(it)
-                if (file.exists()) {
-                    val dir = if (file.isDirectory) file.absolutePath else file.parent
-                    if (seen.add(dir)) {
-                        addRuleFollowSymlinks(rulesetFd, dir, accessFlags, arena)
-                    }
+        val classPath = System.getProperty("java.class.path") ?: return
+        val seen = mutableSetOf<String>()
+        classPath.split(File.pathSeparator).forEach {
+            val file = File(it)
+            if (file.exists()) {
+                val dir = if (file.isDirectory) file.absolutePath else file.parent
+                if (seen.add(dir)) {
+                    addRuleFollowSymlinks(rulesetFd, dir, accessFlags, arena)
                 }
             }
         }
     }
 
-    /**
-     * Adds a rule using `O_PATH | O_CLOEXEC` (without `O_NOFOLLOW`) — used only for
-     * JVM classpath paths where symlinks are expected and trusted.
-     */
     private fun addRuleFollowSymlinks(
         rulesetFd: Int,
         path: String,
@@ -371,30 +291,6 @@ object Landlock {
         }
     }
 
-    /**
-     * Adds a single `LANDLOCK_RULE_PATH_BENEATH` rule to the given ruleset.
-     *
-     * Opens [path] with `O_PATH | O_CLOEXEC | O_NOFOLLOW` to obtain a non-functional file
-     * descriptor that identifies the inode. The FD is closed after the rule is added.
-     *
-     * ### Symlink rejection (Fix #4)
-     * `O_NOFOLLOW` is used so that symlink paths are rejected with `ELOOP`. This prevents
-     * an attacker who controls a symlink target from redirecting a Landlock rule to an
-     * unintended inode. If you need to allow a symlinked path, resolve it first with
-     * `Path.toRealPath()` and pass the resolved path.
-     *
-     * ### Non-existent path fallback (Fix #3)
-     * If the path does not exist (`ENOENT`), this method automatically tries the parent
-     * directory instead. This allows users to allow writes to files that haven't been
-     * created yet. If the parent also fails, a warning is logged and the rule is skipped
-     * (fail-open for this specific path, but the overall ruleset remains restrictive).
-     *
-     * @param rulesetFd  The file descriptor of the Landlock ruleset (from `landlock_create_ruleset`).
-     * @param path       The filesystem path to allow access to (and its descendants).
-     * @param allowedAccess Bitmask of `LANDLOCK_ACCESS_FS_*` flags to grant for this path.
-     * @param arena      The [Arena] used for native memory allocations in this call.
-     * @throws IllegalStateException if `landlock_add_rule` fails for a reason other than a missing path.
-     */
     private fun addRule(
         rulesetFd: Int,
         path: String,
@@ -421,9 +317,6 @@ object Landlock {
         }
     }
 
-    /**
-     * Resolves the canonical path of a given file path string.
-     */
     private fun resolveCanonicalPath(path: String): String =
         try {
             File(path).canonicalPath
@@ -432,10 +325,6 @@ object Landlock {
             path
         }
 
-    /**
-     * Handles the initial failure to open a path for a Landlock rule.
-     * Implements non-existent path fallback (Fix #3).
-     */
     private fun handleInitialOpenFailure(
         res: LinuxNative.SyscallResult,
         resolvedPath: String,
@@ -450,10 +339,6 @@ object Landlock {
         return res to false
     }
 
-    /**
-     * Logs the failure to open a path for a Landlock rule.
-     * Implements symlink rejection warning (Fix #4).
-     */
     private fun logOpenFailure(
         path: String,
         errno: Int,
@@ -465,26 +350,18 @@ object Landlock {
         }
     }
 
-    /**
-     * Calculates the final access mask for a given path, stripping directory-only
-     * flags if the path identifies a regular file.
-     */
     private fun calculateFinalAccess(
         allowedAccess: Long,
         isFallback: Boolean,
         resolvedPath: String,
     ): Long {
         if (isFallback || File(resolvedPath).isFile) {
-            val dirOnlyFlags =
-                LANDLOCK_ACCESS_FS_READ_DIR or LANDLOCK_ACCESS_FS_MAKE_DIR or LANDLOCK_ACCESS_FS_REMOVE_DIR
+            val dirOnlyFlags = LANDLOCK_ACCESS_FS_READ_DIR or LANDLOCK_ACCESS_FS_MAKE_DIR or LANDLOCK_ACCESS_FS_REMOVE_DIR
             return allowedAccess and dirOnlyFlags.inv()
         }
         return allowedAccess
     }
 
-    /**
-     * Adds a rule to the ruleset and verifies the result.
-     */
     private fun addRuleToRulesetAndVerify(
         arena: Arena,
         rulesetFd: Int,
@@ -495,9 +372,6 @@ object Landlock {
         val res = addRuleToRuleset(arena, rulesetFd, pathFd, access)
         if (res.returnValue < 0) {
             if (res.errno == ERRNO_EINVAL) {
-                // EINVAL: The FD likely points to a symlink inode (O_PATH | O_NOFOLLOW
-                // opens the symlink itself, not the target). Landlock rejects non-directory/
-                // non-regular-file inodes as path-beneath parents.
                 logger.warning("landlock_add_rule rejected $path (EINVAL) — path may be a symlink or unsupported inode type.")
             } else {
                 throw IllegalStateException("landlock_add_rule failed for $path with errno ${res.errno}")
@@ -505,35 +379,17 @@ object Landlock {
         }
     }
 
-    /**
-     * Enforces the Landlock ruleset on the calling thread.
-     */
     private fun enforceRuleset(rulesetFd: Int) {
-        // Restrict self requires no_new_privs
         val prctlResult = LinuxNative.prctl(LinuxNative.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
         if (prctlResult.returnValue < 0) {
             throw IllegalStateException("prctl(PR_SET_NO_NEW_PRIVS) failed with errno ${prctlResult.errno}")
         }
-
-        // Use TSYNC (Thread Sync) for process-wide enforcement if ABI >= 8 (Linux 7.0+)
-        // DISABLED: TSYNC breaks sibling thread transparency in the test suite.
-        val flags = 0L // if (abi >= 8) LANDLOCK_RESTRICT_SELF_TSYNC else 0L
-        val restrictResult =
-            LinuxNative.syscall(
-                LinuxNative.LANDLOCK_RESTRICT_SELF_NR,
-                rulesetFd.toLong(),
-                flags,
-                MemorySegment.NULL,
-                0,
-            )
+        val restrictResult = LinuxNative.syscall(LinuxNative.LANDLOCK_RESTRICT_SELF_NR, rulesetFd.toLong(), 0, MemorySegment.NULL, 0)
         if (restrictResult.returnValue < 0) {
-            throw IllegalStateException("landlock_restrict_self failed (flags=$flags) with errno ${restrictResult.errno}")
+            throw IllegalStateException("landlock_restrict_self failed with errno ${restrictResult.errno}")
         }
     }
 
-    /**
-     * Translates policy paths into Landlock rules.
-     */
     private fun applyUserRules(
         rulesetFd: Int,
         policy: Policy,
@@ -541,91 +397,45 @@ object Landlock {
         arena: Arena,
         allFsRead: Long,
     ) {
-        // Add user-specified read rules
-        for (path in policy.allowedFsReadPaths) {
-            addRule(rulesetFd, path, allFsRead, arena)
-        }
-
-        // Add user-specified write rules
-        val writeFlags =
-            LANDLOCK_ACCESS_FS_WRITE_FILE or LANDLOCK_ACCESS_FS_MAKE_REG or
-                    LANDLOCK_ACCESS_FS_MAKE_DIR or LANDLOCK_ACCESS_FS_REMOVE_FILE or
-                    LANDLOCK_ACCESS_FS_REMOVE_DIR or (if (abi >= ABI_V3) LANDLOCK_ACCESS_FS_TRUNCATE else 0)
-
-        for (path in policy.allowedFsWritePaths) {
-            addRule(rulesetFd, path, writeFlags, arena)
-        }
+        policy.allowedFsReadPaths.forEach { addRule(rulesetFd, it, allFsRead, arena) }
+        val writeFlags = LANDLOCK_ACCESS_FS_WRITE_FILE or LANDLOCK_ACCESS_FS_MAKE_REG or
+                LANDLOCK_ACCESS_FS_MAKE_DIR or LANDLOCK_ACCESS_FS_REMOVE_FILE or
+                LANDLOCK_ACCESS_FS_REMOVE_DIR or (if (abi >= ABI_V3) LANDLOCK_ACCESS_FS_TRUNCATE else 0)
+        policy.allowedFsWritePaths.forEach { addRule(rulesetFd, it, writeFlags, arena) }
     }
 
-    /**
-     * Resolves the access mask for the given ABI and policy.
-     * Enforces security errors for syscalls that cannot be restricted by the current ABI.
-     */
     internal fun getAccessMask(
         abi: Int,
         policy: Policy,
     ): Long {
-        val allFsRead = LANDLOCK_ACCESS_FS_READ_FILE or LANDLOCK_ACCESS_FS_READ_DIR
+        var accessMaskFs = getFullAccessMask(1) // Base mask
+        if (abi >= 2) accessMaskFs = accessMaskFs or LANDLOCK_ACCESS_FS_REFER
+        if (abi >= ABI_V3) accessMaskFs = accessMaskFs or LANDLOCK_ACCESS_FS_TRUNCATE
+        if (abi >= ABI_V5) accessMaskFs = accessMaskFs or LANDLOCK_ACCESS_FS_IOCTL_DEV
 
-        // Fix #2: Handle ALL access categories the ABI supports.
-        // Any category NOT listed here is left globally unrestricted.
-        var accessMaskFs =
-            allFsRead or
-                    LANDLOCK_ACCESS_FS_EXECUTE or
-                    LANDLOCK_ACCESS_FS_WRITE_FILE or
-                    LANDLOCK_ACCESS_FS_REMOVE_DIR or LANDLOCK_ACCESS_FS_REMOVE_FILE or
-                    LANDLOCK_ACCESS_FS_MAKE_CHAR or LANDLOCK_ACCESS_FS_MAKE_DIR or
-                    LANDLOCK_ACCESS_FS_MAKE_REG or LANDLOCK_ACCESS_FS_MAKE_SOCK or
-                    LANDLOCK_ACCESS_FS_MAKE_FIFO or LANDLOCK_ACCESS_FS_MAKE_BLOCK or
-                    LANDLOCK_ACCESS_FS_MAKE_SYM
-
-        val unsupportedErrors = mutableListOf<String>()
-
-        if (abi >= 2) {
-            accessMaskFs = accessMaskFs or LANDLOCK_ACCESS_FS_REFER
-        } else if (policy.isSyscallAllowed(Syscall.RENAME) ||
-            policy.isSyscallAllowed(Syscall.RENAMEAT) ||
-            policy.isSyscallAllowed(Syscall.RENAMEAT2) ||
-            policy.isSyscallAllowed(Syscall.LINK) ||
-            policy.isSyscallAllowed(Syscall.LINKAT)
-        ) {
-            unsupportedErrors.add(
-                "Policy allows rename/link syscalls, but this kernel (Landlock ABI $abi) is too old " +
-                        "to restrict them (ABI 2 / Linux 5.19+ required)",
-            )
-        }
-
-        if (abi >= ABI_V3) {
-            accessMaskFs = accessMaskFs or LANDLOCK_ACCESS_FS_TRUNCATE
-        } else if (policy.isSyscallAllowed(Syscall.TRUNCATE) || policy.isSyscallAllowed(Syscall.FTRUNCATE)) {
-            unsupportedErrors.add(
-                "Policy allows truncate syscalls, but this kernel (Landlock ABI $abi) is too old " +
-                        "to restrict them (ABI 3 / Linux 6.2+ required)",
-            )
-        }
-
-        if (abi >= ABI_V5) {
-            accessMaskFs = accessMaskFs or LANDLOCK_ACCESS_FS_IOCTL_DEV
-        } else if (policy.isSyscallAllowed(Syscall.IOCTL)) {
-            unsupportedErrors.add(
-                "Policy allows ioctl, but this kernel (Landlock ABI $abi) is too old " +
-                        "to restrict dev ioctls (ABI 5 / Linux 6.10+ required)",
-            )
-        }
-
-        if (unsupportedErrors.isNotEmpty()) {
-            throw UnsupportedOperationException(
-                "Fatal Security Error: ${unsupportedErrors.joinToString("; ")}. " +
-                        "Update your kernel or block these syscalls.",
-            )
-        }
-
+        validateAbiSupport(abi, policy)
         return accessMaskFs
     }
 
-    /**
-     * Low-level helper to create a Landlock ruleset.
-     */
+    private fun validateAbiSupport(
+        abi: Int,
+        policy: Policy,
+    ) {
+        val unsupportedErrors = mutableListOf<String>()
+        if (abi < 2 && (policy.isSyscallAllowed(Syscall.RENAME) || policy.isSyscallAllowed(Syscall.LINK))) {
+            unsupportedErrors.add("Policy allows rename/link syscalls, but this kernel is too old")
+        }
+        if (abi < ABI_V3 && (policy.isSyscallAllowed(Syscall.TRUNCATE) || policy.isSyscallAllowed(Syscall.FTRUNCATE))) {
+            unsupportedErrors.add("Policy allows truncate syscalls, but this kernel is too old")
+        }
+        if (abi < ABI_V5 && policy.isSyscallAllowed(Syscall.IOCTL)) {
+            unsupportedErrors.add("Policy allows ioctl, but this kernel is too old")
+        }
+        if (unsupportedErrors.isNotEmpty()) {
+            throw UnsupportedOperationException("Fatal Security Error: ${unsupportedErrors.joinToString("; ")}")
+        }
+    }
+
     private fun createRuleset(
         arena: Arena,
         accessMaskFs: Long,
@@ -635,17 +445,9 @@ object Landlock {
         rulesetAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_RULESET_ATTR_FS_OFFSET, accessMaskFs)
         rulesetAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_RULESET_ATTR_NET_OFFSET, 0L)
         val size = if (abi >= 4) LinuxNative.LANDLOCK_RULESET_ATTR_LAYOUT.byteSize() else 8L
-        return LinuxNative.syscall(
-            LinuxNative.LANDLOCK_CREATE_RULESET_NR,
-            rulesetAttr.address(),
-            size,
-            MemorySegment.NULL,
-        )
+        return LinuxNative.syscall(LinuxNative.LANDLOCK_CREATE_RULESET_NR, rulesetAttr.address(), size, MemorySegment.NULL)
     }
 
-    /**
-     * Low-level helper to add a rule to a Landlock ruleset.
-     */
     private fun addRuleToRuleset(
         arena: Arena,
         rulesetFd: Int,
@@ -655,12 +457,6 @@ object Landlock {
         val pathAttr = arena.allocate(LinuxNative.LANDLOCK_PATH_BENEATH_ATTR_LAYOUT)
         pathAttr.set(ValueLayout.JAVA_LONG, LinuxNative.LANDLOCK_PATH_BENEATH_ATTR_ACCESS_OFFSET, accessMask)
         pathAttr.set(ValueLayout.JAVA_INT, LinuxNative.LANDLOCK_PATH_BENEATH_ATTR_FD_OFFSET, pathFd)
-        return LinuxNative.syscall(
-            LinuxNative.LANDLOCK_ADD_RULE_NR,
-            rulesetFd.toLong(),
-            LinuxNative.LANDLOCK_RULE_PATH_BENEATH.toLong(),
-            pathAttr,
-            0,
-        )
+        return LinuxNative.syscall(LinuxNative.LANDLOCK_ADD_RULE_NR, rulesetFd.toLong(), LinuxNative.LANDLOCK_RULE_PATH_BENEATH.toLong(), pathAttr, 0)
     }
 }

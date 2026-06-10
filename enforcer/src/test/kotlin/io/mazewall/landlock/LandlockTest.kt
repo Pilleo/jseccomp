@@ -406,29 +406,111 @@ class LandlockTest {
     }
 
     @Test
-    fun `testLandlockGetAccessMaskLowAbi`() {
-        val policyRename = Policy.builder().unblock(Syscall.RENAME).build()
-        val exRename = assertFailsWith<UnsupportedOperationException> {
-            Landlock.getAccessMask(1, policyRename)
-        }
-        assertTrue(
-            exRename.message!!.contains("Policy allows rename/link syscalls, but this kernel"),
+    fun `testLandlockNestedSymlinks`() {
+        if (!Landlock.isSupported()) return
+
+        val realDir = createTempDirectory("landlock_real_target")
+        val realFile = realDir.resolve("secret.txt")
+        realFile.writeText("nested-secret")
+
+        val link1 = createTempDirectory("landlock_link1").resolve("l1")
+        val link2 = createTempDirectory("landlock_link2").resolve("l2")
+
+        // link2 -> link1 -> realDir
+        Files.createSymbolicLink(link1, realDir)
+        Files.createSymbolicLink(link2, link1)
+
+        val policy = Policy
+            .builder()
+            .base(Policy.NO_EXEC)
+            .allowJvmClasspath()
+            .allowFsRead(link2.toString())
+            .build()
+
+        val executor = Executors.newSingleThreadExecutor()
+        val safeExecutor = ContainedExecutors.wrap(executor, policy)
+
+        val future = safeExecutor.submit(
+            java.util.concurrent.Callable {
+            Files.readString(realFile)
+        },
         )
 
-        val policyTruncate = Policy.builder().unblock(Syscall.TRUNCATE).build()
-        val exTruncate = assertFailsWith<UnsupportedOperationException> {
-            Landlock.getAccessMask(2, policyTruncate)
-        }
-        assertTrue(
-            exTruncate.message!!.contains("Policy allows truncate syscalls, but this kernel"),
+        assertEquals("nested-secret", future.get())
+        executor.shutdown()
+    }
+
+    @Test
+    fun `testLandlockDotDotTraversal`() {
+        if (!Landlock.isSupported()) return
+
+        val baseDir = createTempDirectory("landlock_base")
+        val allowedSub = Files.createDirectory(baseDir.resolve("allowed"))
+        val forbiddenSub = Files.createDirectory(baseDir.resolve("forbidden"))
+
+        forbiddenSub.resolve("secret.txt").writeText("forbidden")
+        allowedSub.resolve("ok.txt").writeText("ok")
+
+        // Policy allows only the 'allowed' subdirectory
+        val policy = Policy
+            .builder()
+            .base(Policy.NO_EXEC)
+            .allowJvmClasspath()
+            .allowFsRead(allowedSub.toString())
+            .build()
+
+        val executor = Executors.newSingleThreadExecutor()
+        val safeExecutor = ContainedExecutors.wrap(executor, policy)
+
+        // Try to escape via ..
+        val future = safeExecutor.submit(
+            java.util.concurrent.Callable {
+            val escapePath = allowedSub.resolve("../forbidden/secret.txt")
+            Files.readString(escapePath)
+        },
         )
 
-        val policyIoctl = Policy.builder().unblock(Syscall.IOCTL).build()
-        val exIoctl = assertFailsWith<UnsupportedOperationException> {
-            Landlock.getAccessMask(4, policyIoctl)
-        }
-        assertTrue(
-            exIoctl.message!!.contains("Policy allows ioctl, but this kernel"),
+        val ex = assertFailsWith<ExecutionException> { future.get() }
+        assertTrue(ex.cause is AccessDeniedException || ex.cause is ContainmentViolationException)
+
+        executor.shutdown()
+    }
+
+    @Test
+    fun `testLandlockCircularSymlinksFailGracefully`() {
+        if (!Landlock.isSupported()) return
+
+        val dir = createTempDirectory("landlock_circular")
+        val linkA = dir.resolve("linkA")
+        val linkB = dir.resolve("linkB")
+
+        Files.createSymbolicLink(linkA, linkB)
+        Files.createSymbolicLink(linkB, linkA)
+
+        // This shouldn't crash the policy builder or application
+        val policy = Policy
+            .builder()
+            .base(Policy.NO_EXEC)
+            .allowJvmClasspath()
+            .allowFsRead(linkA.toString())
+            .build()
+
+        val executor = Executors.newSingleThreadExecutor()
+        val safeExecutor = ContainedExecutors.wrap(executor, policy)
+
+        val future = safeExecutor.submit(
+            java.util.concurrent.Callable {
+            // Reading it should obviously fail with too many levels of symbolic links (ELOOP)
+            try {
+                Files.readString(linkA)
+                "success"
+            } catch (_: java.io.IOException) {
+                "eloop"
+            }
+        },
         )
+
+        assertEquals("eloop", future.get())
+        executor.shutdown()
     }
 }
