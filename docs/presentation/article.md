@@ -111,14 +111,6 @@ graph TD
     Gates -.->|Denied| Error[EPERM / Killed]
 ```
 
-## Capability-Based Security in Other Domains
- 
-If declaring upfront capabilities sounds like a radical shift, it isn't. In fact, this approach is already the standard in almost every other area of IT.
- 
-Think about mobile apps. An Android `AndroidManifest.xml` or an iOS Entitlement explicitly declares what the application is allowed to do (access the camera, read contacts, use the network). Web browsers work the same way, explicitly asking for permission before a script can access your location or clipboard. WebAssembly (Wasm) takes this even further, running in a default-deny sandbox where modules cannot touch the network or file system without explicit host capabilities being granted.
- 
-In this context, server-side Linux containers are the anomaly. SBoB is simply bringing capability-based security to the cloud-native server side.
-
 ## The Primitives: How SBoB Is Enforced
 
 If SBoB is the declaration of intent, the Linux kernel provides three primary mechanisms to turn that intent into a hard boundary:
@@ -149,16 +141,6 @@ LSMs like AppArmor, SELinux, and the modern **BPF-LSM** provide the deepest leve
 
 By combining these primitives, we move from blunt "allow/deny" container rules to surgical, intent-based security.
 
-## The Runtime Security Stack Is Already Here
- 
-This is no longer a speculative academic exercise. The building blocks are already in production.
- 
-In the open ecosystem, projects like **Kubescape** are pushing strongly into runtime profiling for Kubernetes workloads. Using eBPF, Kubescape observes how workloads actually behave to build profiles around that behavior. This makes it a natural home for SBoB-related ideas and standards, such as the emerging **[Software Bill of Behavior specification](https://github.com/k8sstormcenter/bob)**.
- 
-On the commercial side, companies like **Oligo Security** have proven that library-level and application-level runtime profiling is directly useful for security operations. By observing what libraries do inside running applications, their platform uses behavioral context to detect suspicious activity.
- 
-The message is clear: the runtime security stack is already here. What is still missing is a standardized, portable, vendor-supplied way to describe what software is expected to do.
-
 ## What SBoB Actually Is (and Why Vendor Authorship Matters)
  
 If an SBOM is the bill of materials for software composition, an SBoB (Software Bill of Behavior) is its behavioral companion. In practical terms, an SBoB captures expected runtime boundaries: network communication, file access, process execution, and Linux capabilities.
@@ -167,24 +149,9 @@ Today, runtime security forces the end user to infer safe behavior after deploym
  
 SBoB introduces a different model: the producer of the software should ship the first behavioral contract. 
  
-Physically, this contract is not a proprietary security appliance rule. It is an [emerging, machine-readable specification](https://billofbehavior.com/bob/docs/drafts/spec-v0.0.1/). It is designed to be distributed alongside the application, attached to the container image.
+Physically, this contract is not a proprietary security appliance rule. It is an [emerging, machine-readable specification](https://billofbehavior.com/bob/docs/drafts/spec-v0.0.1/). It is designed to be distributed alongside the application, attached to the container image as an [OCI artifact](https://opencontainers.org/) or applied as a Kubernetes Custom Resource.
 
 The vendor is the party that actually knows what the software is intended to do, what the test coverage looks like, and which behaviors are essential. Instead of forcing thousands of customers to reverse-engineer the same runtime policy from scratch, the software producer ships a reviewable baseline. This moves runtime security from a "guess" to a **verifiable attestation of intent.**
-
-## The First Step: [VEX (Vulnerability Exploitability eXchange)](https://cyclonedx.org/capabilities/vex/)
-We are already seeing a "SBoB-lite" emerge in the form of **VEX**. While an SBOM tells you a vulnerable library exists on your disk, a VEX document tells you if that library is actually loaded and reachable at runtime. For example, a VEX advisory can formally state that an application is **"not affected"** by a vulnerability because the specific vulnerable function (e.g., a high-risk network appender in a logging library) is never called by the application logic—a justification standardized as [`code_not_reachable`](https://www.cisa.gov/resources-tools/resources/vulnerability-exploitability-exchange-vex). VEX can be generated through multiple means — runtime observation (tools like Kubescape contribute behavioral evidence via eBPF), static analysis, or manual attestation. Regardless of how it is produced, VEX is the industry's first standardized realization that composition is a poor proxy for risk; only behavior matters.
-
-## Mitigating Advanced Evasion Techniques
- 
-It’s tempting to view SBoB simply as a tool to reduce false positives in anomaly detection. And yes, instead of asking a vague statistical question—*"Is this weird?"*—the runtime can ask a concrete one: *"Is this expected behavior for this specific artifact?"*
- 
-But SBoB also addresses the reality of modern syscall evasion. 
- 
-Traditional security often focuses on blocking `execve` (spawning a shell). But sophisticated attackers don't need a shell. They use **fileless malware**—malicious code that lives entirely in RAM, using Linux features like [`memfd_create`](https://sandflysecurity.com/blog/detecting-linux-memfd_create-fileless-malware-with-command-line-forensics/) to execute binaries that never touch the disk. Because there is no file, traditional disk-based scanning is blind.
- 
-More advanced attackers use [**`io_uring`**](https://unixism.net/loti/), a high-performance asynchronous I/O API. By submitting operations via shared memory rings rather than direct syscalls, they can often "blind" traditional security monitors.
- 
-An SBoB allows us to express fine-grained intent that stops these techniques: *"This application is strictly forbidden from using `memfd_create`, `io_uring_setup`, or mapping executable memory."*
 
 ## The Concept of Scopes: When is a Behavior Expected?
  
@@ -236,6 +203,39 @@ Beyond lifecycle phases, we can theoretically define scopes at a much deeper lev
 *   **Stacktrace Scopes:** Using the calling context to decide if a syscall is valid (e.g., "Allow `socket()` only if called via the AWS SDK").
  
 While these granular scopes represent the "dream" of behavioral security, they often introduce high performance overhead or require deep integration with the language runtime. For now, Lifecycle Scopes remain the most viable path for widespread adoption.
+
+## Mitigating Advanced Evasion Techniques
+ 
+It’s tempting to view SBoB simply as a tool to reduce false positives in anomaly detection. And yes, instead of asking a vague statistical question—*"Is this weird?"*—the runtime can ask a concrete one: *"Is this expected behavior for this specific artifact?"*
+ 
+But SBoB also addresses the reality of modern syscall evasion. 
+ 
+Traditional security often focuses on blocking `execve` (spawning a shell). But sophisticated attackers don't need a shell. They use **fileless malware**—malicious code that lives entirely in RAM, using Linux features like [`memfd_create`](https://sandflysecurity.com/blog/detecting-linux-memfd_create-fileless-malware-with-command-line-forensics/) to execute binaries that never touch the disk. Because there is no file, traditional disk-based scanning is blind.
+ 
+More advanced attackers use [**`io_uring`**](https://unixism.net/loti/), a high-performance asynchronous I/O API. By submitting operations via shared memory rings rather than direct syscalls, they can often "blind" traditional security monitors.
+ 
+An SBoB allows us to express fine-grained intent that stops these techniques: *"This application is strictly forbidden from using `memfd_create`, `io_uring_setup`, or mapping executable memory."*
+
+## Capability-Based Security in Other Domains
+ 
+If declaring upfront capabilities sounds like a radical shift, it isn't. In fact, this approach is already the standard in almost every other area of IT.
+ 
+Think about mobile apps. An Android `AndroidManifest.xml` or an iOS Entitlement explicitly declares what the application is allowed to do (access the camera, read contacts, use the network). Web browsers work the same way, explicitly asking for permission before a script can access your location or clipboard. WebAssembly (Wasm) takes this even further, running in a default-deny sandbox where modules cannot touch the network or file system without explicit host capabilities being granted.
+ 
+In this context, server-side Linux containers are the anomaly. SBoB is simply bringing capability-based security to the cloud-native server side.
+
+## The First Step: [VEX (Vulnerability Exploitability eXchange)](https://cyclonedx.org/capabilities/vex/)
+We are already seeing a "SBoB-lite" emerge in the form of **VEX**. While an SBOM tells you a vulnerable library exists on your disk, a VEX document tells you if that library is actually loaded and reachable at runtime. For example, a VEX advisory can formally state that an application is **"not affected"** by a vulnerability because the specific vulnerable function (e.g., a high-risk network appender in a logging library) is never called by the application logic—a justification standardized as [`code_not_reachable`](https://www.cisa.gov/resources-tools/resources/vulnerability-exploitability-exchange-vex). VEX can be generated through multiple means — runtime observation (tools like Kubescape contribute behavioral evidence via eBPF), static analysis, or manual attestation. Regardless of how it is produced, VEX is the industry's first standardized realization that composition is a poor proxy for risk; only behavior matters.
+
+## The Runtime Security Stack Is Already Here
+ 
+This is no longer a speculative academic exercise. The building blocks are already in production.
+ 
+In the open ecosystem, projects like **Kubescape** are pushing strongly into runtime profiling for Kubernetes workloads. Using eBPF, Kubescape observes how workloads actually behave to build profiles around that behavior. This makes it a natural home for SBoB-related ideas and standards, such as the emerging **[Software Bill of Behavior specification](https://github.com/k8sstormcenter/bob)**.
+ 
+On the commercial side, companies like **Oligo Security** have proven that library-level and application-level runtime profiling is directly useful for security operations. By observing what libraries do inside running applications, their platform uses behavioral context to detect suspicious activity.
+ 
+The message is clear: the runtime security stack is already here. What is still missing is a standardized, portable, vendor-supplied way to describe what software is expected to do.
 
 ## What You Can Do Today
  
