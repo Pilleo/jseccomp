@@ -19,6 +19,9 @@ dependencies {
     testImplementation(libs.junit.jupiter.api)
     testImplementation(libs.junit.jupiter.params)
     testImplementation(libs.archunit.junit5)
+    testImplementation(libs.kotest.assertions)
+    testImplementation(libs.kotest.property)
+    testImplementation(libs.kotlinxCoroutines)
     testRuntimeOnly(libs.junit.jupiter.engine)
 }
 
