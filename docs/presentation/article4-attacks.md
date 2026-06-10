@@ -296,6 +296,8 @@ flowchart TD
         Webhooks["Webhook Processors<br/>(HTTP clients calling user URLs)"]
     end
 
+    ContainedExec["🔒 ContainedExecutors.wrap(policy)<br/>Apply PURE_COMPUTE_UNSAFE before task execution"]
+
     subgraph BlueZone ["🧊 BLUE ZONES (Low Risk / Internal Execution)"]
         Logic["Core Business Logic<br/>(Math, Order processing)"]
         DAOs["Data Access Objects / DB Queries<br/>(Parameterized SQL)"]
@@ -303,8 +305,15 @@ flowchart TD
     end
 
     Data([Untrusted Input]) --> Deserializers
-    Webhooks -->|Enforced via ContainedExecutor| Logic
+    Deserializers --> ContainedExec
+    Parsers --> ContainedExec
+    Templates --> ContainedExec
+    Native --> ContainedExec
+    Webhooks --> ContainedExec
+    ContainedExec --> Logic
+    ContainedExec --> DAOs
 ```
+
 
 ### 🔥 RED ZONES (High Risk / Must Sandbox)
 These are the most vulnerable parts of an application. They should *always* be wrapped in a restricted thread pool (e.g., `Policy.PURE_COMPUTE_UNSAFE`).

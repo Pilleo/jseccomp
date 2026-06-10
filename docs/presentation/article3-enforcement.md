@@ -70,20 +70,19 @@ title: "The Unsafe Errno Race Condition"
 ---
 sequenceDiagram
     participant JavaCode as Java Code (via FFM)
-    participant JVM as JVM Background Tasks (GC/Safepoints)
+    participant JVM as JVM (same OS thread)
     participant OS as Linux Kernel / errno
     
     JavaCode->>OS: 1. Invokes syscall (e.g. landlock_create_ruleset)
     OS-->>JavaCode: Returns -1 (Failure)
     Note over OS: errno set to EACCES
     
-    par [JVM clobbers errno]
-        JVM->>OS: 2. JVM internal activities on same thread (e.g., timing, memory allocation)
-        Note over OS: errno overwritten to 0 or another value!
-    and [Java Code reads errno (Delayed JNI/FFM call)]
-        JavaCode->>OS: 3. Java reads errno via separate call
-        OS-->>JavaCode: Returns corrupted errno (e.g., 0)
-    end
+    Note over JVM,OS: JVM executes internal operations on the same OS thread<br/>(GC bookkeeping, timing, safepoint poll) — errno overwritten!
+    JVM->>OS: 2. JVM internal native call on same thread
+    Note over OS: errno overwritten to 0 or another value
+    
+    JavaCode->>OS: 3. Reads errno via delayed FFM call
+    OS-->>JavaCode: Returns corrupted errno (e.g., 0)
     
     Note over JavaCode: Result: Silent failure or incorrect security handling
 ```
@@ -118,8 +117,8 @@ The standard approach to container sandboxing is a global seccomp profile applie
 title: "Two-Tier Self-Restriction Stack"
 ---
 graph TD
-    JVM["Tier 1: JVM Process<br/>Policy.NO_EXEC applied at startup<br/>Blocks: execve, execveat, fork, vfork, memfd_create"]
-    Pool["Tier 2: Worker Thread Pool<br/>Strict thread-scoped policies e.g. PURE_COMPUTE<br/>Enforced per worker thread during task execution"]
+    JVM["Tier 1: JVM Process<br/>Policy.NO_EXEC applied before JVM starts (OCI profile / native launcher)<br/>Blocks: execve, execveat, fork, vfork, memfd_create"]
+    Pool["Tier 2: Worker Thread Pool<br/>Strict thread-scoped policies e.g. PURE_COMPUTE_UNSAFE<br/>Enforced per worker thread during task execution"]
     JVM --> Pool
 ```
 

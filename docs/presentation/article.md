@@ -115,7 +115,7 @@ sequenceDiagram
     participant Kernel as Syscall Entry
     participant Seccomp as Seccomp
     participant Landlock as Landlock LSM
-    participant Exec as Execution
+    participant Kern as Kernel Execution
     participant eBPF as eBPF Hook
     participant Agent as Security Agent
 
@@ -130,10 +130,10 @@ sequenceDiagram
         alt Denied
             Landlock--xApp: EACCES
         else Allowed
-            Landlock->>Exec: 4. Allowed
-            Exec->>eBPF: 5. Trigger Hook
+            Landlock->>Kern: 4. Executes Syscall
+            Kern-->>eBPF: 5. kprobe/tracepoint fires
             eBPF-->>Agent: 6. Telemetry (Ring Buffer)
-            Exec-->>App: 7. Return Value
+            Kern-->>App: 7. Return Value
         end
     end
 ```

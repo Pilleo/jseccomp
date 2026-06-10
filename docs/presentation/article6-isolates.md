@@ -43,7 +43,6 @@ title: "Standard Process Heap vs. Independent Isolate Heaps"
 ---
 graph TD
     subgraph Standard ["Standard JVM Process — Shared Heap"]
-        direction LR
         Heap1[(Shared Java Heap)]
         Thread1[Worker Thread A] --> Heap1
         Thread2[Worker Thread B] --> Heap1
@@ -51,7 +50,6 @@ graph TD
     end
 
     subgraph Isolate ["GraalVM Process — Isolated Heaps"]
-        direction LR
         MainHeap[(Main App Heap)]
         IsoHeapA[(Isolate A Heap)]
         IsoHeapB[(Isolate B Heap)]
@@ -60,6 +58,8 @@ graph TD
         IsoThreadB[Isolate Thread B] --> IsoHeapB
         IsoThreadB -.->|Cannot access| IsoHeapA
         IsoThreadB -.->|Cannot access| MainHeap
+        MainThread -.->|Cannot access| IsoHeapA
+        MainThread -.->|Cannot access| IsoHeapB
     end
 ```
 
@@ -149,15 +149,17 @@ graph TD
     end
 
     subgraph Wasm ["Safe Wasm Object Mapper Pattern"]
-        JSON2[Untrusted JSON Payload] -->|Copies bytes to linear memory| WasmUniverse[Wasm Linear Memory Box]
+        JSON2[Untrusted JSON Payload]
         subgraph WasmSandbox ["Wasm Sandbox"]
+            WasmUniverse[Wasm Linear Memory Box]
             Parser[Rust serde_json Parser]
+            WasmUniverse --> Parser
+            Parser -->|Traps on crash or overflow| WasmUniverse
         end
-        WasmUniverse --> Parser
-        Parser -->|Traps on crash or overflow| WasmUniverse
+        JSON2 -->|Copies bytes to linear memory| WasmUniverse
         Parser -->|Returns flat, clean data| JavaHost[Java FFM Host]
         JavaHost -->|Instantiates immutable| Record[Java Record]
-        WasmSandbox -.->|No access| Classpath2[(Full JVM Classpath)]
+        Parser -.->|No access to| Classpath2[(Full JVM Classpath)]
     end
 ```
 

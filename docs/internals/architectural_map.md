@@ -77,8 +77,8 @@ graph TD
     subgraph profiler [":profiler"]
         F[Profiler.kt] --> G[ProfilerDaemonEngine.kt]
         G -- delegates --> PS[ProfilerSessionHandler.kt]
-        I[IterativeProfiler.kt] --> D
-        J[Trace Listener]
+        I[IterativeProfiler.kt] -- "uses" --> D
+        J[ProfilerTraceListener.kt]
     end
 
     subgraph demos ["demos"]
@@ -86,7 +86,8 @@ graph TD
         D2[vulnerable-web-app]
     end
 
-    G -- "UNIX Socket (FD Passing)" --> F
+    F -- "Passes seccomp FD (SCM_RIGHTS)" --> G
+    G -- "Sends TraceEvents" --> J
     F -- "Thread Registry" --> J
     D1 --> enforcer
     D1 --> profiler
