@@ -9,7 +9,6 @@ import java.lang.foreign.MemoryLayout
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout
 import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Standalone Profiler Daemon Engine.
@@ -25,7 +24,12 @@ internal class ProfilerDaemonEngine(
     private val syscallMap = mutableMapOf<Int, String>()
     private val clientSockets = CopyOnWriteArrayList<Int>()
     private val activeListeners = CopyOnWriteArrayList<Int>()
-    private val isGlobalShutdown = AtomicBoolean(false)
+    private val stateRef = java.util.concurrent.atomic
+        .AtomicReference<ProfilerDaemonState>(ProfilerDaemonState.Uninitialized)
+
+    var state: ProfilerDaemonState
+        get() = stateRef.get()
+        private set(value) = stateRef.set(value)
 
     init {
         val arch = Arch.current()
@@ -37,19 +41,33 @@ internal class ProfilerDaemonEngine(
 
     fun run() {
         val serverFd = transport.createServer(socketPath)
+        state = ProfilerDaemonState.Listening(serverFd, socketPath)
         System.err.println("[DAEMON] Listening on $socketPath (fd=$serverFd)")
         try {
             Arena.ofConfined().use { arena ->
+                state = ProfilerDaemonState.Active(serverFd)
                 acceptConnections(serverFd, arena)
             }
         } finally {
+            state = ProfilerDaemonState.Terminated
             transport.close(serverFd)
         }
     }
 
     fun triggerGlobalShutdown(source: String = "unknown") {
-        if (isGlobalShutdown.getAndSet(true)) return
-        System.err.println("[DAEMON] Initiating graceful shutdown. Source: $source. Releasing tracee threads...")
+        while (true) {
+            val curr = stateRef.get()
+            if (curr is ProfilerDaemonState.ShuttingDown || curr is ProfilerDaemonState.Terminated) return
+            if (stateRef.compareAndSet(curr, ProfilerDaemonState.ShuttingDown)) {
+                System.err.println("[DAEMON] Initiating graceful shutdown. Source: $source. Releasing tracee threads...")
+                break
+            }
+        }
+    }
+
+    private fun isGlobalShutdown(): Boolean {
+        val curr = state
+        return curr is ProfilerDaemonState.ShuttingDown || curr is ProfilerDaemonState.Terminated
     }
 
     private fun acceptConnections(
@@ -60,7 +78,7 @@ internal class ProfilerDaemonEngine(
         pollFd.set(ValueLayout.JAVA_INT, POLLFD_FD_OFF, serverFd)
         pollFd.set(ValueLayout.JAVA_SHORT, POLLFD_EVENTS_OFF, NativeConstants.POLLIN)
 
-        while (!isGlobalShutdown.get()) {
+        while (!isGlobalShutdown()) {
             val pollRes = transport.poll(pollFd, 1L, POLL_TIMEOUT_MS)
             if (pollRes.returnValue <= 0) {
                 if (pollRes.returnValue < 0L && pollRes.errno != EINTR) break
@@ -92,7 +110,7 @@ internal class ProfilerDaemonEngine(
                 pollFd.set(ValueLayout.JAVA_INT, POLLFD_FD_OFF, socketFd)
                 pollFd.set(ValueLayout.JAVA_SHORT, POLLFD_EVENTS_OFF, NativeConstants.POLLIN)
 
-                while (!isGlobalShutdown.get()) {
+                while (!isGlobalShutdown()) {
                     val pollRes = transport.poll(pollFd, 1L, POLL_TIMEOUT_MS)
                     if (pollRes.returnValue <= 0) {
                         if (pollRes.returnValue < 0L && pollRes.errno != EINTR) break
@@ -146,7 +164,7 @@ internal class ProfilerDaemonEngine(
                 val resp = arena.allocate(Layouts.SECCOMP_NOTIF_RESP)
                 val ackBuf = arena.allocate(ACK_BUF_SIZE)
 
-                while (!isGlobalShutdown.get()) {
+                while (!isGlobalShutdown()) {
                     val pollRes = transport.poll(pollFds, 2L, POLL_TIMEOUT_MS)
                     if (pollRes.returnValue <= 0) {
                         if (pollRes.returnValue < 0L && pollRes.errno != EINTR) break

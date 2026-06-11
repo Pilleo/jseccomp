@@ -2,7 +2,10 @@ package io.mazewall.landlock
 
 import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.IsolatedProcessTester
+import io.mazewall.LinuxNative
+import io.mazewall.MockNativeEngine
 import io.mazewall.Policy
+import io.mazewall.RealNativeEngine
 import io.mazewall.core.Syscall
 import io.mazewall.enforcer.ContainedExecutors
 import io.mazewall.enforcer.ContainmentViolationException
@@ -14,7 +17,10 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.writeText
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -488,5 +494,120 @@ class LandlockTest {
         } finally {
             dir.toFile().deleteRecursively()
         }
+    }
+
+    @Test
+    fun `testLandlockSessionStateTransitions`() {
+        val mockEngine = object : MockNativeEngine() {
+            override fun syscall(
+                nr: Long,
+                a1: Any?,
+                a2: Any?,
+                a3: Any?,
+                a4: Any?,
+                a5: Any?,
+                a6: Any?,
+            ): LinuxNative.SyscallResult {
+                return if (nr == io.mazewall.ffi.NativeConstants.LANDLOCK_CREATE_RULESET_NR &&
+                    a3 == io.mazewall.ffi.NativeConstants.LANDLOCK_CREATE_RULESET_VERSION
+                ) {
+                    LinuxNative.SyscallResult(5, 0) // ABI version 5
+                } else if (nr == io.mazewall.ffi.NativeConstants.LANDLOCK_CREATE_RULESET_NR) {
+                    LinuxNative.SyscallResult(42, 0) // Fake ruleset FD
+                } else {
+                    LinuxNative.SyscallResult(0, 0) // Success for other syscalls
+                }
+            }
+        }
+        LinuxNative.setEngine(mockEngine)
+        try {
+            val session = LandlockSession(Policy.PURE_COMPUTE_UNSAFE)
+            assertTrue(session.state is LandlockState.Uninitialized)
+            session.applyRuleset()
+            assertTrue(session.state is LandlockState.Applied)
+        } finally {
+            LinuxNative.setEngine(RealNativeEngine)
+        }
+    }
+
+    @Test
+    fun `testLandlockSessionFailedState`() {
+        val mockEngine = object : MockNativeEngine() {
+            override fun syscall(
+                nr: Long,
+                a1: Any?,
+                a2: Any?,
+                a3: Any?,
+                a4: Any?,
+                a5: Any?,
+                a6: Any?,
+            ): LinuxNative.SyscallResult {
+                return if (nr == io.mazewall.ffi.NativeConstants.LANDLOCK_CREATE_RULESET_NR &&
+                    a3 == io.mazewall.ffi.NativeConstants.LANDLOCK_CREATE_RULESET_VERSION
+                ) {
+                    LinuxNative.SyscallResult(5, 0) // ABI version 5
+                } else {
+                    LinuxNative.SyscallResult(-1, 22) // EINVAL for ruleset creation
+                }
+            }
+        }
+        LinuxNative.setEngine(mockEngine)
+        try {
+            val session = LandlockSession(Policy.PURE_COMPUTE_UNSAFE)
+            assertFailsWith<IllegalStateException> {
+                session.applyRuleset()
+            }
+            assertTrue(session.state is LandlockState.Failed)
+        } finally {
+            LinuxNative.setEngine(RealNativeEngine)
+        }
+    }
+
+    @Test
+    fun `testLandlockStateDataClassCoverage`() {
+        val s1 = LandlockState.ConfiguringRuleset(10, 5)
+        val s2 = LandlockState.ConfiguringRuleset(10, 5)
+        val s3 = LandlockState.ConfiguringRuleset(11, 5)
+        assertEquals(s1, s2)
+        assertNotEquals(s1, s3)
+        assertEquals(s1.hashCode(), s2.hashCode())
+        assertNotNull(s1.toString())
+        assertEquals(10, s1.rulesetFd)
+        assertEquals(5, s1.abi)
+        val copied = s1.copy(rulesetFd = 12)
+        assertEquals(12, copied.rulesetFd)
+
+        val q1 = LandlockState.QueryingAbi(3)
+        val q2 = LandlockState.QueryingAbi(3)
+        assertEquals(q1, q2)
+        assertEquals(q1.hashCode(), q2.hashCode())
+        assertNotNull(q1.toString())
+        val qCopied = q1.copy(abi = 4)
+        assertEquals(4, qCopied.abi)
+
+        val c1 = LandlockState.CreatingRuleset(3)
+        val c2 = LandlockState.CreatingRuleset(3)
+        assertEquals(c1, c2)
+        assertEquals(c1.hashCode(), c2.hashCode())
+        assertNotNull(c1.toString())
+        val cCopied = c1.copy(abi = 4)
+        assertEquals(4, cCopied.abi)
+
+        val e1 = LandlockState.Enforcing(10)
+        val e2 = LandlockState.Enforcing(10)
+        assertEquals(e1, e2)
+        assertEquals(e1.hashCode(), e2.hashCode())
+        assertNotNull(e1.toString())
+        val eCopied = e1.copy(rulesetFd = 11)
+        assertEquals(11, eCopied.rulesetFd)
+
+        val err = RuntimeException("test")
+        val f1 = LandlockState.Failed(err)
+        val f2 = LandlockState.Failed(err)
+        assertEquals(f1, f2)
+        assertEquals(f1.hashCode(), f2.hashCode())
+        assertNotNull(f1.toString())
+        val fCopied = f1.copy(error = err)
+        assertEquals(err, fCopied.error)
     }
 }

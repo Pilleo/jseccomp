@@ -7,7 +7,7 @@ import java.lang.foreign.MemorySegment
 /**
  * A mock implementation of [NativeEngine] for testing fault injection.
  */
-class MockNativeEngine : NativeEngine {
+open class MockNativeEngine : NativeEngine {
     var prctlResult = LinuxNative.SyscallResult(0, 0)
     var syscallResult = LinuxNative.SyscallResult(0, 0)
     var closeResult = LinuxNative.SyscallResult(0, 0)

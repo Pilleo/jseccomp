@@ -137,25 +137,8 @@ object Landlock {
      * which can be caught and resolved by the IterativeProfiler without needing audit logs.
      */
     fun applyRestrictiveBarrier() {
-        val abi = getAbiVersion()
-        if (abi < 1) return
-
-        val accessMaskFs = getFullAccessMask(abi)
-        val allFsRead = LANDLOCK_ACCESS_FS_READ_FILE or LANDLOCK_ACCESS_FS_READ_DIR
-        val classpathFlags = allFsRead or LANDLOCK_ACCESS_FS_EXECUTE
-
-        Arena.ofConfined().use { arena ->
-            val rulesetFdResult = createRuleset(arena, accessMaskFs, abi)
-            if (rulesetFdResult.returnValue < 0) return
-
-            val rulesetFd = rulesetFdResult.returnValue.toInt()
-            try {
-                addJvmClasspathRules(rulesetFd, classpathFlags, arena)
-                enforceRuleset(rulesetFd)
-            } finally {
-                LinuxNative.getFileSystem().close(rulesetFd)
-            }
-        }
+        val session = LandlockSession(policy = null)
+        session.applyRuleset()
     }
 
     /**
@@ -186,29 +169,11 @@ object Landlock {
     fun applyRuleset(policy: Policy) {
         if (!shouldApplyLandlock(policy)) return
 
-        val abi = getAbiVersion()
-        if (abi < 1) {
-            handleUnsupportedLandlock()
-            return
-        }
-
-        val accessMaskFs = getAccessMask(abi, policy)
-        val allFsRead = LANDLOCK_ACCESS_FS_READ_FILE or LANDLOCK_ACCESS_FS_READ_DIR
-        val classpathFlags = allFsRead or LANDLOCK_ACCESS_FS_EXECUTE
-
-        Arena.ofConfined().use { arena ->
-            val rulesetFd = createRulesetOrThrow(arena, accessMaskFs, abi)
-            try {
-                addJvmClasspathRules(rulesetFd, classpathFlags, arena)
-                applyUserRules(rulesetFd, policy, abi, arena, allFsRead)
-                enforceRuleset(rulesetFd)
-            } finally {
-                LinuxNative.getFileSystem().close(rulesetFd)
-            }
-        }
+        val session = LandlockSession(policy)
+        session.applyRuleset()
     }
 
-    private fun getFullAccessMask(abi: Int): Long {
+    internal fun getFullAccessMask(abi: Int): Long {
         var mask = LANDLOCK_ACCESS_FS_READ_FILE or LANDLOCK_ACCESS_FS_READ_DIR or
                 LANDLOCK_ACCESS_FS_EXECUTE or LANDLOCK_ACCESS_FS_WRITE_FILE or
                 LANDLOCK_ACCESS_FS_REMOVE_DIR or LANDLOCK_ACCESS_FS_REMOVE_FILE or
@@ -229,7 +194,7 @@ object Landlock {
                 policy.isSyscallAllowed(Syscall.IO_URING_SETUP) ||
                 policy.isSyscallAllowed(Syscall.IO_URING_ENTER)
 
-    private fun handleUnsupportedLandlock() {
+    internal fun handleUnsupportedLandlock() {
         val fallback = Platform.configuredFallback()
         if (fallback == Platform.FallbackBehavior.FAIL) {
             throw UnsupportedOperationException("Landlock is not supported on this kernel but FS rules were requested.")
@@ -250,7 +215,7 @@ object Landlock {
         return res.returnValue.toInt()
     }
 
-    private fun addJvmClasspathRules(
+    internal fun addJvmClasspathRules(
         rulesetFd: Int,
         accessFlags: Long,
         arena: Arena,
@@ -381,7 +346,7 @@ object Landlock {
         }
     }
 
-    private fun enforceRuleset(rulesetFd: Int) {
+    internal fun enforceRuleset(rulesetFd: Int) {
         val prctlResult = LinuxNative.getProcess().prctl(NativeConstants.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
         if (prctlResult.returnValue < 0) {
             throw IllegalStateException("prctl(PR_SET_NO_NEW_PRIVS) failed with errno ${prctlResult.errno}")
@@ -392,7 +357,7 @@ object Landlock {
         }
     }
 
-    private fun applyUserRules(
+    internal fun applyUserRules(
         rulesetFd: Int,
         policy: Policy,
         abi: Int,
@@ -438,7 +403,7 @@ object Landlock {
         }
     }
 
-    private fun createRuleset(
+    internal fun createRuleset(
         arena: Arena,
         accessMaskFs: Long,
         abi: Int,
@@ -460,5 +425,60 @@ object Landlock {
         pathAttr.set(ValueLayout.JAVA_LONG, Layouts.LANDLOCK_PATH_BENEATH_ATTR_ACCESS_OFFSET, accessMask)
         pathAttr.set(ValueLayout.JAVA_INT, Layouts.LANDLOCK_PATH_BENEATH_ATTR_FD_OFFSET, pathFd)
         return LinuxNative.syscall(NativeConstants.LANDLOCK_ADD_RULE_NR, rulesetFd.toLong(), NativeConstants.LANDLOCK_RULE_PATH_BENEATH.toLong(), pathAttr, 0)
+    }
+}
+
+internal class LandlockSession(
+    private val policy: Policy? = null,
+) {
+    var state: LandlockState = LandlockState.Uninitialized
+        private set
+
+    @Suppress("TooGenericExceptionCaught")
+    fun applyRuleset() {
+        val abi = Landlock.getAbiVersion()
+        state = LandlockState.QueryingAbi(abi)
+        if (abi < 1) {
+            if (policy != null) {
+                Landlock.handleUnsupportedLandlock()
+            }
+            state = LandlockState.Applied
+            return
+        }
+
+        val accessMaskFs = if (policy != null) {
+            Landlock.getAccessMask(abi, policy)
+        } else {
+            Landlock.getFullAccessMask(abi)
+        }
+        val allFsRead = Landlock.LANDLOCK_ACCESS_FS_READ_FILE or Landlock.LANDLOCK_ACCESS_FS_READ_DIR
+        val classpathFlags = allFsRead or Landlock.LANDLOCK_ACCESS_FS_EXECUTE
+
+        state = LandlockState.CreatingRuleset(abi)
+        Arena.ofConfined().use { arena ->
+            val rulesetFdResult = Landlock.createRuleset(arena, accessMaskFs, abi)
+            if (rulesetFdResult.returnValue < 0) {
+                val err = IllegalStateException("landlock_create_ruleset failed with errno ${rulesetFdResult.errno}")
+                state = LandlockState.Failed(err)
+                throw err
+            }
+
+            val rulesetFd = rulesetFdResult.returnValue.toInt()
+            state = LandlockState.ConfiguringRuleset(rulesetFd, abi)
+            try {
+                Landlock.addJvmClasspathRules(rulesetFd, classpathFlags, arena)
+                if (policy != null) {
+                    Landlock.applyUserRules(rulesetFd, policy, abi, arena, allFsRead)
+                }
+                state = LandlockState.Enforcing(rulesetFd)
+                Landlock.enforceRuleset(rulesetFd)
+                state = LandlockState.Applied
+            } catch (e: Exception) {
+                state = LandlockState.Failed(e)
+                throw e
+            } finally {
+                LinuxNative.getFileSystem().close(rulesetFd)
+            }
+        }
     }
 }

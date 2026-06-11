@@ -24,6 +24,38 @@ import kotlin.test.assertTrue
  * regions without interfering with JIT compilation running on unrestricted threads.
  */
 class MmapProtectionTest {
+    companion object {
+        init {
+            val linker = Linker.nativeLinker()
+            val mmap = linker.downcallHandle(
+                linker.defaultLookup().find("mmap").get(),
+                FunctionDescriptor.of(
+                    ValueLayout.ADDRESS,
+                    ValueLayout.ADDRESS,
+                    ValueLayout.JAVA_LONG,
+                    ValueLayout.JAVA_INT,
+                    ValueLayout.JAVA_INT,
+                    ValueLayout.JAVA_INT,
+                    ValueLayout.JAVA_LONG,
+                ),
+            )
+            val mprotect = linker.downcallHandle(
+                linker.defaultLookup().find("mprotect").get(),
+                FunctionDescriptor.of(
+                    ValueLayout.JAVA_INT,
+                    ValueLayout.ADDRESS,
+                    ValueLayout.JAVA_LONG,
+                    ValueLayout.JAVA_INT,
+                ),
+            )
+            try {
+                mprotect.invoke(java.lang.foreign.MemorySegment.NULL, 0L, 0)
+            } catch (e: Throwable) {
+                // Ignore
+            }
+        }
+    }
+
     /**
      * Verifies that attempting to allocate executable memory directly using `mmap` with the
      * `PROT_EXEC` flag set causes the kernel to block the call with `EPERM`, which propagates
