@@ -32,15 +32,19 @@ Seccomp and Landlock are **self-restriction primitives**. Once the `NoNewPrivile
 
 ---
 
-## Comparing Sandboxing Paradigms: gVisor, NsJail, Bubblewrap, and Mazewall
+## Comparing Sandboxing Paradigms
 
-When sandboxing Linux processes, developers typically choose from three standard process-wrapping or container-virtualization tools:
+To isolate application workloads, developers and platform engineers can choose from several sandboxing, container virtualization, and in-process enforcement architectures. The table below outlines their primary isolation layers, performance profiles, and suitability for complex JVM runtimes:
 
-1.  **gVisor (Application Kernel):** Written in Go, gVisor virtualizes the Linux system call interface by running a user-space kernel (the **Sentry**) that intercepts syscalls (via `ptrace` or KVM) and handles them in user-space. This provides a strong host-kernel boundary but introduces significant performance overhead, particularly for system-call-heavy workloads like the JVM.
-2.  **NsJail (Process Isolation Wrapper):** Developed by Google, NsJail wraps process execution using namespaces (user, mount, network, PID, IPC), cgroups, and classic Seccomp-BPF filters. It is designed to run arbitrary, untrusted command-line binaries securely.
-3.  **Bubblewrap (Unprivileged Sandbox Launcher):** A low-level sandbox launcher developed for Flatpak. It uses unprivileged user namespaces to build custom, isolated mount structures (bind mounts) without requiring root privileges.
-
-All three of these tools are **out-of-process, process-wrapping sandboxes**. They isolate the *entire process* from the outside.
+| Sandbox / Tool | Execution Layer | Core Isolation Primitive | Performance Impact on JVM | Isolation Scope | JVM Suitability & Constraints |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Docker / Podman** | Outer container boundary | Namespaces, cgroups v2, default Seccomp-BPF | **Zero** | Process-wide (per-container) | Standard baseline wall; cannot restrict individual internal application threads. |
+| **gVisor** | Guest kernel virtualisation | User-space system call interception (Sentry kernel) | **High** (syscall context switch tax) | Process-wide (per-sandbox) | Excellent security boundary but introduces heavy latency on file/network I/O. |
+| **NsJail** | Out-of-process wrapper | Namespaces (PID, mount, net), cgroups, Seccomp-BPF | **Zero** | Process-wide (per-wrapped process) | Great for running untrusted utilities; requires writing permission rules for JVM JIT/GC. |
+| **Bubblewrap** | Out-of-process launcher | Unprivileged user/mount namespaces, bind mounts | **Zero** | Process-wide (per-wrapped process) | Unprivileged sandbox launcher; requires manual directory bind-mounting for JVM classpaths. |
+| **Elasticsearch Approach** | In-process bootstrap | Startup Seccomp-BPF filter installation | **Zero** | Process-wide (global JVM) | Prevents command execution (`execve`) process-wide; requires strict bootstrap orchestration. |
+| **Kubescape (Future)** | Host / Cluster orchestrator | eBPF observation + BPF-LSM container profiles | **Zero** (async telemetry) | Workload-wide (Kubernetes Pod boundary) | Excellent cluster-wide anomaly detection and profile generation; operates outside the application. |
+| **mazewall** | **In-process library** | **Thread-scoped** Seccomp-BPF + Landlock LSM | **Zero** (direct kernel enforcement) | **Thread-scoped** (per-pool) & process baseline | **Designed for JVMs:** Applies restrictive contracts to specific worker threads while GC/JIT run unhindered. |
 
 ### Why Out-of-Process Wrappers fall short for in-process JVM workloads:
 *   **Broad Policy Bloat:** If you run the JVM inside an external wrapper like `nsjail`, your sandbox policy must grant permission for every operation the JVM needs—including JIT compilation (`mprotect(PROT_EXEC)`), GC memory allocation, classloading, and VM thread coordination. This makes the overall policy extremely broad.

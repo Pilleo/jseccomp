@@ -69,16 +69,14 @@ When the sandboxed worker thread executes `VulnerableLogger.log()`, it does so u
 4. The system call returns `-1` with `errno` set to `EPERM` (Operation not permitted) directly to the JVM.
 5. The JVM translates this into an `IOException` ("Cannot run program..."). The shell process is never spawned.
 
-```
-       WORKER THREAD                         LINUX KERNEL
-    [ProcessBuilder.start] 
-              |
-              v
-       execve("/bin/sh") -----------> [Seccomp Filter]
-                                             |
-                                             v (Denied!)
-    [IOException] <------------------ Returns EPERM (-1)
- (No process spawned)
+```mermaid
+sequenceDiagram
+    participant Worker as Worker Thread
+    participant Kernel as Linux Kernel (Seccomp)
+    Worker->>Kernel: execve("/bin/sh")
+    Note over Kernel: Evaluates Policy.NO_EXEC
+    Kernel-->>Worker: Returns EPERM (-1)
+    Note over Worker: Throws IOException
 ```
 
 ---
@@ -129,13 +127,14 @@ Assuming **Tier 1 (Process-Wide)** isolation is active, mazewall uses Classic BP
 > [!WARNING]
 > **The Shared-Memory ACE Escape (Again):** Just like Attack 2, writing and executing shellcode requires Arbitrary Code Execution (ACE). If only Tier 2 (Thread-Scoped) isolation is active, the attacker doesn't even need to call `mprotect` on the restricted thread. They will simply pivot their shellcode execution to an unconstrained sibling thread using shared memory.
 
-```
-       Worker Thread (Sandboxed)                  Linux Kernel
-    [mprotect(..., PROT_EXEC)] -------> [cBPF Argument Check]
-                                                   |
-                                                   +---> PROT_EXEC detected!
-                                                   |     Returns EPERM (-1)
-    [ContainmentViolationException] <-------------+
+```mermaid
+sequenceDiagram
+    participant Worker as Worker Thread
+    participant Kernel as Linux Kernel (Seccomp)
+    Worker->>Kernel: mprotect(addr, size, PROT_EXEC)
+    Note over Kernel: cBPF checks args[2] for PROT_EXEC (0x4)
+    Kernel-->>Worker: Returns EPERM (-1)
+    Note over Worker: Throws ContainmentViolationException
 ```
 
 ---
@@ -170,16 +169,12 @@ To allow this workload, Seccomp must whitelist the initial `io_uring_setup(2)` a
 
 Because `io_uring` works by sharing a lockless ring buffer in memory between userspace and kernelspace, an attacker can submit filesystem reads (like `/etc/hosts`) or network writes by writing commands directly into the queue. The kernel processes these commands asynchronously using background worker threads (`io-wq`), bypassing thread-scoped Seccomp filters entirely!
 
-```
-     [SANDBOXED THREAD] 
-       |
-       | writes command to
-       v
-     Shared Memory Ring Queue  === (Seccomp is blind to memory writes!) ===> [KERNEL WORKER]
-                                                                                 |
-                                                                                 v
-                                                                           Executes read of
-                                                                              /etc/hosts
+```mermaid
+flowchart LR
+    Thread[Sandboxed Thread] -->|Writes Read /etc/hosts| Ring[Shared Memory Ring Queue]
+    Ring -->|Async Read| Worker[Kernel io-wq Worker]
+    Worker -->|Reads| File[/etc/hosts]
+    Note over Ring: Seccomp is blind to memory writes
 ```
 
 This is the classic asynchronous evasion vector.
@@ -194,18 +189,19 @@ Mazewall neutralizes this bypass through the **complementary co-enforcement of S
 5. When the worker thread attempts to execute the read on `/etc/hosts`, the kernel's Landlock hook intercepts the call at the VFS layer.
 6. The read is blocked and returns `EACCES` (Permission denied).
 
-```
-   Worker Thread (Sandboxed)                  Kernel Async Worker (io-wq)
-    [Writes io_uring read command]
-                  |
-                  v
-     Shared Memory Queue -----------------------> Inherits Landlock Ruleset
-                                                               |
-                                                               v
-                                                 Intercepts VFS read("/etc/hosts")
-                                                               |
-                                                               v (Blocked!)
-                                                        Returns EACCES
+```mermaid
+sequenceDiagram
+    participant Thread as Sandboxed Thread
+    participant Ring as Shared Memory Queue
+    participant Worker as Kernel Async Worker (io-wq)
+    participant Landlock as Landlock LSM Hook
+    
+    Thread->>Ring: Writes read("/etc/hosts") command
+    Note over Worker: Inherits Sandboxed Thread's credentials & Landlock ruleset
+    Ring->>Worker: Processes command
+    Worker->>Landlock: Accesses VFS layer for "/etc/hosts"
+    Note over Landlock: Ruleset blocks path
+    Landlock-->>Worker: Returns EACCES (Denied!)
 ```
 
 This illustrates the structural advantage of complementary co-enforcement. Seccomp handles the system call surface (allowing high-performance asynchronous setups), while Landlock acts as the VFS backstop, ensuring that asynchronous worker threads remain bound to the application thread's security contract regardless of how they are invoked.
@@ -245,15 +241,16 @@ CompletableFuture.runAsync(() -> {
  
 5. The task instantly executes on the unconstrained thread. The shell spawns, and the sandbox is bypassed.
 
-```
-       Worker Thread (Sandboxed)                  Global ForkJoinPool (Unconstrained)
-    [CompletableFuture.runAsync()]
-                  |
-                  v (Hops Thread)
-                                     =========>   [Executes Payload]
-                                                          |
-                                                          v
-                                                   execve("/bin/sh") ---> (Success!)
+```mermaid
+flowchart TD
+    subgraph Sandboxed [Sandboxed Thread]
+        Call[CompletableFuture.runAsync]
+    end
+    subgraph GlobalPool [ForkJoinPool.commonPool]
+        Payload[Executes execve]
+    end
+    Call -->|Hops Thread| Payload
+    Payload -->|Success (Bypasses Tier 2)| Shell[Spawns Shell]
 ```
 
 ### The Defense (Process-Wide Isolation)

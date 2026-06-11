@@ -89,16 +89,17 @@ eBPF provides a **sandboxed, event-driven execution environment** within the Lin
 
 ```mermaid
 graph TD
-    UserApp[User Space Application] -->|Triggers Event| KernelHooks((Kernel Hooks))
-    
-    subgraph KernelSpace ["Linux Kernel Space"]
-        KernelHooks -->|Syscalls, Network, Files| eBPFProg[Sandboxed eBPF Program]
-        eBPFProg -->|Export Data| BPFMaps[(eBPF Maps / Ring Buffers)]
-        
-        Verifier{eBPF Verifier} -.->|Pre-Execution Safety Check| eBPFProg
+    subgraph LoadTime ["1. Load Time (Pre-Execution)"]
+        SecTool[User Space Security Tool] -->|Loads Bytecode| Verifier{eBPF Verifier}
+        Verifier -->|Passes Safety Check| eBPFProg[Sandboxed eBPF Program]
     end
     
-    BPFMaps -->|Asynchronous Read| SecTool[User Space Security Tool]
+    subgraph RunTime ["2. Run Time (Execution)"]
+        UserApp[User Space Application] -->|Triggers Event| KernelHooks((Kernel Hooks))
+        KernelHooks -->|Syscalls, Network, Files| eBPFProg
+        eBPFProg -->|Export Data| BPFMaps[(eBPF Maps / Ring Buffers)]
+        BPFMaps -->|Asynchronous Read| SecTool
+    end
 ```
 
 The critical feature of eBPF is that programs are **statically verified by the kernel before execution** — non-terminating loops and unsafe memory accesses are rejected at load time. This turns the OS from a rigid substrate into something security tools can dynamically extend.
@@ -121,19 +122,15 @@ graph TD
 
 ## The Primitives: How SBoB Is Enforced
 
-If SBoB is the declaration of intent, the Linux kernel provides three primary mechanisms to turn that intent into a hard boundary:
+If SBoB is the declaration of intent, the Linux kernel provides five primary mechanisms to turn that intent into a hard boundary:
 
-```mermaid
-graph LR
-    S[Seccomp] -->|Scope| S1[System Calls]
-    S -->|Privilege| S2[Unprivileged]
-    
-    L[Landlock] -->|Scope| L1[Filesystem & TCP Ports]
-    L -->|Privilege| L2[Unprivileged]
-    
-    LSM[BPF-LSM / AppArmor] -->|Scope| LSM1[Deep Kernel Hooks]
-    LSM -->|Privilege| LSM2[Requires Root / Privileged]
-```
+| Linux Primitive | Enforcement Scope / Target | Privilege Required | Role in Container / Sandbox Context |
+| :--- | :--- | :--- | :--- |
+| **Namespaces** | Process trees, Network, Mounts, PID, IPC, UTS, User | Unprivileged (User namespaces) / Privileged (Root creation) | Provides **virtualization** boundaries (isolates what resources a process can *see*). |
+| **cgroups v2** | Resource allocations (CPU, Memory, I/O, PIDs) | Privileged (systemd/root configures limits) | Provides **resource limits** (prevents Denial of Service and memory starvation). |
+| **Seccomp** | System calls (number and basic register arguments) | Unprivileged (requires `PR_SET_NO_NEW_PRIVS`) | Restricts the **syscall execution surface** (blocks high-risk operations like `execve` / `fork`). |
+| **Landlock** | Path-based Filesystem & TCP Ports (bind/connect) | Unprivileged | Surgical **file and directory containment** (prevents path traversal and raw socket binds). |
+| **BPF-LSM / LSMs** | Deep, context-aware kernel objects (LSM hooks) | Privileged (`CAP_SYS_ADMIN` / `root`) | Complex, **context-aware security policies** loaded by host-level system agents (e.g., AppArmor, SELinux). |
 
 ### 1. Seccomp (Secure Computing)
 Seccomp is the industry's "fast path" for blocking system calls. It is fast, unprivileged (via `NoNewPrivileges`), and extremely reliable. While Seccomp-BPF uses strictly constrained **Classic BPF (cBPF)** bytecode rather than the full eBPF instruction set, it remains the most widely deployed syscall filter in the world. However, it is "path-blind"—it sees the system call being made, but it cannot easily inspect the file paths or network addresses involved.

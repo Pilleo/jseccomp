@@ -33,10 +33,12 @@ However, cluster-wide dynamic profiling has a few critical limitations for appli
 
 ### Tracing `io_uring`: The Workarounds
 Because `io_uring` bypasses the standard syscall boundary for its submissions, unprivileged profiling is constrained. In practice, three approaches can be utilized to resolve this:
- 
-1. **Strategy H (Hybrid Shortcut - Recommended):** Temporarily disable `io_uring` during integration testing to force a fallback to standard synchronous or epoll-based I/O. The unprivileged `USER_NOTIF` and Landlock profiler will transparently capture all required file and network paths. You can then manually append `.unblock(Syscall.IO_URING_SETUP)` to the generated production policy to permit the high-performance asynchronous runtime.
-2. **Strategy A (Iterative Path Discovery):** Leverage the Iterative Landlock path discovery loop described below. Because Landlock's LSM hooks operate at the Virtual File System (VFS) layer, the kernel's asynchronous workers (`io-wq`) are still intercepted by Landlock rules. When a path access is denied, the JVM catches the resulting exception, extracts the path, and adds it to the policy. While this discovers the required filesystem paths, it cannot independently discover the underlying blocked `io_uring` syscalls.
-3. **Strategy P (Privileged eBPF Profiling):** Utilize root-level eBPF tracepoints (such as LSM hooks or `io_uring_submit_sqe` tracepoints) to trace path arguments directly. This requires `CAP_SYS_ADMIN` in the host's initial user namespace and is not currently implemented in the unprivileged `mazewall` user-space tool.
+
+| Strategy | Mechanism | Pros | Cons / Limits |
+| :--- | :--- | :--- | :--- |
+| **Strategy H (Hybrid Shortcut)** | Temporarily disable `io_uring` during integration testing to force a fallback to standard synchronous/epoll I/O. | Easy, unprivileged, profiles paths cleanly. | Requires manually adding `.unblock(Syscall.IO_URING_SETUP)` to the production policy afterward. |
+| **Strategy A (Iterative Path)** | Leverage Landlock VFS-level hooks that intercept the asynchronous `io-wq` worker threads. | Unprivileged, catches all path denials during execution. | Cannot discover underlying blocked `io_uring` setup syscalls. |
+| **Strategy P (Privileged)** | Utilize root-level eBPF tracepoints (`io_uring_submit_sqe`). | Complete, transparent coverage of paths and setup syscalls. | Requires `CAP_SYS_ADMIN` in the host namespace. |
 
 ---
 
@@ -89,10 +91,12 @@ Behind the scenes, the profiler intercepts every system call and filesystem acce
 
 However, system call profiling on a live thread is never completely sterile. Developers must account for **transient runtime noise** executed directly by the JVM on the profiled thread:
 
-*   **Dynamic Classloading:** If a class (within the workload or a third-party dependency) is loaded for the first time during the profiling run, the profiled thread executes the classloader. This triggers filesystem reads on JARs/classes and memory management calls (`mmap`, `mprotect`).
-*   **DNS Resolution & Network Bookkeeping:** Connecting to a hostname (even `"localhost"`) forces the thread to invoke name resolution stubs, reading host configurations (like `/etc/resolv.conf` or `/etc/nsswitch.conf`) and querying network sockets.
-*   **Thread Synchronization:** Lock contention or thread parking triggers coordination calls (`futex`, `sched_yield`) directly on the executing thread.
-*   **vDSO Fallbacks:** Calls to retrieve system time (`System.currentTimeMillis()`) normally run in userspace via vDSO, but can fall back to direct `clock_gettime` system calls under certain container virtualizations or older architectures.
+| Noise Type | Low-Level Indicator | JVM Origin | Mitigation Strategy |
+| :--- | :--- | :--- | :--- |
+| **Dynamic Classloading** | `openat`, `read` on JARs/classes; `mmap`, `mprotect` | First-time class invocation or lazy library load | Warm up JVM beforehand or utilize GraalVM AOT |
+| **DNS & Host Resolution** | `socket`, `connect`, reading `/etc/resolv.conf` | Hostname lookup (e.g., resolving `"localhost"`) | Warm up connection pools; resolve hostnames beforehand |
+| **Thread Synchronization** | `futex`, `sched_yield` | Lock contention or thread parking | Ensure these coordination calls are pre-whitelisted |
+| **vDSO Fallbacks** | `clock_gettime` system calls | Retrieving system time (`System.currentTimeMillis()`) | Ensure container hosts support vDSO mappings |
 
 This transient noise presents an operational challenge: if a class is warmed up *before* profiling but loaded lazily in production, the production thread will crash due to a missing rule (under-specification). Conversely, whitelisting classloader paths that are only loaded once during test setup violates the principle of least privilege (over-specification).
 
