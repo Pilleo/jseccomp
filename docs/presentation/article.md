@@ -266,16 +266,6 @@ On the commercial side, companies like **Oligo Security** have proven that libra
 
 The message is clear: the runtime security stack is already here. These layers are designed to be stacked, not chosen between. What is still missing is a standardized, portable, vendor-supplied way to describe what software is expected to do — so that all three layers can enforce the same contract.
 
-## What You Can Do Today
- 
-SBoB is emerging, not universal. But teams don't have to wait to start adopting a "behavior-aligned" mindset. You can move your architecture in this direction today:
- 
-*   **Run rootless:** Drop unnecessary Linux capabilities.
-*   **Constrain the filesystem:** Use read-only root filesystems and explicitly declare writable locations.
-*   **Audit first:** Adopt runtime tooling like Kubescape in audit mode
- 
-These practices don't replace SBoB. They train engineering teams to think in the exact behavioral terms that SBoB formalizes.
-
 ---
 
 ### Next Up: Let Your Code Build Its Own Sandbox

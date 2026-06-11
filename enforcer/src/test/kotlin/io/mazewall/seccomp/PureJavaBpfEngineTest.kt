@@ -86,7 +86,7 @@ class PureJavaBpfEngineTest {
             object : SeccompEngine {
                 override val isSupported: Boolean = true
 
-                override fun install(policy: Policy) {
+                override fun install(policy: Policy<*>) {
                     // No-op for test stub
                 }
             }

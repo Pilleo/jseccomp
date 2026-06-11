@@ -110,7 +110,7 @@ data class BillOfBehavior(
      * All [opens] paths are granted read access; all [fsWritePaths] paths
      * are granted write access.
      */
-    fun toPolicy(base: Policy = Policy.PURE_COMPUTE_UNSAFE): Policy {
+    fun toPolicy(base: Policy<*> = Policy.PURE_COMPUTE_UNSAFE): Policy<*> {
         val builder = Policy.builder().base(base)
         if (base.defaultAction == io.mazewall.core.SeccompAction.ACT_ALLOW) {
             val toUnblock = syscalls.filter { !base.isSyscallAllowed(it) }
@@ -131,7 +131,7 @@ data class BillOfBehavior(
      */
     fun toDsl(
         basePolicyName: String = "Policy.PURE_COMPUTE_UNSAFE",
-        base: Policy = Policy.PURE_COMPUTE_UNSAFE,
+        base: Policy<*> = Policy.PURE_COMPUTE_UNSAFE,
     ): String {
         val sb = StringBuilder()
         sb.append("val policy = Policy.builder()\n")

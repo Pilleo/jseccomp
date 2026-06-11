@@ -4,6 +4,17 @@ import io.mazewall.core.SeccompAction
 import io.mazewall.core.Syscall
 
 /**
+ * Marker interfaces for policy scopes.
+ */
+sealed interface PolicyScope {
+    /** Safe for process-wide or thread-scoped containment. */
+    interface ProcessWideSafe : PolicyScope
+
+    /** Enforces Landlock filesystem restrictions; restricted to thread-local containment. */
+    interface ThreadLocalOnly : PolicyScope
+}
+
+/**
  * Defines which syscalls to block. Create via [builder] or use the built-in presets.
  *
  * ### Built-in Preset Decision Guide
@@ -39,7 +50,7 @@ import io.mazewall.core.Syscall
  * val p = Policy.combine(Policy.NO_NETWORK, Policy.NO_EXEC)
  * ```
  */
-class Policy private constructor(
+class Policy<out S : PolicyScope> private constructor(
     val defaultAction: SeccompAction = SeccompAction.ACT_ALLOW,
     val syscallActions: Map<Syscall, SeccompAction>,
     val allowMmapExec: Boolean = false,
@@ -88,7 +99,7 @@ class Policy private constructor(
          * Only use this preset directly if you have complete startup warmup control and
          * have verified that every class the thread will ever touch is already loaded.
          */
-        val PURE_COMPUTE_UNSAFE: Policy =
+        val PURE_COMPUTE_UNSAFE: Policy<PolicyScope.ProcessWideSafe> =
             builder()
                 .defaultAction(SeccompAction.ACT_ALLOW)
                 .block(Syscall.CONNECT, Syscall.SENDTO, Syscall.SENDMSG, Syscall.SENDMMSG, Syscall.RECVMMSG, Syscall.SOCKET)
@@ -112,7 +123,7 @@ class Policy private constructor(
                 .build()
 
         /** Blocks outbound network syscalls only. */
-        val NO_NETWORK: Policy =
+        val NO_NETWORK: Policy<PolicyScope.ProcessWideSafe> =
             builder()
                 .defaultAction(SeccompAction.ACT_ALLOW)
                 .block(Syscall.CONNECT, Syscall.SENDTO, Syscall.SENDMSG, Syscall.SENDMMSG, Syscall.RECVMMSG, Syscall.SOCKET)
@@ -133,7 +144,7 @@ class Policy private constructor(
          *    `ApplicationReadyEvent`) to allow the JVM to warm up and link libraries.
          * 2. **Balanced Baseline:** If crashes persist after warmup, use `Policy.builder().base(NO_EXEC).allowMmapExec().build()`.
          */
-        val NO_EXEC: Policy =
+        val NO_EXEC: Policy<PolicyScope.ProcessWideSafe> =
             builder()
                 .defaultAction(SeccompAction.ACT_ALLOW)
                 .block(Syscall.EXECVE, Syscall.EXECVEAT)
@@ -155,13 +166,13 @@ class Policy private constructor(
          * - **Use [PURE_COMPUTE_UNSAFE]** only when you have fully pre-loaded all required
          *   classes before the thread starts and need to eliminate the classpath read permission.
          */
-        val PURE_COMPUTE: Policy =
+        val PURE_COMPUTE: Policy<PolicyScope.ThreadLocalOnly> =
             builder()
                 .base(PURE_COMPUTE_UNSAFE)
                 .allowJvmClasspath()
                 .build()
 
-        fun builder(): Builder = Builder()
+        fun builder(): Builder<PolicyScope.ProcessWideSafe> = Builder()
 
         private fun intersectPaths(
             set1: Set<String>,
@@ -217,7 +228,19 @@ class Policy private constructor(
          * (meaning all filesystem access will be blocked). A `FINE` log is always emitted summarising
          * the merged result — useful when debugging unexpected containment violations.
          */
-        fun combine(vararg policies: Policy): Policy {
+        @JvmStatic
+        @JvmName("combineProcessWide")
+        fun combine(vararg policies: Policy<PolicyScope.ProcessWideSafe>): Policy<PolicyScope.ProcessWideSafe> {
+            @Suppress("UNCHECKED_CAST")
+            return combineInternal(*policies) as Policy<PolicyScope.ProcessWideSafe>
+        }
+
+        @JvmStatic
+        fun combine(vararg policies: Policy<*>): Policy<*> {
+            return combineInternal(*policies)
+        }
+
+        private fun combineInternal(vararg policies: Policy<*>): Policy<*> {
             require(policies.isNotEmpty()) { "At least one policy is required" }
 
             val combinedDefaultAction = policies.maxByOrNull { it.defaultAction.priority }!!.defaultAction
@@ -280,7 +303,7 @@ class Policy private constructor(
                 "enforceLandlock=$enforceLandlock"
             }
 
-            return Policy(
+            return Policy<PolicyScope>(
                 defaultAction = combinedDefaultAction,
                 syscallActions = combinedSyscalls,
                 allowMmapExec = mmapExec,
@@ -293,17 +316,17 @@ class Policy private constructor(
         }
     }
 
-    class Builder {
-        private var defaultAction = SeccompAction.ACT_ALLOW
-        private val syscallActions = mutableMapOf<Syscall, SeccompAction>()
-        private var allowMmapExec = false
-        private var allowNonThreadClone = false
-        private var allowUnsafePrctl = false
-        private val allowedFsReadPaths = mutableSetOf<String>()
-        private val allowedFsWritePaths = mutableSetOf<String>()
-
+    class Builder<S : PolicyScope> internal constructor(
+        private var defaultAction: SeccompAction = SeccompAction.ACT_ALLOW,
+        private val syscallActions: MutableMap<Syscall, SeccompAction> = mutableMapOf(),
+        private var allowMmapExec: Boolean = false,
+        private var allowNonThreadClone: Boolean = false,
+        private var allowUnsafePrctl: Boolean = false,
+        private val allowedFsReadPaths: MutableSet<String> = mutableSetOf(),
+        private val allowedFsWritePaths: MutableSet<String> = mutableSetOf(),
+    ) {
         /** Sets the default action for any syscall not explicitly mapped. Defaults to ACT_ALLOW (Blacklist mode). */
-        fun defaultAction(action: SeccompAction): Builder {
+        fun defaultAction(action: SeccompAction): Builder<S> {
             this.defaultAction = action
             return this
         }
@@ -312,7 +335,7 @@ class Policy private constructor(
         fun addAction(
             action: SeccompAction,
             vararg syscalls: Syscall,
-        ): Builder {
+        ): Builder<S> {
             for (sys in syscalls) {
                 syscallActions[sys] = action
             }
@@ -320,12 +343,12 @@ class Policy private constructor(
         }
 
         /** Alias for mapping syscalls to ACT_ERRNO. Useful for Blacklists. */
-        fun block(vararg syscalls: Syscall): Builder = addAction(SeccompAction.ACT_ERRNO, *syscalls)
+        fun block(vararg syscalls: Syscall): Builder<S> = addAction(SeccompAction.ACT_ERRNO, *syscalls)
 
         /** Alias for mapping syscalls to ACT_ALLOW. Useful for Whitelists (SBoB). */
-        fun allow(vararg syscalls: Syscall): Builder = addAction(SeccompAction.ACT_ALLOW, *syscalls)
+        fun allow(vararg syscalls: Syscall): Builder<S> = addAction(SeccompAction.ACT_ALLOW, *syscalls)
 
-        fun unblock(vararg syscalls: Syscall): Builder {
+        fun unblock(vararg syscalls: Syscall): Builder<S> {
             for (sys in syscalls) {
                 syscallActions.remove(sys)
             }
@@ -335,7 +358,7 @@ class Policy private constructor(
         /**
          * Inherits all settings (actions, allowed paths, etc.) from the given [policy].
          */
-        fun base(policy: Policy): Builder {
+        fun <T : PolicyScope> base(policy: Policy<T>): Builder<T> {
             this.defaultAction = policy.defaultAction
             this.syscallActions.putAll(policy.syscallActions)
             if (policy.allowMmapExec) allowMmapExec = true
@@ -343,17 +366,19 @@ class Policy private constructor(
             if (policy.allowUnsafePrctl) allowUnsafePrctl = true
             allowedFsReadPaths.addAll(policy.allowedFsReadPaths)
             allowedFsWritePaths.addAll(policy.allowedFsWritePaths)
-            return this
+            @Suppress("UNCHECKED_CAST")
+            return this as Builder<T>
         }
 
         /**
          * Allows reading from the specified file or directory path (and its children).
          * Note: Setting any FS paths enables Landlock enforcement for this policy.
          */
-        fun allowFsRead(path: String): Builder {
+        fun allowFsRead(path: String): Builder<PolicyScope.ThreadLocalOnly> {
             validatePath(path)
             allowedFsReadPaths.add(path)
-            return this
+            @Suppress("UNCHECKED_CAST")
+            return this as Builder<PolicyScope.ThreadLocalOnly>
         }
 
         /**
@@ -361,7 +386,7 @@ class Policy private constructor(
          * This is CRITICAL if your worker threads might trigger lazy classloading
          * after the Landlock ruleset is applied.
          */
-        fun allowJvmClasspath(): Builder {
+        fun allowJvmClasspath(): Builder<PolicyScope.ThreadLocalOnly> {
             val javaHome = System.getProperty("java.home")
             if (!javaHome.isNullOrEmpty()) allowFsRead(javaHome)
 
@@ -369,7 +394,8 @@ class Policy private constructor(
             if (classPath != null) {
                 addClasspathEntries(classPath)
             }
-            return this
+            @Suppress("UNCHECKED_CAST")
+            return this as Builder<PolicyScope.ThreadLocalOnly>
         }
 
         private fun addClasspathEntries(classPath: String) {
@@ -392,17 +418,18 @@ class Policy private constructor(
          * Allows writing to the specified file or directory path (and its children).
          * Note: Setting any FS paths enables Landlock enforcement for this policy.
          */
-        fun allowFsWrite(path: String): Builder {
+        fun allowFsWrite(path: String): Builder<PolicyScope.ThreadLocalOnly> {
             validatePath(path)
             allowedFsWritePaths.add(path)
-            return this
+            @Suppress("UNCHECKED_CAST")
+            return this as Builder<PolicyScope.ThreadLocalOnly>
         }
 
         /**
          * Allows `mmap` with `PROT_EXEC`. By default, this is blocked for all policies
          * to prevent shellcode execution.
          */
-        fun allowMmapExec(): Builder {
+        fun allowMmapExec(): Builder<S> {
             this.allowMmapExec = true
             return this
         }
@@ -411,7 +438,7 @@ class Policy private constructor(
          * Allows `clone` without `CLONE_THREAD`. By default, this is blocked to prevent
          * process forking while allowing JVM thread creation.
          */
-        fun allowNonThreadClone(): Builder {
+        fun allowNonThreadClone(): Builder<S> {
             this.allowNonThreadClone = true
             return this
         }
@@ -421,7 +448,7 @@ class Policy private constructor(
          * `prctl` are blocked, while safe options needed by the JVM (like `PR_SET_NAME`)
          * are allowed via BPF argument inspection.
          */
-        fun allowUnsafePrctl(): Builder {
+        fun allowUnsafePrctl(): Builder<S> {
             this.allowUnsafePrctl = true
             return this
         }
@@ -432,7 +459,7 @@ class Policy private constructor(
             require(!path.contains('\u0000')) { "Path cannot contain null bytes" }
         }
 
-        fun build(): Policy {
+        fun build(): Policy<S> {
             val enforceLandlock = allowedFsReadPaths.isNotEmpty() || allowedFsWritePaths.isNotEmpty()
 
             val finalSyscalls = syscallActions.toMutableMap()

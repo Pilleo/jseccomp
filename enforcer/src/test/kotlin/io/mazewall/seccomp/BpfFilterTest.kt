@@ -113,10 +113,14 @@ class BpfFilterTest {
                 // Should load args[2] (offset 32)
                 val ldArgs = filter[i + 1]
                 if (ldArgs.code == 0x20.toShort() && ldArgs.k == 32) {
-                    // Should set 0x04 (PROT_EXEC)
-                    val jset = filter[i + 2]
-                    if (jset.code == 0x45.toShort() && jset.k == 0x04) {
-                        foundInspection = foundInspection || true
+                    // Should bitwise AND with 0x04 (PROT_EXEC)
+                    val andIns = filter[i + 2]
+                    if (andIns.code == 0x54.toShort() && andIns.k == 0x04) {
+                        // Should check JEQ 0 (expected)
+                        val jeqIns = filter[i + 3]
+                        if (jeqIns.code == 0x15.toShort() && jeqIns.k == 0) {
+                            foundInspection = true
+                        }
                     }
                 }
             }

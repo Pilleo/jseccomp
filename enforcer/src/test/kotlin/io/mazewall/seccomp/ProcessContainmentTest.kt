@@ -3,6 +3,7 @@ import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.IsolatedProcessTester
 import io.mazewall.Platform
 import io.mazewall.Policy
+import io.mazewall.PolicyScope
 import io.mazewall.core.Syscall
 import io.mazewall.enforcer.ContainedExecutors
 import io.mazewall.enforcer.ContainmentViolationDetector
@@ -210,7 +211,8 @@ class ProcessContainmentTest {
     fun `installOnProcess throws UnsupportedOperationException if policy has Landlock rules`() {
         val policyWithFs = Policy.builder().allowFsRead("/etc").build()
         org.junit.jupiter.api.assertThrows<UnsupportedOperationException> {
-            ContainedExecutors.installOnProcess(policyWithFs)
+            @Suppress("UNCHECKED_CAST")
+            ContainedExecutors.installOnProcess(policyWithFs as Policy<PolicyScope.ProcessWideSafe>)
         }
     }
 }

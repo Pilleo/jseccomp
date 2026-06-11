@@ -23,17 +23,17 @@ object PureJavaBpfEngine : SeccompEngine {
     override val isSupported: Boolean
         get() = Platform.isSupported()
 
-    override fun install(policy: Policy) {
+    override fun install(policy: Policy<*>) {
         installInternal(policy, useTsync = false)
     }
 
-    override fun installOnProcess(policy: Policy) {
+    override fun installOnProcess(policy: Policy<*>) {
         installInternal(policy, useTsync = true)
     }
 
     @Suppress("TooGenericExceptionCaught")
     private fun installInternal(
-        policy: Policy,
+        policy: Policy<*>,
         useTsync: Boolean,
     ) {
         threadState.set(SeccompInstallationState.Uninitialized)
@@ -128,7 +128,7 @@ object PureJavaBpfEngine : SeccompEngine {
         }
     }
 
-    private fun verifyInstallation(policy: Policy) {
+    private fun verifyInstallation(policy: Policy<*>) {
         val prctlAction = policy.syscallActions[Syscall.PRCTL] ?: policy.defaultAction
         val canVerify = prctlAction == SeccompAction.ACT_ALLOW
 

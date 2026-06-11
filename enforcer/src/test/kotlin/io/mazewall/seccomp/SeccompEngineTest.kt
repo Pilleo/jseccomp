@@ -9,7 +9,7 @@ class SeccompEngineTest {
     @Test
     fun `default installOnProcess throws UnsupportedOperationException`() {
         val dummyEngine = object : SeccompEngine {
-            override fun install(policy: Policy) {
+            override fun install(policy: Policy<*>) {
                 // No-op
             }
 
@@ -17,7 +17,7 @@ class SeccompEngineTest {
                 get() = true
         }
 
-        val emptyPolicy = Policy.Builder().build()
+        val emptyPolicy = Policy.builder().build()
 
         val exception = assertFailsWith<UnsupportedOperationException> {
             dummyEngine.installOnProcess(emptyPolicy)

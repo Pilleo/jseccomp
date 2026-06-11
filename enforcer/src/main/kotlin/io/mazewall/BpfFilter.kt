@@ -31,7 +31,7 @@ object BpfFilter {
 
     fun build(
         arch: Arch,
-        policy: Policy,
+        policy: Policy<*>,
         profilingMode: Boolean = false,
     ): Array<SockFilter> =
         buildFromActions(
@@ -90,16 +90,23 @@ object BpfFilter {
         // 3. Special Syscall Argument Checks
         val handledNrs = mutableSetOf<Int>()
 
-        if (!allowMmapExec) {
-            emitMmapInspections(builder, arch, syscallActions, defaultAction, jvmCriticalNrs, profilingMode, handledNrs)
-        }
+        val inspections = getInspections(
+            arch,
+            syscallActions,
+            defaultAction,
+            jvmCriticalNrs,
+            allowMmapExec,
+            allowNonThreadClone,
+            allowUnsafePrctl,
+        )
+        emitInspections(builder, inspections, profilingMode, handledNrs)
 
-        if (!allowNonThreadClone) {
-            emitCloneInspections(builder, arch, syscallActions, defaultAction, jvmCriticalNrs, profilingMode, handledNrs)
-        }
-
-        if (!allowUnsafePrctl) {
-            emitPrctlInspections(builder, arch, syscallActions, defaultAction, jvmCriticalNrs, profilingMode, handledNrs)
+        // clone3 -> Always ENOSYS (does not need argument inspection)
+        if (arch.clone3 >= 0) {
+            val enosysAction = NativeConstants.SECCOMP_RET_ERRNO or 38
+            handledNrs.add(arch.clone3)
+            builder.jumpIfEqual(arch.clone3, 0, 1)
+            builder.ret(enosysAction)
         }
 
         // 4. Block-based checks (Linear Scan)
@@ -132,79 +139,105 @@ object BpfFilter {
         builder.ret(NativeConstants.SECCOMP_RET_KILL_THREAD)
     }
 
-    private fun emitMmapInspections(
-        builder: BpfProgram.Builder,
+    private fun getInspections(
         arch: Arch,
         syscallActions: Map<Int, SeccompAction>,
         defaultAction: SeccompAction,
         jvmCriticalNrs: Set<Int>,
-        profilingMode: Boolean,
-        handledNrs: MutableSet<Int>,
-    ) {
-        listOf(arch.mmap, arch.mprotect, arch.pkeyMprotect).forEach { nr ->
-            if (nr >= 0) {
-                handledNrs.add(nr)
-                builder.jumpIfEqual(nr, 0, 4)
-                builder.loadAbsolute(SECCOMP_ARGS2_OFFSET)
-                builder.jumpIfSet(0x04, 0, 1)
-                val denyNative = resolveNativeAction(SeccompAction.ACT_ERRNO, profilingMode)
-                builder.ret(denyNative)
-                emitInspectionResult(builder, nr, syscallActions, defaultAction, jvmCriticalNrs, profilingMode)
+        allowMmapExec: Boolean,
+        allowNonThreadClone: Boolean,
+        allowUnsafePrctl: Boolean,
+    ): List<io.mazewall.seccomp.SyscallInspection> {
+        val list = mutableListOf<io.mazewall.seccomp.SyscallInspection>()
+
+        if (!allowMmapExec) {
+            listOf(arch.mmap, arch.mprotect, arch.pkeyMprotect).forEach { nr ->
+                if (nr >= 0) {
+                    val mappedAction = syscallActions[nr] ?: defaultAction
+                    val effectiveAction = if (nr in jvmCriticalNrs) SeccompAction.ACT_ALLOW else mappedAction
+                    list.add(
+                        io.mazewall.seccomp.SyscallInspection(
+                            syscallNumber = nr,
+                            argIndex = 2,
+                            check = io.mazewall.seccomp.ArgCheck
+                                .MaskEquals(0x04L, 0x00L),
+                            ifMatched = effectiveAction,
+                            ifNotMatched = SeccompAction.ACT_ERRNO,
+                        ),
+                    )
+                }
             }
         }
+
+        if (!allowNonThreadClone && arch.clone >= 0) {
+            val nr = arch.clone
+            val mappedAction = syscallActions[nr] ?: defaultAction
+            val effectiveAction = if (nr in jvmCriticalNrs) SeccompAction.ACT_ALLOW else mappedAction
+            list.add(
+                io.mazewall.seccomp.SyscallInspection(
+                    syscallNumber = nr,
+                    argIndex = 0,
+                    check = io.mazewall.seccomp.ArgCheck
+                        .MaskEquals(0x00010100L, 0x00010100L),
+                    ifMatched = effectiveAction,
+                    ifNotMatched = SeccompAction.ACT_ERRNO,
+                ),
+            )
+        }
+
+        if (!allowUnsafePrctl && arch.prctl >= 0) {
+            val nr = arch.prctl
+            val mappedAction = syscallActions[nr] ?: defaultAction
+            val effectiveAction = if (nr in jvmCriticalNrs) SeccompAction.ACT_ALLOW else mappedAction
+            list.add(
+                io.mazewall.seccomp.SyscallInspection(
+                    syscallNumber = nr,
+                    argIndex = 0,
+                    check = io.mazewall.seccomp.ArgCheck
+                        .EqualsAny(listOf(15L, 16L, 21L, 22L, 38L, 39L)),
+                    ifMatched = effectiveAction,
+                    ifNotMatched = SeccompAction.ACT_ERRNO,
+                ),
+            )
+        }
+
+        return list
     }
 
-    private fun emitCloneInspections(
+    private fun emitInspections(
         builder: BpfProgram.Builder,
-        arch: Arch,
-        syscallActions: Map<Int, SeccompAction>,
-        defaultAction: SeccompAction,
-        jvmCriticalNrs: Set<Int>,
+        inspections: List<io.mazewall.seccomp.SyscallInspection>,
         profilingMode: Boolean,
         handledNrs: MutableSet<Int>,
     ) {
-        if (arch.clone >= 0) {
-            handledNrs.add(arch.clone)
-            builder.jumpIfEqual(arch.clone, 0, 5)
-            builder.loadAbsolute(SECCOMP_DATA_ARGS_OFFSET)
-            builder.and(0x00010100)
-            builder.jumpIfEqual(0x00010100, 1, 0)
-            val denyNative = resolveNativeAction(SeccompAction.ACT_ERRNO, profilingMode)
-            builder.ret(denyNative)
-            emitInspectionResult(builder, arch.clone, syscallActions, defaultAction, jvmCriticalNrs, profilingMode)
-        }
+        for (inspection in inspections) {
+            val nr = inspection.syscallNumber
+            handledNrs.add(nr)
 
-        // clone3 -> Always ENOSYS
-        if (arch.clone3 >= 0) {
-            val enosysAction = NativeConstants.SECCOMP_RET_ERRNO or 38
-            handledNrs.add(arch.clone3)
-            builder.jumpIfEqual(arch.clone3, 0, 1)
-            builder.ret(enosysAction)
-        }
-    }
+            val ifMatchedNative = resolveNativeAction(inspection.ifMatched, profilingMode)
+            val ifNotMatchedNative = resolveNativeAction(inspection.ifNotMatched, profilingMode)
 
-    private fun emitPrctlInspections(
-        builder: BpfProgram.Builder,
-        arch: Arch,
-        syscallActions: Map<Int, SeccompAction>,
-        defaultAction: SeccompAction,
-        jvmCriticalNrs: Set<Int>,
-        profilingMode: Boolean,
-        handledNrs: MutableSet<Int>,
-    ) {
-        if (arch.prctl >= 0) {
-            handledNrs.add(arch.prctl)
-            builder.jumpIfEqual(arch.prctl, 0, 9)
-            builder.loadAbsolute(SECCOMP_DATA_ARGS_OFFSET)
-            builder.jumpIfEqual(15, 6, 0) // PR_SET_NAME
-            builder.jumpIfEqual(16, 5, 0) // PR_GET_NAME
-            builder.jumpIfEqual(21, 4, 0) // PR_GET_SECCOMP
-            builder.jumpIfEqual(22, 3, 0) // PR_SET_SECCOMP
-            builder.jumpIfEqual(38, 2, 0) // PR_SET_NO_NEW_PRIVS
-            builder.jumpIfEqual(39, 1, 0) // PR_GET_NO_NEW_PRIVS
-            val denyNative = resolveNativeAction(SeccompAction.ACT_ERRNO, profilingMode)
-            builder.ret(denyNative)
-            emitInspectionResult(builder, arch.prctl, syscallActions, defaultAction, jvmCriticalNrs, profilingMode)
+            when (val check = inspection.check) {
+                is io.mazewall.seccomp.ArgCheck.EqualsAny -> {
+                    val n = check.allowedValues.size
+                    builder.jumpIfEqual(nr, 0, (n + 3).toShort())
+                    builder.loadAbsolute(SECCOMP_DATA_ARGS_OFFSET + inspection.argIndex * 8)
+                    check.allowedValues.forEachIndexed { index, value ->
+                        val skipOffset = n - index
+                        builder.jumpIfEqual(value.toInt(), skipOffset.toShort(), 0.toShort())
+                    }
+                    builder.ret(ifNotMatchedNative)
+                    builder.ret(ifMatchedNative)
+                }
+                is io.mazewall.seccomp.ArgCheck.MaskEquals -> {
+                    builder.jumpIfEqual(nr, 0, 5)
+                    builder.loadAbsolute(SECCOMP_DATA_ARGS_OFFSET + inspection.argIndex * 8)
+                    builder.and(check.mask.toInt())
+                    builder.jumpIfEqual(check.expected.toInt(), 1, 0)
+                    builder.ret(ifNotMatchedNative)
+                    builder.ret(ifMatchedNative)
+                }
+            }
         }
     }
 

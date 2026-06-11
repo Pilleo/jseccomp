@@ -2,6 +2,7 @@ package io.mazewall.enforcer
 
 import io.mazewall.Platform
 import io.mazewall.Policy
+import io.mazewall.PolicyScope
 import io.mazewall.core.SeccompAction
 import io.mazewall.core.Syscall
 import io.mazewall.enforcer.internal.ContainedExecutorWrapper
@@ -45,7 +46,7 @@ object ContainedExecutors {
      * To prevent this "carrier contamination", this method throws [IllegalStateException]
      * if called from a virtual thread.
      */
-    fun installOnCurrentThread(vararg policies: Policy) {
+    fun installOnCurrentThread(vararg policies: Policy<*>) {
         installInternal(false, *policies)
     }
 
@@ -54,7 +55,7 @@ object ContainedExecutors {
      * This acts as a global security lockdown and cannot be undone. All future threads
      * created by this process will inherit these restrictions.
      */
-    fun installOnProcess(vararg policies: Policy) {
+    fun installOnProcess(vararg policies: Policy<PolicyScope.ProcessWideSafe>) {
         installInternal(true, *policies)
     }
 
@@ -64,7 +65,7 @@ object ContainedExecutors {
      */
     fun wrap(
         delegate: ExecutorService,
-        vararg policies: Policy,
+        vararg policies: Policy<*>,
     ): ExecutorService {
         val combinedPolicy = Policy.combine(*policies)
         return ContainedExecutorWrapper(delegate, combinedPolicy)
@@ -72,7 +73,7 @@ object ContainedExecutors {
 
     private fun installInternal(
         processWide: Boolean,
-        vararg policies: Policy,
+        vararg policies: Policy<*>,
     ) {
         if (Thread.currentThread().isVirtual) {
             throw IllegalStateException(
@@ -95,7 +96,7 @@ object ContainedExecutors {
 
     private fun installSeccompFilter(
         processWide: Boolean,
-        combinedPolicy: Policy,
+        combinedPolicy: Policy<*>,
     ) {
         synchronized(processLock) {
             val state = resolveCurrentState()
@@ -110,7 +111,7 @@ object ContainedExecutors {
 
     private fun applyLandlockIfNecessary(
         processWide: Boolean,
-        policy: Policy,
+        policy: Policy<*>,
     ) {
         if (!needsLandlock(policy)) return
 
@@ -140,7 +141,7 @@ object ContainedExecutors {
         }
     }
 
-    private fun needsLandlock(policy: Policy): Boolean =
+    private fun needsLandlock(policy: Policy<*>): Boolean =
         policy.allowedFsReadPaths.isNotEmpty() ||
                 policy.allowedFsWritePaths.isNotEmpty() ||
                 policy.isSyscallAllowed(Syscall.IO_URING_SETUP)
@@ -221,7 +222,7 @@ object ContainedExecutors {
 
     private fun applyBpfFilter(
         processWide: Boolean,
-        toInstall: Policy,
+        toInstall: Policy<*>,
         newBlocks: Map<Syscall, SeccompAction>,
         newDefaultAction: SeccompAction,
     ) {
@@ -237,7 +238,7 @@ object ContainedExecutors {
     private fun updateProcessState(
         newBlocks: Map<Syscall, SeccompAction>,
         newDefaultAction: SeccompAction,
-        toInstall: Policy,
+        toInstall: Policy<*>,
     ) {
         val currentActions = ContainerStateRegistry.PROCESS_SYSCALL_ACTIONS
         for ((sys, action) in newBlocks) {
@@ -268,7 +269,7 @@ object ContainedExecutors {
     private fun updateThreadState(
         newBlocks: Map<Syscall, SeccompAction>,
         newDefaultAction: SeccompAction,
-        toInstall: Policy,
+        toInstall: Policy<*>,
     ) {
         val currentActions = ContainerStateRegistry.THREAD_SYSCALL_ACTIONS.get()
         val mergedActions = currentActions.toMutableMap()

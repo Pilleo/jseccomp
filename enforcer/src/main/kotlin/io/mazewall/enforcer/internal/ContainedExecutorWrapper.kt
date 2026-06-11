@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
  */
 internal class ContainedExecutorWrapper(
     private val delegate: ExecutorService,
-    private val policy: Policy,
+    private val policy: Policy<*>,
 ) : ExecutorService by delegate {
     private fun <T> wrapCallable(task: Callable<T>): Callable<T> =
         Callable {

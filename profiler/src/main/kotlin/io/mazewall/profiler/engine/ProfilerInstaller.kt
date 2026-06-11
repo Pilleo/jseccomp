@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger
 internal object ProfilerInstaller {
     fun installProfilingFilterForThread(
         socketPath: String,
-        policy: Policy,
+        policy: Policy<*>,
         accumulatedLogs: MutableList<TraceEvent>,
         stackTracesMap: MutableMap<TraceEvent, MutableList<Array<StackTraceElement>>>?,
         pathCache: MutableMap<String, Long>,
@@ -42,7 +42,7 @@ internal object ProfilerInstaller {
 
 internal class ProfilerInstallerSession(
     private val socketPath: String,
-    private val policy: Policy,
+    private val policy: Policy<*>,
     private val accumulatedLogs: MutableList<TraceEvent>,
     private val stackTracesMap: MutableMap<TraceEvent, MutableList<Array<StackTraceElement>>>?,
     private val pathCache: MutableMap<String, Long>,

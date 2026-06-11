@@ -84,7 +84,8 @@ object Platform {
         val isLinux: Boolean,
         val isArchitectureSupported: Boolean,
         val isNoNewPrivsEnabled: Boolean,
-        val seccompMode: Long,
+        val seccompMode: SeccompMode,
+        val yamaPtraceScope: YamaPtraceScope,
         val landlockAbiVersion: Int,
         val isContainer: Boolean,
     ) {
@@ -96,14 +97,42 @@ object Platform {
                 Is Linux: $isLinux
                 no_new_privs Enabled: $isNoNewPrivsEnabled
                 Seccomp Mode: ${when (seccompMode) {
-                    0L -> "Disabled (0)"
-                    2L -> "Filter Mode (2)"
-                    else -> "Unknown/Error ($seccompMode)"
+                    is SeccompMode.Disabled -> "Disabled (0)"
+                    is SeccompMode.Strict -> "Strict Mode (1)"
+                    is SeccompMode.Filter -> "Filter Mode (2)"
+                    is SeccompMode.Error -> "Error (${seccompMode.errno})"
+                }}
+                Yama ptrace_scope: ${when (yamaPtraceScope) {
+                    is YamaPtraceScope.Classic -> "Classic (0)"
+                    is YamaPtraceScope.Restricted -> "Restricted (1)"
+                    is YamaPtraceScope.AdminOnly -> "AdminOnly (2)"
+                    is YamaPtraceScope.Disabled -> "Disabled (3)"
+                    is YamaPtraceScope.Unknown -> "Unknown (${yamaPtraceScope.rawValue})"
+                    is YamaPtraceScope.Unavailable -> "Unavailable"
                 }}
                 Landlock ABI Version: ${if (landlockAbiVersion > 0) "$landlockAbiVersion" else "Unsupported ($landlockAbiVersion)"}
                 Container Detected: $isContainer
                 =====================================
             """.trimIndent()
+        }
+    }
+
+    @Suppress("MagicNumber")
+    private fun readYamaPtraceScope(): YamaPtraceScope {
+        val file = java.io.File("/proc/sys/kernel/yama/ptrace_scope")
+        if (!file.exists()) return YamaPtraceScope.Unavailable
+        return try {
+            val content = file.readText().trim()
+            val intVal = content.toIntOrNull() ?: return YamaPtraceScope.Unavailable
+            when (intVal) {
+                0 -> YamaPtraceScope.Classic
+                1 -> YamaPtraceScope.Restricted
+                2 -> YamaPtraceScope.AdminOnly
+                3 -> YamaPtraceScope.Disabled
+                else -> YamaPtraceScope.Unknown(intVal)
+            }
+        } catch (ignored: Exception) {
+            YamaPtraceScope.Unavailable
         }
     }
 
@@ -117,7 +146,8 @@ object Platform {
         val isLinux = osName.equals("Linux", ignoreCase = true)
 
         var isNoNewPrivsEnabled = false
-        var seccompMode = -1L
+        var seccompMode: SeccompMode = SeccompMode.Disabled
+        var yamaPtraceScope: YamaPtraceScope = YamaPtraceScope.Unavailable
         var landlockAbiVersion = 0
 
         if (isLinux) {
@@ -131,9 +161,20 @@ object Platform {
 
             try {
                 val seccompVal = LinuxNative.prctl(NativeConstants.PR_GET_SECCOMP, 0, 0, 0, 0)
-                seccompMode = seccompVal.returnValue
+                seccompMode = if (seccompVal.returnValue < 0) {
+                    SeccompMode.Error(seccompVal.errno)
+                } else {
+                    when (seccompVal.returnValue) {
+                        0L -> SeccompMode.Disabled
+                        1L -> SeccompMode.Strict
+                        2L -> SeccompMode.Filter
+                        else -> SeccompMode.Error(-1)
+                    }
+                }
             } catch (ignored: Exception) {
             }
+
+            yamaPtraceScope = readYamaPtraceScope()
 
             try {
                 landlockAbiVersion = io.mazewall.landlock.Landlock
@@ -150,6 +191,7 @@ object Platform {
             isArchitectureSupported = isArchitectureSupported(),
             isNoNewPrivsEnabled = isNoNewPrivsEnabled,
             seccompMode = seccompMode,
+            yamaPtraceScope = yamaPtraceScope,
             landlockAbiVersion = landlockAbiVersion,
             isContainer = detectContainer(),
         )
