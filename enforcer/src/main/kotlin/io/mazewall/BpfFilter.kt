@@ -5,6 +5,7 @@ import io.mazewall.core.SeccompAction
 import io.mazewall.core.Syscall
 import io.mazewall.ffi.Layouts
 import io.mazewall.ffi.NativeConstants
+import io.mazewall.seccomp.BpfProgram
 import java.lang.foreign.MemoryLayout
 import java.util.logging.Logger
 
@@ -15,24 +16,17 @@ import java.util.logging.Logger
 object BpfFilter {
     private val logger = Logger.getLogger(BpfFilter::class.java.name)
 
-    private const val BPF_LD = 0x00
-    private const val BPF_JMP = 0x05
-    private const val BPF_RET = 0x06
-    private const val BPF_W = 0x00
-    private const val BPF_ABS = 0x20
-    private const val BPF_JEQ = 0x10
-    private const val BPF_JSET = 0x40
-    private const val BPF_K = 0x00
-    private const val BPF_ALU = 0x04
-    private const val BPF_AND = 0x50
-
-    private val SECCOMP_DATA_NR_OFFSET = Layouts.SECCOMP_DATA.byteOffset(MemoryLayout.PathElement.groupElement("nr")).toInt()
-    private val SECCOMP_DATA_ARCH_OFFSET = Layouts.SECCOMP_DATA.byteOffset(MemoryLayout.PathElement.groupElement("arch")).toInt()
-    private val SECCOMP_DATA_ARGS_OFFSET = Layouts.SECCOMP_DATA.byteOffset(MemoryLayout.PathElement.groupElement("args")).toInt()
+    private const val SECCOMP_DATA_NR_OFFSET = 0
+    private const val SECCOMP_DATA_ARCH_OFFSET = 4
     private val SECCOMP_ARGS2_OFFSET = Layouts.SECCOMP_DATA
         .byteOffset(
             MemoryLayout.PathElement.groupElement("args"),
             MemoryLayout.PathElement.sequenceElement(2),
+        ).toInt()
+    private val SECCOMP_DATA_ARGS_OFFSET = Layouts.SECCOMP_DATA
+        .byteOffset(
+            MemoryLayout.PathElement.groupElement("args"),
+            MemoryLayout.PathElement.sequenceElement(0),
         ).toInt()
 
     fun build(
@@ -81,40 +75,40 @@ object BpfFilter {
         allowUnsafePrctl: Boolean = false,
         profilingMode: Boolean = false,
     ): Array<SockFilter> {
-        val filters = mutableListOf<SockFilter>()
+        val builder = BpfProgram.builder()
         val defaultNativeAction = resolveNativeAction(defaultAction, profilingMode)
 
         // Syscalls absolutely required for safepoints, GC, and thread stability.
         val jvmCriticalNrs = getJvmCriticalNrs(arch)
 
         // 1. Check Architecture
-        emitArchCheck(filters, arch)
+        emitArchCheck(builder, arch)
 
         // 2. Load Syscall Number
-        filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_DATA_NR_OFFSET))
+        builder.loadAbsolute(SECCOMP_DATA_NR_OFFSET)
 
         // 3. Special Syscall Argument Checks
         val handledNrs = mutableSetOf<Int>()
 
         if (!allowMmapExec) {
-            emitMmapInspections(filters, arch, syscallActions, defaultAction, jvmCriticalNrs, profilingMode, handledNrs)
+            emitMmapInspections(builder, arch, syscallActions, defaultAction, jvmCriticalNrs, profilingMode, handledNrs)
         }
 
         if (!allowNonThreadClone) {
-            emitCloneInspections(filters, arch, syscallActions, defaultAction, jvmCriticalNrs, profilingMode, handledNrs)
+            emitCloneInspections(builder, arch, syscallActions, defaultAction, jvmCriticalNrs, profilingMode, handledNrs)
         }
 
         if (!allowUnsafePrctl) {
-            emitPrctlInspections(filters, arch, syscallActions, defaultAction, jvmCriticalNrs, profilingMode, handledNrs)
+            emitPrctlInspections(builder, arch, syscallActions, defaultAction, jvmCriticalNrs, profilingMode, handledNrs)
         }
 
         // 4. Block-based checks (Linear Scan)
-        emitLinearScan(filters, syscallActions, jvmCriticalNrs, profilingMode, defaultNativeAction, handledNrs)
+        emitLinearScan(builder, syscallActions, jvmCriticalNrs, profilingMode, defaultNativeAction, handledNrs)
 
         // 5. Default Action
-        filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, defaultNativeAction))
+        builder.ret(defaultNativeAction)
 
-        return filters.toTypedArray()
+        return builder.build().instructions
     }
 
     private fun getJvmCriticalNrs(arch: Arch): Set<Int> =
@@ -129,17 +123,17 @@ object BpfFilter {
         ).filter { it >= 0 }.toSet()
 
     private fun emitArchCheck(
-        filters: MutableList<SockFilter>,
+        builder: BpfProgram.Builder,
         arch: Arch,
     ) {
-        filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_DATA_ARCH_OFFSET))
+        builder.loadAbsolute(SECCOMP_DATA_ARCH_OFFSET)
         // If arch matches, skip 1 instruction (the ret kill)
-        filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 1, 0, arch.audit))
-        filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, NativeConstants.SECCOMP_RET_KILL_THREAD))
+        builder.jumpIfEqual(arch.audit, 1, 0)
+        builder.ret(NativeConstants.SECCOMP_RET_KILL_THREAD)
     }
 
     private fun emitMmapInspections(
-        filters: MutableList<SockFilter>,
+        builder: BpfProgram.Builder,
         arch: Arch,
         syscallActions: Map<Int, SeccompAction>,
         defaultAction: SeccompAction,
@@ -150,18 +144,18 @@ object BpfFilter {
         listOf(arch.mmap, arch.mprotect, arch.pkeyMprotect).forEach { nr ->
             if (nr >= 0) {
                 handledNrs.add(nr)
-                filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 4, nr))
-                filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_ARGS2_OFFSET))
-                filters.add(SockFilter((BPF_JMP or BPF_JSET or BPF_K).toShort(), 0, 1, 0x04))
+                builder.jumpIfEqual(nr, 0, 4)
+                builder.loadAbsolute(SECCOMP_ARGS2_OFFSET)
+                builder.jumpIfSet(0x04, 0, 1)
                 val denyNative = resolveNativeAction(SeccompAction.ACT_ERRNO, profilingMode)
-                filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyNative))
-                emitInspectionResult(filters, nr, syscallActions, defaultAction, jvmCriticalNrs, profilingMode)
+                builder.ret(denyNative)
+                emitInspectionResult(builder, nr, syscallActions, defaultAction, jvmCriticalNrs, profilingMode)
             }
         }
     }
 
     private fun emitCloneInspections(
-        filters: MutableList<SockFilter>,
+        builder: BpfProgram.Builder,
         arch: Arch,
         syscallActions: Map<Int, SeccompAction>,
         defaultAction: SeccompAction,
@@ -171,26 +165,26 @@ object BpfFilter {
     ) {
         if (arch.clone >= 0) {
             handledNrs.add(arch.clone)
-            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 5, arch.clone))
-            filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_DATA_ARGS_OFFSET))
-            filters.add(SockFilter((BPF_ALU or BPF_AND or BPF_K).toShort(), 0, 0, 0x00010100))
-            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 1, 0, 0x00010100))
+            builder.jumpIfEqual(arch.clone, 0, 5)
+            builder.loadAbsolute(SECCOMP_DATA_ARGS_OFFSET)
+            builder.and(0x00010100)
+            builder.jumpIfEqual(0x00010100, 1, 0)
             val denyNative = resolveNativeAction(SeccompAction.ACT_ERRNO, profilingMode)
-            filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyNative))
-            emitInspectionResult(filters, arch.clone, syscallActions, defaultAction, jvmCriticalNrs, profilingMode)
+            builder.ret(denyNative)
+            emitInspectionResult(builder, arch.clone, syscallActions, defaultAction, jvmCriticalNrs, profilingMode)
         }
 
         // clone3 -> Always ENOSYS
         if (arch.clone3 >= 0) {
             val enosysAction = NativeConstants.SECCOMP_RET_ERRNO or 38
             handledNrs.add(arch.clone3)
-            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 1, arch.clone3))
-            filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, enosysAction))
+            builder.jumpIfEqual(arch.clone3, 0, 1)
+            builder.ret(enosysAction)
         }
     }
 
     private fun emitPrctlInspections(
-        filters: MutableList<SockFilter>,
+        builder: BpfProgram.Builder,
         arch: Arch,
         syscallActions: Map<Int, SeccompAction>,
         defaultAction: SeccompAction,
@@ -200,22 +194,22 @@ object BpfFilter {
     ) {
         if (arch.prctl >= 0) {
             handledNrs.add(arch.prctl)
-            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 9, arch.prctl))
-            filters.add(SockFilter((BPF_LD or BPF_W or BPF_ABS).toShort(), 0, 0, SECCOMP_DATA_ARGS_OFFSET))
-            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 6, 0, 15)) // PR_SET_NAME
-            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 5, 0, 16)) // PR_GET_NAME
-            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 4, 0, 21)) // PR_GET_SECCOMP
-            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 3, 0, 22)) // PR_SET_SECCOMP
-            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 2, 0, 38)) // PR_SET_NO_NEW_PRIVS
-            filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 1, 0, 39)) // PR_GET_NO_NEW_PRIVS
+            builder.jumpIfEqual(arch.prctl, 0, 9)
+            builder.loadAbsolute(SECCOMP_DATA_ARGS_OFFSET)
+            builder.jumpIfEqual(15, 6, 0) // PR_SET_NAME
+            builder.jumpIfEqual(16, 5, 0) // PR_GET_NAME
+            builder.jumpIfEqual(21, 4, 0) // PR_GET_SECCOMP
+            builder.jumpIfEqual(22, 3, 0) // PR_SET_SECCOMP
+            builder.jumpIfEqual(38, 2, 0) // PR_SET_NO_NEW_PRIVS
+            builder.jumpIfEqual(39, 1, 0) // PR_GET_NO_NEW_PRIVS
             val denyNative = resolveNativeAction(SeccompAction.ACT_ERRNO, profilingMode)
-            filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, denyNative))
-            emitInspectionResult(filters, arch.prctl, syscallActions, defaultAction, jvmCriticalNrs, profilingMode)
+            builder.ret(denyNative)
+            emitInspectionResult(builder, arch.prctl, syscallActions, defaultAction, jvmCriticalNrs, profilingMode)
         }
     }
 
     private fun emitInspectionResult(
-        filters: MutableList<SockFilter>,
+        builder: BpfProgram.Builder,
         nr: Int,
         syscallActions: Map<Int, SeccompAction>,
         defaultAction: SeccompAction,
@@ -225,11 +219,11 @@ object BpfFilter {
         val mappedAction = syscallActions[nr] ?: defaultAction
         val effectiveAction = if (nr in jvmCriticalNrs) SeccompAction.ACT_ALLOW else mappedAction
         val nativeAction = resolveNativeAction(effectiveAction, profilingMode)
-        filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, nativeAction))
+        builder.ret(nativeAction)
     }
 
     private fun emitLinearScan(
-        filters: MutableList<SockFilter>,
+        builder: BpfProgram.Builder,
         syscallActions: Map<Int, SeccompAction>,
         jvmCriticalNrs: Set<Int>,
         profilingMode: Boolean,
@@ -244,8 +238,8 @@ object BpfFilter {
                 val nativeAction = resolveNativeAction(effectiveAction, profilingMode)
 
                 if (nativeAction != defaultNativeAction) {
-                    filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 1, nr))
-                    filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, nativeAction))
+                    builder.jumpIfEqual(nr, 0, 1)
+                    builder.ret(nativeAction)
                 }
             }
         }
@@ -255,8 +249,8 @@ object BpfFilter {
             for (nr in jvmCriticalNrs.sorted()) {
                 if (nr in handledNrs) continue
                 handledNrs.add(nr)
-                filters.add(SockFilter((BPF_JMP or BPF_JEQ or BPF_K).toShort(), 0, 1, nr))
-                filters.add(SockFilter((BPF_RET or BPF_K).toShort(), 0, 0, NativeConstants.SECCOMP_RET_ALLOW))
+                builder.jumpIfEqual(nr, 0, 1)
+                builder.ret(NativeConstants.SECCOMP_RET_ALLOW)
             }
         }
     }

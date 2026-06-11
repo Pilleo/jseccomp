@@ -343,3 +343,15 @@ Consequently, if a workload relies on `io_uring` for file access, `StraceProfile
 **Target:** `io.mazewall.SbobParser.kt` (specifically `pruneSubpaths`)
 **Context:** Pruning relies on syntactic `normalize()` and `startsWith()` checks. If a parent path is a symlink to a different filesystem branch, syntactic pruning is invalid and can lead to incorrect permission grants.
 **Needed:** Document this limitation or switch to a more robust pruning strategy that considers the physical inode structure.
+
+### 🔴 [Severity: HIGH]: Profiler daemon reactor loop spins at 100% CPU on delayed ACK bytes
+**Target:** `io.mazewall.profiler.engine.ProfilerSessionHandler.kt` (specifically `handleShutdownRequest`)
+**Context:** When the parent JVM sends a trace event acknowledgement byte (`PROTOCOL_ACK_BYTE`) on the socket, it is normally consumed by `waitForParentAck` inside the notification processing flow. However, if the ACK byte arrives late (after `waitForParentAck` times out or returns), or if any other non-shutdown byte is received on `socketFd` while the daemon is idling in its main `poll` loop, the reactor loop will detect readability on `socketFd`. It calls `handleShutdownRequest`, which peeks at the socket and returns `false` (since the byte is not `SHUTDOWN_COMMAND_BYTE`), leaving the byte unconsumed. In the next iteration, `poll` immediately returns readability again, causing the connection thread to spin at 100% CPU and hang the test suite.
+**Needed:** Modify `handleShutdownRequest` to consume the byte from the socket rather than peeking, so delayed ACK bytes or other spurious data are properly discarded instead of causing the reactor loop to spin indefinitely.
+
+### 🔴 [Severity: HIGH]: Profiler daemon `waitForParentAck` enters infinite polling loop on timeout
+**Target:** `io.mazewall.profiler.engine.ProfilerSessionHandler.kt` (specifically `waitForParentAck`)
+**Context:** If `poll` times out waiting for the parent's acknowledgement byte (e.g. during rapid JVM shutdown or under high load), it returns `0`. The loop checks if `pollRes.returnValue <= 0`, but because `0 < 0` is false, it skips the return and hits `continue`, immediately re-polling. This creates an infinite polling loop that blocks the handler thread forever, causing stress tests to hang and preventing clean session teardown.
+**Needed:** Correct the check to immediately return `false` if `pollRes.returnValue == 0L`, indicating a timeout.
+
+

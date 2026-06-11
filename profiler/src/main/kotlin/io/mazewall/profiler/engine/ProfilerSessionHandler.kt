@@ -52,11 +52,17 @@ internal class ProfilerSessionHandler(
         return LoopAction.Continue
     }
 
+    @Suppress("ReturnCount")
     private fun handleShutdownRequest(ackBuf: MemorySegment): Boolean {
-        val res = transport.recv(socketFd, ackBuf, ACK_BUF_SIZE, MSG_PEEK)
-        if (res.returnValue > 0 && ackBuf.get(ValueLayout.JAVA_BYTE, 0L) == SHUTDOWN_COMMAND_BYTE) {
-            onShutdown("Parent Command")
-            return true
+        val res = transport.recv(socketFd, ackBuf, 1L, 0)
+        if (res.returnValue > 0) {
+            val command = ackBuf.get(ValueLayout.JAVA_BYTE, 0L)
+            if (command == SHUTDOWN_COMMAND_BYTE) {
+                onShutdown("Parent Command")
+                return true
+            }
+            // Discard any other byte (e.g. delayed PROTOCOL_ACK_BYTE) to prevent infinite poll spin
+            return false
         } else if (res.returnValue == 0L) {
             return true // parent socket closed
         }
@@ -93,6 +99,7 @@ internal class ProfilerSessionHandler(
         }
     }
 
+    @Suppress("ReturnCount")
     private fun waitForParentAck(
         pollFd: MemorySegment,
         ackBuf: MemorySegment,
@@ -102,7 +109,8 @@ internal class ProfilerSessionHandler(
         while (true) {
             val pollRes = transport.poll(pollFd, 1L, POLL_ACK_TIMEOUT_MS)
             if (pollRes.returnValue <= 0) {
-                if (pollRes.returnValue < 0L && pollRes.errno != EINTR) return false
+                if (pollRes.returnValue == 0L) return false
+                if (pollRes.errno != EINTR) return false
                 continue
             }
             val revents = pollFd.get(ValueLayout.JAVA_SHORT, POLLFD_REVENTS_OFF)

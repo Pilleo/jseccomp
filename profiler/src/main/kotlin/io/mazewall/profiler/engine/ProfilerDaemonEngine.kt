@@ -1,6 +1,5 @@
 package io.mazewall.profiler.engine
 
-import io.mazewall.LinuxNative
 import io.mazewall.core.Arch
 import io.mazewall.core.Syscall
 import io.mazewall.ffi.Layouts
@@ -9,7 +8,6 @@ import java.lang.foreign.Arena
 import java.lang.foreign.MemoryLayout
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout
-import java.nio.charset.StandardCharsets
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -38,59 +36,20 @@ internal class ProfilerDaemonEngine(
     }
 
     fun run() {
-        Arena.ofConfined().use { arena ->
-            val serverFd = createServerSocket()
-            try {
-                val addr = prepareSocketAddr(arena, socketPath)
-                bindAndListen(serverFd, addr)
+        val serverFd = transport.createServer(socketPath)
+        System.err.println("[DAEMON] Listening on $socketPath (fd=$serverFd)")
+        try {
+            Arena.ofConfined().use { arena ->
                 acceptConnections(serverFd, arena)
-            } finally {
-                LinuxNative.close(serverFd)
             }
+        } finally {
+            transport.close(serverFd)
         }
     }
 
     fun triggerGlobalShutdown(source: String = "unknown") {
         if (isGlobalShutdown.getAndSet(true)) return
         System.err.println("[DAEMON] Initiating graceful shutdown. Source: $source. Releasing tracee threads...")
-    }
-
-    private fun createServerSocket(): Int {
-        val bindRes = LinuxNative.socket(AF_UNIX, SOCK_STREAM, 0)
-        if (bindRes.returnValue < 0) {
-            throw IllegalStateException("Failed to create daemon socket: errno=${bindRes.errno}")
-        }
-        return bindRes.returnValue.toInt()
-    }
-
-    private fun prepareSocketAddr(
-        arena: Arena,
-        socketPath: String,
-    ): MemorySegment {
-        val addr = arena.allocate(Layouts.SOCKADDR_UN)
-        addr.fill(0)
-        addr.set(ValueLayout.JAVA_SHORT, 0L, AF_UNIX.toShort())
-
-        val pathBytes = socketPath.toByteArray(StandardCharsets.UTF_8)
-        val pathSeg = addr.asSlice(2, SOCKADDR_UN_PATH_SIZE.toLong())
-        MemorySegment.copy(pathBytes, 0, pathSeg, ValueLayout.JAVA_BYTE, 0L, pathBytes.size)
-        return addr
-    }
-
-    private fun bindAndListen(
-        serverFd: Int,
-        addr: MemorySegment,
-    ) {
-        val bindRes = LinuxNative.bind(serverFd, addr, ADDR_UN_SIZE)
-        if (bindRes.returnValue < 0) {
-            throw IllegalStateException("Failed to bind daemon socket: errno=${bindRes.errno}")
-        }
-
-        val listenRes = LinuxNative.listen(serverFd, BACKLOG_SIZE)
-        if (listenRes.returnValue < 0) {
-            throw IllegalStateException("Failed to listen on daemon socket: errno=${listenRes.errno}")
-        }
-        System.err.println("[DAEMON] Listening on $socketPath (fd=$serverFd)")
     }
 
     private fun acceptConnections(
@@ -111,15 +70,17 @@ internal class ProfilerDaemonEngine(
         }
     }
 
+    @Suppress("TooGenericExceptionCaught", "SwallowedException")
     private fun handleNewConnection(serverFd: Int) {
-        val clientRes = LinuxNative.accept(serverFd, MemorySegment.NULL, MemorySegment.NULL)
-        if (clientRes.returnValue >= 0) {
-            val clientFd = clientRes.returnValue.toInt()
+        try {
+            val clientFd = transport.accept(serverFd)
             clientSockets.add(clientFd)
             Thread { handleConnection(clientFd) }.apply {
                 name = "conn-handler-$clientFd"
                 start()
             }
+        } catch (e: Exception) {
+            // Socket closed or accept failed during shutdown
         }
     }
 
@@ -142,7 +103,7 @@ internal class ProfilerDaemonEngine(
             }
         } finally {
             clientSockets.remove(socketFd)
-            LinuxNative.close(socketFd)
+            transport.close(socketFd)
         }
     }
 
@@ -198,7 +159,7 @@ internal class ProfilerDaemonEngine(
             }
         } finally {
             activeListeners.remove(listenerFd)
-            LinuxNative.close(listenerFd)
+            transport.close(listenerFd)
         }
     }
 

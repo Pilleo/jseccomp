@@ -80,6 +80,12 @@ class ProfilerDaemonTest {
             }
             return LinuxNative.SyscallResult(0, 0)
         }
+
+        override fun createServer(socketPath: String): Int = 99
+
+        override fun accept(serverFd: Int): Int = 100
+
+        override fun close(fd: Int) {}
     }
 
     private class MockReader : ProfilerMemoryReader {
