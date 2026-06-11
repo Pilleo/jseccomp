@@ -354,4 +354,9 @@ Consequently, if a workload relies on `io_uring` for file access, `StraceProfile
 **Context:** If `poll` times out waiting for the parent's acknowledgement byte (e.g. during rapid JVM shutdown or under high load), it returns `0`. The loop checks if `pollRes.returnValue <= 0`, but because `0 < 0` is false, it skips the return and hits `continue`, immediately re-polling. This creates an infinite polling loop that blocks the handler thread forever, causing stress tests to hang and preventing clean session teardown.
 **Needed:** Correct the check to immediately return `false` if `pollRes.returnValue == 0L`, indicating a timeout.
 
-
+### 🟡 [Severity: LOW]: Profiler Daemon Socket Connection Polling Loop Smell
+**Target:** `io.mazewall.profiler.internal.ProfilerSocket.kt` (specifically `connectWithRetry`)
+**Context:** When spawning the out-of-process daemon JVM, the parent JVM polls the Unix socket via a `connectWithRetry` loop using `Thread.sleep(100)`. While pragmatic for crossing process boundaries without complex IPC setup, it creates artificial connection latency (e.g., if the daemon is ready in 5ms, the client still waits for the remaining 100ms interval). In slow CI/resource-constrained environments, this polling was prone to timeouts (failing after 30 retries), which was mitigated by increasing `maxRetries` to 150 (providing a 15-second window). However, this increase makes the polling smell more prominent and highlights the need for a non-blocking or event-driven mechanism.
+**Needed:** 
+1. **Short-Term Optimization:** Reduce the check interval (e.g., to `10ms` or `20ms`) and proportionally increase the retry limit (e.g., to `750` or `1500` retries) to maintain the 15-second total timeout buffer on slow environments while lowering connection latency to a few milliseconds.
+2. **Long-Term Solution:** Implement fully event-driven startup synchronization, such as having the daemon write a sentinel line (e.g., `"DAEMON_READY"`) to its standard output, which the parent JVM reads blockingly before attempting to connect, or using `inotify` to await the socket file creation.

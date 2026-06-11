@@ -41,6 +41,13 @@ allprojects {
     // Ensure code is formatted before compilation or check to prevent build failures
     tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
         dependsOn("ktlintFormat")
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_22)
+        }
+    }
+
+    tasks.withType<JavaCompile>().configureEach {
+        options.release.set(22)
     }
 
     tasks.matching { it.name == "ktlintCheck" || it.name == "ktlintTestSourceSetCheck" || it.name == "ktlintMainSourceSetCheck" }.configureEach {

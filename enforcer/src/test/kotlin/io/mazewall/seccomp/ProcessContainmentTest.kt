@@ -63,7 +63,13 @@ object SeccompIsolatedTestApp {
     }
 
     private fun testInheritance() {
-        ContainedExecutors.installOnProcess(Policy.NO_EXEC)
+        val policy =
+            Policy
+                .builder()
+                .base(Policy.NO_EXEC)
+                .allowMmapExec()
+                .build()
+        ContainedExecutors.installOnProcess(policy)
 
         val thread =
             Thread {
