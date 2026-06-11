@@ -11,7 +11,6 @@ import java.lang.foreign.Arena
 import java.lang.foreign.ValueLayout
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Internal helper for installing seccomp profiling filters.
@@ -27,31 +26,49 @@ internal object ProfilerInstaller {
         connectWithRetry: (String) -> Int,
         startTraceListener: (Int, MutableList<TraceEvent>, MutableMap<TraceEvent, MutableList<Array<StackTraceElement>>>?, MutableMap<String, Long>, () -> Thread?) -> Unit,
     ) {
-        val installLatch = CountDownLatch(1)
-        val proceedLatch = CountDownLatch(1)
-        val listenerFd = AtomicInteger(-1)
-        val installError = AtomicReference<Throwable?>(null)
+        val session = ProfilerInstallerSession(
+            socketPath = socketPath,
+            policy = policy,
+            accumulatedLogs = accumulatedLogs,
+            stackTracesMap = stackTracesMap,
+            pathCache = pathCache,
+            workerThreadProvider = workerThreadProvider,
+            connectWithRetry = connectWithRetry,
+            startTraceListener = startTraceListener,
+        )
+        session.install()
+    }
+}
+
+internal class ProfilerInstallerSession(
+    private val socketPath: String,
+    private val policy: Policy,
+    private val accumulatedLogs: MutableList<TraceEvent>,
+    private val stackTracesMap: MutableMap<TraceEvent, MutableList<Array<StackTraceElement>>>?,
+    private val pathCache: MutableMap<String, Long>,
+    private val workerThreadProvider: () -> Thread?,
+    private val connectWithRetry: (String) -> Int,
+    private val startTraceListener: (Int, MutableList<TraceEvent>, MutableMap<TraceEvent, MutableList<Array<StackTraceElement>>>?, MutableMap<String, Long>, () -> Thread?) -> Unit,
+) {
+    private val installLatch = CountDownLatch(1)
+    private val proceedLatch = CountDownLatch(1)
+    private val listenerFd = AtomicInteger(-1)
+
+    @Volatile
+    var state: ProfilerInstallerState = ProfilerInstallerState.Uninitialized
+        private set
+
+    fun install() {
+        state = ProfilerInstallerState.InstallingBpf
 
         val coordinatorThread =
             Thread {
-                runCoordinatorLogic(
-                    installLatch,
-                    listenerFd,
-                    installError,
-                    socketPath,
-                    accumulatedLogs,
-                    stackTracesMap,
-                    pathCache,
-                    workerThreadProvider,
-                    connectWithRetry,
-                    startTraceListener,
-                    proceedLatch,
-                )
+                runCoordinatorLogic()
             }.apply {
                 isDaemon = true
                 name = "profiler-coordinator"
                 uncaughtExceptionHandler = Thread.UncaughtExceptionHandler { _, e ->
-                    installError.set(e)
+                    this@ProfilerInstallerSession.state = ProfilerInstallerState.Failed(e)
                     proceedLatch.countDown()
                 }
             }
@@ -63,53 +80,59 @@ internal object ProfilerInstaller {
             val filters = BpfFilter.build(Arch.current(), policy, profilingMode = true)
             installProfilingBpf(filters, listenerFd)
         } catch (e: IOException) {
-            installError.set(e)
+            state = ProfilerInstallerState.Failed(e)
             proceedLatch.countDown()
         } catch (e: IllegalStateException) {
-            installError.set(e)
+            state = ProfilerInstallerState.Failed(e)
             proceedLatch.countDown()
         } finally {
             installLatch.countDown()
         }
 
         proceedLatch.await()
-        installError.get()?.let { throw it }
+        val finalState = state
+        if (finalState is ProfilerInstallerState.Failed) {
+            throw finalState.error
+        }
     }
 
-    private fun runCoordinatorLogic(
-        installLatch: CountDownLatch,
-        listenerFd: AtomicInteger,
-        installError: AtomicReference<Throwable?>,
-        socketPath: String,
-        accumulatedLogs: MutableList<TraceEvent>,
-        stackTracesMap: MutableMap<TraceEvent, MutableList<Array<StackTraceElement>>>?,
-        pathCache: MutableMap<String, Long>,
-        workerThreadProvider: () -> Thread?,
-        connectWithRetry: (String) -> Int,
-        startTraceListener: (Int, MutableList<TraceEvent>, MutableMap<TraceEvent, MutableList<Array<StackTraceElement>>>?, MutableMap<String, Long>, () -> Thread?) -> Unit,
-        proceedLatch: CountDownLatch,
-    ) {
+    private fun runCoordinatorLogic() {
         installLatch.await()
         val fd = listenerFd.get()
         if (fd < 0) {
-            val err = installError.get() ?: IllegalStateException("Failed to install seccomp filter")
+            val finalState = state
+            val err = if (finalState is ProfilerInstallerState.Failed) {
+                finalState.error
+            } else {
+                IllegalStateException("Failed to install seccomp filter")
+            }
             throw err
         }
 
+        state = ProfilerInstallerState.Connecting(fd)
         var socketFd = -1
         var success = false
         try {
             socketFd = connectWithRetry(socketPath)
+            state = ProfilerInstallerState.SendingDescriptor(fd, socketFd)
             val sent = Profiler.sendDescriptorInternal(socketFd, fd)
             if (!sent) {
                 throw IllegalStateException("Failed to send seccomp listener FD to daemon")
             }
 
+            state = ProfilerInstallerState.VerifyingAck(fd, socketFd)
             verifyDaemonAck(socketFd)
 
             // Start listener thread for this socket to receive TraceEvents
             startTraceListener(socketFd, accumulatedLogs, stackTracesMap, pathCache, workerThreadProvider)
+            state = ProfilerInstallerState.Active(fd, socketFd)
             success = true
+            proceedLatch.countDown()
+        } catch (e: IOException) {
+            state = ProfilerInstallerState.Failed(e)
+            proceedLatch.countDown()
+        } catch (e: IllegalStateException) {
+            state = ProfilerInstallerState.Failed(e)
             proceedLatch.countDown()
         } finally {
             if (!success) {
@@ -125,8 +148,14 @@ internal object ProfilerInstaller {
         // Wait for ACK byte from daemon
         Arena.ofConfined().use { arena ->
             val ackBuf = arena.allocate(1)
-            val res = LinuxNative.read(socketFd, ackBuf, 1)
-            if (res.returnValue != 1L || ackBuf.get(ValueLayout.JAVA_BYTE, 0) != 0xAC.toByte()) {
+            while (true) {
+                val res = LinuxNative.read(socketFd, ackBuf, 1)
+                if (res.returnValue == 1L && ackBuf.get(ValueLayout.JAVA_BYTE, 0) == 0xAC.toByte()) {
+                    return
+                }
+                if (res.returnValue < 0 && res.errno == EINTR) {
+                    continue
+                }
                 throw IllegalStateException("Daemon failed to ACK listener receipt")
             }
         }

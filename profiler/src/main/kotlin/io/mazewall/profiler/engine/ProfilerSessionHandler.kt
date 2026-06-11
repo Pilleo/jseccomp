@@ -125,7 +125,7 @@ internal class ProfilerSessionHandler(
         }
     }
 
-    @Suppress("ReturnCount")
+    @Suppress("ReturnCount", "NestedBlockDepth")
     private fun waitForParentAck(
         pollFd: MemorySegment,
         ackBuf: MemorySegment,
@@ -141,13 +141,19 @@ internal class ProfilerSessionHandler(
             }
             val revents = pollFd.get(ValueLayout.JAVA_SHORT, POLLFD_REVENTS_OFF)
             if ((revents.toInt() and NativeConstants.POLLIN.toInt()) != 0) {
-                val readRes = transport.read(socketFd, ackBuf, ACK_BUF_SIZE)
-                if (readRes.returnValue > 0) {
-                    val command = ackBuf.get(ValueLayout.JAVA_BYTE, 0L)
-                    if (command == SHUTDOWN_COMMAND_BYTE) {
-                        onShutdown("Shutdown Command (inline)")
+                while (true) {
+                    val readRes = transport.read(socketFd, ackBuf, ACK_BUF_SIZE)
+                    if (readRes.returnValue > 0) {
+                        val command = ackBuf.get(ValueLayout.JAVA_BYTE, 0L)
+                        if (command == SHUTDOWN_COMMAND_BYTE) {
+                            onShutdown("Shutdown Command (inline)")
+                        }
+                        return true
                     }
-                    return true
+                    if (readRes.returnValue < 0 && readRes.errno == EINTR) {
+                        continue
+                    }
+                    return false
                 }
             }
             return false
