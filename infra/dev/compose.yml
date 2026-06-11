@@ -1,5 +1,6 @@
 services:
     mazewall:
+        image: mazewall-dev:latest
         build:
             context: ../..
             dockerfile: infra/dev/Containerfile

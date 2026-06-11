@@ -39,8 +39,23 @@ jobs:
                   systemctl --user enable --now podman.socket
                   echo "DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock" >> $GITHUB_ENV
 
+            - name: Cache Podman Image
+              id: cache-podman
+              uses: actions/cache@v4
+              with:
+                  path: /tmp/mazewall-dev.tar
+                  key: ${{ runner.os }}-podman-${{ hashFiles('infra/dev/Containerfile', 'infra/dev/compose.yml') }}
+
+            - name: Load Podman Image
+              if: steps.cache-podman.outputs.cache-hit == 'true'
+              run: podman load -i /tmp/mazewall-dev.tar
+
             - name: Build test container
-              run: cd ./infra/dev && podman compose build
+              if: steps.cache-podman.outputs.cache-hit != 'true'
+              run: |
+                  cd ./infra/dev
+                  podman compose build
+                  podman save -o /tmp/mazewall-dev.tar mazewall-dev:latest
 
             - name: Run tests in container
               run: podman compose -f infra/dev/compose.yml run --rm mazewall ./gradlew check --info
