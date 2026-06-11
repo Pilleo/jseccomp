@@ -381,3 +381,17 @@ To avoid crashing JVM tasks when logging under a sandboxed thread, you must ensu
 * **In-Memory Decoupling**: The sandboxed task thread must write its log events and metrics data directly to an in-memory queue (e.g., a lock-free Log4j2 `Disruptor` ring buffer, a `ConcurrentLinkedQueue`, or a lock-free telemetry buffer).
 * **Out-of-Process / Helper Thread Offloading**: An unrestricted, uncontained background helper thread (which runs outside the thread-scoped sandbox) consumes the events from the queue and performs the actual systems-level I/O operations (writing to the disk or pushing metrics over network sockets).
 
+---
+
+## 10. Future Roadmap: Process-Wide Namespaces & cgroups (Tier 1 Expansion)
+
+To reinforce process-wide (Tier 1) security boundaries without breaking JVM thread orchestration, the roadmap includes introducing optional native integrations for **Linux Namespaces** and **cgroups**:
+
+1. **Process-Wide Namespaces (Mount / Network / PID):**
+   - **Why:** Running the entire JVM within its own dedicated namespaces at startup establishes a physical boundary that mitigates ACE escapes to the host.
+   - **Implementation:** Leveraged strictly at startup/initialization (Tier 1) via a custom native launcher or early process bootstrap (e.g., via `unshare` before JVM thread pool creation). Thread-local namespace isolation is explicitly avoided due to GC signal routing and thread-dumping breakages.
+2. **cgroups v2 Resource Restrictions:**
+   - **Why:** Mitigate Denial of Service (DoS) attacks (e.g., CPU exhaustion, memory ballooning) initiated by sandboxed tasks.
+   - **Implementation:** Bind the JVM process or specific system cgroup slices to strict resource boundaries at initialization.
+
+

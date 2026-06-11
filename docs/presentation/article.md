@@ -63,6 +63,14 @@ We move from **coarse-grained perimeter rules** that ask *"Is this container all
 
 *(A quick note on scope: SBoB is still emerging, tooling is early, and standards are actively forming. What follows is a picture of where cloud-native security is heading — a direction that is becoming technically feasible and strategically hard to ignore.)*
 
+> **Wait — doesn't Docker already do this?**
+>
+> Yes, partially — and this is a common and fair question. Docker and Podman use [Namespaces](https://man7.org/linux/man-pages/man7/namespaces.7.html) to isolate process trees, networks, and filesystems between containers; [cgroups v2](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html) to limit CPU and memory consumption; and a default [Seccomp-BPF](https://docs.docker.com/engine/security/seccomp/) profile to block roughly 44 high-risk syscalls for every process inside the container. That is meaningful protection.
+>
+> The key word is *every process*. Docker applies **one profile to all code running in the container** — your HTTP handler, your background scheduler, your database migration runner, and any malicious code that has compromised one of them. If the compromised code only needs syscalls that the HTTP handler legitimately uses, Docker's profile will not stop it.
+>
+> SBoB — and tools like Kubescape and mazewall — ask a harder question: can we enforce a *distinct* contract for each component, where the migration runner cannot touch network sockets and the HTTP handler cannot spawn child processes? The outer container wall remains essential. What is missing is the system of locks on the rooms inside.
+
 ## The Catalyst: Practical Runtime Observation with eBPF
  
 For a long time, precise runtime behavioral security was too expensive, too invasive, or too brittle to apply at scale. This was due to the fundamental trade-offs in existing technologies:
@@ -198,10 +206,12 @@ stateDiagram-v2
 ### 2. Granular Scopes (The Experimental Frontier)
 Beyond lifecycle phases, we can theoretically define scopes at a much deeper level. While these make for powerful Proofs of Concept (PoC), turning them into stable, production-ready technology faces significant architectural challenges:
  
-*   **[Process/Thread](https://www.baeldung.com/cs/process-vs-thread) Scopes:** Restricting behavior based on which specific OS thread is executing (the core of the `mazewall` experiment).
+*   **[Process/Thread](https://www.baeldung.com/cs/process-vs-thread) Scopes:** Restricting behavior based on which specific OS thread is executing.
+    > [!WARNING]
+    > **The Shared-Memory Trap:** Thread-scoped restrictions alone are **never** a complete security boundary against attackers who gain Arbitrary Code Execution (ACE). Since all JVM threads share the same address space and heap, a native memory corruption exploit (e.g., via buffer overflow or unsafe pointer manipulation) on a restricted thread can modify memory on an unrestricted helper thread to bypass the sandbox. Thread-scoped sandboxing is only secure when stacked on top of a process-wide baseline (such as blocking new process execution globally).
 *   **Module/Library Scopes:** Restricting behavior based on which JAR or package is currently on the stack.
 *   **Stacktrace Scopes:** Using the calling context to decide if a syscall is valid (e.g., "Allow `socket()` only if called via the AWS SDK").
- 
+
 While these granular scopes represent the "dream" of behavioral security, they often introduce high performance overhead or require deep integration with the language runtime. For now, Lifecycle Scopes remain the most viable path for widespread adoption.
 
 ## Mitigating Advanced Evasion Techniques
@@ -229,13 +239,35 @@ We are already seeing a "SBoB-lite" emerge in the form of **VEX**. While an SBOM
 
 ## The Runtime Security Stack Is Already Here
  
-This is no longer a speculative academic exercise. The building blocks are already in production.
- 
-In the open ecosystem, projects like **Kubescape** are pushing strongly into runtime profiling for Kubernetes workloads. Using eBPF, Kubescape observes how workloads actually behave to build profiles around that behavior. This makes it a natural home for SBoB-related ideas and standards, such as the emerging **[Software Bill of Behavior specification](https://github.com/k8sstormcenter/bob)**.
- 
+This is no longer a speculative academic exercise. The building blocks are already in production. What is instructive, though, is that these tools are **not alternatives to each other** — they operate at fundamentally different layers and solve complementary problems. Each has its own perfect fit.
+
+### Three Layers, Three Perfect Fits
+
+| | **Docker / Podman** | **Kubescape** | **mazewall** |
+|---|---|---|---|
+| **Metaphor** | The city wall | The cluster observatory | The room locks |
+| **Core technologies** | Linux Namespaces (pid, net, mnt, uts, ipc), cgroups v2, Seccomp-BPF, Capabilities dropping, AppArmor / SELinux | eBPF (kprobes, tracepoints, ring buffers), future BPF-LSM enforcement, Kubernetes Network Policies | Seccomp-BPF (per-thread via `prctl`), Landlock LSM (filesystem + TCP ports), `PR_SET_NO_NEW_PRIVS`, JDK FFM API |
+| **Who authors the policy** | Platform / ops team (or Docker's built-in default) | Auto-generated from live eBPF observation across the cluster | Developer, auto-generated from the application's own observed behavior |
+| **Granularity** | All processes in the container share one profile | Per-workload (pod / container), language-agnostic | Dual-Tier: Process-wide baseline + thread-scoped profiles |
+| **Enforcement today** | ✅ Active — applied at container start | 🔄 Audit and profiling today; enforcement via generated seccomp / AppArmor profiles on the roadmap | ✅ Active — process baseline at initialization + thread restrictions |
+| **SBoB role** | Consumer — can apply a vendor-supplied SBoB profile as a custom seccomp JSON | Generator + future enforcer — observes workloads, produces SBoB-aligned profiles, enforces at cluster level | Generator of both process-wide and thread-scoped behavioral contracts |
+| **Privilege required** | Container runtime (rootless possible with Podman) | Privileged cluster-level agent (`CAP_SYS_ADMIN` / `CAP_BPF` for eBPF) | None — standard unprivileged library dependency |
+| **Language / runtime scope** | Any process, any language | Any process, any language | JVM 22+ only |
+| **Perfect fit** | Baseline outer wall for every container workload | Cluster-wide behavioral visibility, profile generation, and future policy distribution for Kubernetes | In-process, developer-driven dual-tier sandboxing for JVM services |
+
+Notice that Docker and mazewall share the same fundamental primitive — **Seccomp-BPF** — but apply it at completely different scopes. Docker calls `prctl(PR_SET_SECCOMP, ...)` once, process-wide, before your application code ever runs. 
+
+mazewall combines both scopes in a **dual-tier model**:
+1. **Tier 1 (Process-Wide Baseline):** It establishes a global, process-wide filter at startup (e.g., restricting process execution `execve` or system capabilities globally). This serves as the absolute backstop because isolating threads alone is vulnerable to shared-memory bypasses (where an attacker compromises a restricted thread and corrupts memory on an unrestricted helper thread).
+2. **Tier 2 (Thread-Scoped Profiles):** On top of the process-wide baseline, it applies thread-scoped profiles dynamically using thread-specific filters to restrict network socket creation or filesystem path accesses.
+
+The kernel mechanisms are identical to standard container controls, but the scope, runtime flexibility, and developer authorship are completely different.
+
+Kubescape occupies a different dimension entirely. Where Docker and mazewall enforce locally, Kubescape **observes globally** — watching every workload across the cluster and building a behavioral model that no individual container or library can see on its own. Its SBoB support means those cluster-level observations can eventually be expressed as portable, vendor-reviewable contracts that feed back into container-level enforcement. Enforcement coming to Kubescape will close the loop: observe cluster-wide with eBPF, distribute a verified SBoB profile as an OCI artifact, and enforce it locally at the container wall (Docker/Podman seccomp) and inside the JVM (mazewall).
+
 On the commercial side, companies like **Oligo Security** have proven that library-level and application-level runtime profiling is directly useful for security operations. By observing what libraries do inside running applications, their platform uses behavioral context to detect suspicious activity.
- 
-The message is clear: the runtime security stack is already here. What is still missing is a standardized, portable, vendor-supplied way to describe what software is expected to do.
+
+The message is clear: the runtime security stack is already here. These layers are designed to be stacked, not chosen between. What is still missing is a standardized, portable, vendor-supplied way to describe what software is expected to do — so that all three layers can enforce the same contract.
 
 ## What You Can Do Today
  
