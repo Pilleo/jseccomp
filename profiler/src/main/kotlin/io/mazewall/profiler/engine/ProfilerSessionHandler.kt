@@ -1,8 +1,6 @@
 package io.mazewall.profiler.engine
 
-import io.mazewall.ffi.Layouts
 import io.mazewall.ffi.NativeConstants
-import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout
 
@@ -37,6 +35,7 @@ internal class ProfilerSessionHandler(
         ackBuf: MemorySegment,
         notif: MemorySegment,
         resp: MemorySegment,
+        socketPollFd: MemorySegment,
     ): LoopAction {
         val currentState = state
         if (currentState is ProfilerState.Terminated) {
@@ -56,7 +55,7 @@ internal class ProfilerSessionHandler(
             notif.fill(0)
             val recvRes = transport.ioctl(listenerFd, SECCOMP_IOCTL_NOTIF_RECV, notif)
             if (recvRes.returnValue == 0L) {
-                if (!processNotification(notif, resp, ackBuf)) {
+                if (!processNotification(notif, resp, ackBuf, socketPollFd)) {
                     state = ProfilerState.Terminated
                     return LoopAction.Break
                 }
@@ -86,6 +85,7 @@ internal class ProfilerSessionHandler(
         notif: MemorySegment,
         resp: MemorySegment,
         ackBuf: MemorySegment,
+        socketPollFd: MemorySegment,
     ): Boolean {
         val id = notif.get(ValueLayout.JAVA_LONG, NOTIF_ID_OFF)
         val pid = notif.get(ValueLayout.JAVA_INT, NOTIF_PID_OFF)
@@ -102,26 +102,23 @@ internal class ProfilerSessionHandler(
         // Transition to Notified state
         state = ProfilerState.Notified(socketFd, listenerFd, id, event)
 
-        return Arena.ofConfined().use { arena ->
-            val pollFd = arena.allocate(Layouts.POLLFD)
-            pollFd.set(ValueLayout.JAVA_INT, POLLFD_FD_OFF, socketFd)
-            pollFd.set(ValueLayout.JAVA_SHORT, POLLFD_EVENTS_OFF, NativeConstants.POLLIN)
+        socketPollFd.set(ValueLayout.JAVA_INT, POLLFD_FD_OFF, socketFd)
+        socketPollFd.set(ValueLayout.JAVA_SHORT, POLLFD_EVENTS_OFF, NativeConstants.POLLIN)
 
-            // Transition to WaitingForAck state
-            state = ProfilerState.WaitingForAck(socketFd, listenerFd, id)
+        // Transition to WaitingForAck state
+        state = ProfilerState.WaitingForAck(socketFd, listenerFd, id)
 
-            try {
-                transport.sendTraceEvent(socketFd, event)
-                val success = waitForParentAck(pollFd, ackBuf)
-                if (success) {
-                    state = ProfilerState.ActiveSession(socketFd, listenerFd)
-                } else {
-                    state = ProfilerState.Terminated
-                }
-                success
-            } finally {
-                sendContinueResponse(id, resp)
+        return try {
+            transport.sendTraceEvent(socketFd, event)
+            val success = waitForParentAck(socketPollFd, ackBuf)
+            if (success) {
+                state = ProfilerState.ActiveSession(socketFd, listenerFd)
+            } else {
+                state = ProfilerState.Terminated
             }
+            success
+        } finally {
+            sendContinueResponse(id, resp)
         }
     }
 

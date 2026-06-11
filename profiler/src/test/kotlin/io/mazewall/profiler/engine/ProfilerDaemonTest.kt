@@ -119,9 +119,10 @@ class ProfilerDaemonTest {
 
             val resp = arena.allocate(Layouts.SECCOMP_NOTIF_RESP)
             val ackBuf = arena.allocate(1L)
+            val socketPollFd = arena.allocate(Layouts.POLLFD)
 
             val pollFds = setupMockPoll(arena)
-            val action = handler.handleActiveListener(pollFds, ackBuf, notif, resp)
+            val action = handler.handleActiveListener(pollFds, ackBuf, notif, resp, socketPollFd)
 
             if (action !is LoopAction.Continue) {
                 System.err.println("DEBUG: Action was $action, shutdownCalled=$shutdownCalled")

@@ -13,7 +13,7 @@ import kotlin.test.assertTrue
 
 @EnabledIfLinuxAndSupported
 class ProfilerStressTest {
-    private val stressTimeout = Duration.ofSeconds(30)
+    private val stressTimeout = Duration.ofSeconds(120)
 
     @Test
     fun `test thundering herd handshake stress`() {

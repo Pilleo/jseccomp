@@ -163,6 +163,7 @@ internal class ProfilerDaemonEngine(
                 val notif = arena.allocate(Layouts.SECCOMP_NOTIF)
                 val resp = arena.allocate(Layouts.SECCOMP_NOTIF_RESP)
                 val ackBuf = arena.allocate(ACK_BUF_SIZE)
+                val socketPollFd = arena.allocate(Layouts.POLLFD)
 
                 while (!isGlobalShutdown()) {
                     val pollRes = transport.poll(pollFds, 2L, POLL_TIMEOUT_MS)
@@ -171,7 +172,7 @@ internal class ProfilerDaemonEngine(
                         continue
                     }
 
-                    val action = sessionHandler.handleActiveListener(pollFds, ackBuf, notif, resp)
+                    val action = sessionHandler.handleActiveListener(pollFds, ackBuf, notif, resp, socketPollFd)
                     if (action !is LoopAction.Continue) break
                 }
             }
