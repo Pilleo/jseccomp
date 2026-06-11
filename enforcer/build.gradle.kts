@@ -23,6 +23,8 @@ val integrationTest =
     tasks.register<Test>("integrationTest") {
         group = "verification"
         description = "Runs integration tests that install seccomp or Landlock filters, forcing a fresh JVM for each test."
+        testClassesDirs = project.sourceSets["test"].output.classesDirs
+        classpath = project.sourceSets["test"].runtimeClasspath
         useJUnitPlatform()
         jvmArgs("--enable-native-access=ALL-UNNAMED")
         systemProperty("kotest.framework.classpath.scanning.config.disable", "true")
