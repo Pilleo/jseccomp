@@ -58,7 +58,9 @@ jobs:
                   podman save -o /tmp/mazewall-dev.tar mazewall-dev:latest
 
             - name: Run tests in container
-              run: podman compose -f infra/dev/compose.yml run --rm mazewall ./gradlew check --info
+              run: |
+                  podman compose -f infra/dev/compose.yml up -d
+                  podman compose -f infra/dev/compose.yml exec -T mazewall ./gradlew check --info
               env:
                   IO_MAZEWALL_TEST: "true"
                   GRADLE_USER_HOME: /home/runner/.gradle
@@ -66,7 +68,7 @@ jobs:
             - name: Publish to GitHub Packages
               # Only publish on main/master branch pushes, not for PRs
               if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-              run: podman compose -f infra/dev/compose.yml run --rm mazewall ./gradlew publishAllPublicationsToGitHubPackagesRepository --info --no-parallel --no-configuration-cache
+              run: podman compose -f infra/dev/compose.yml exec -T mazewall ./gradlew publishAllPublicationsToGitHubPackagesRepository --info --no-parallel --no-configuration-cache
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   GITHUB_ACTOR: ${{ github.actor }}
