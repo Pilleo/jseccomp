@@ -38,79 +38,36 @@ jobs:
               run: |
                   systemctl --user enable --now podman.socket
                   echo "DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock" >> $GITHUB_ENV
-
-            - name: Cache Podman Image
-              id: cache-podman
-              uses: actions/cache@v4
-              with:
-                  path: /tmp/mazewall-dev.tar
-                  key: ${{ runner.os }}-podman-${{ hashFiles('infra/dev/Containerfile', 'infra/dev/compose.yml') }}
-
-            - name: Load Podman Image
-              if: steps.cache-podman.outputs.cache-hit == 'true'
-              run: podman load -i /tmp/mazewall-dev.tar
-
-            - name: Build test container
-              if: steps.cache-podman.outputs.cache-hit != 'true'
-              run: |
-                  cd ./infra/dev
-                  podman compose build
-                  podman save -o /tmp/mazewall-dev.tar mazewall-dev:latest
-
-            - name: Start Environment
-              run: podman compose -f infra/dev/compose.yml up -d
+                  echo "MAZEWALL_CONTAINER_ENGINE=podman" >> $GITHUB_ENV
 
             - name: Build & Compile
-              run: podman compose -f infra/dev/compose.yml exec -T mazewall ./gradlew classes --build-cache --configuration-cache
-              env:
-                  GRADLE_USER_HOME: /home/runner/.gradle
+              run: ./gradlew classes --build-cache --configuration-cache
 
-            - name: Run Unit Tests
-              run: podman compose -f infra/dev/compose.yml exec -T mazewall ./gradlew test --build-cache --configuration-cache
+            - name: Run Tests
+              run: ./gradlew test --build-cache --configuration-cache
               env:
                   IO_MAZEWALL_TEST: "true"
-                  GRADLE_USER_HOME: /home/runner/.gradle
-
-            - name: Run Integration Tests
-              run: podman compose -f infra/dev/compose.yml exec -T mazewall ./gradlew integrationTest --build-cache --configuration-cache
-              env:
-                  IO_MAZEWALL_TEST: "true"
-                  GRADLE_USER_HOME: /home/runner/.gradle
 
             - name: Run Mutation Testing (PITest)
               if: success() || failure()
               # We only run it for :enforcer core logic in CI to keep it fast.
-              # We use high parallelism to speed up the process.
-              run: |
-                  podman compose -f infra/dev/compose.yml exec -T mazewall \
-                    ./gradlew :enforcer:pitest -Dpitest.threads=12 --build-cache --configuration-cache
-              env:
-                  GRADLE_USER_HOME: /home/runner/.gradle
+              run: ./gradlew :enforcer:pitest -Dpitest.threads=12 --build-cache --configuration-cache
 
             - name: Run Linting
               if: success() || failure()
-              run: podman compose -f infra/dev/compose.yml exec -T mazewall ./gradlew detekt spotbugsMain spotbugsTest dependencyCheckAnalyze --build-cache --configuration-cache
-              env:
-                  GRADLE_USER_HOME: /home/runner/.gradle
+              run: ./gradlew detekt spotbugsMain spotbugsTest dependencyCheckAnalyze --build-cache --configuration-cache
 
             - name: Run Coverage Verification
               if: success() || failure()
-              run: podman compose -f infra/dev/compose.yml exec -T mazewall ./gradlew jacocoTestReport jacocoTestCoverageVerification --build-cache --configuration-cache
-              env:
-                  GRADLE_USER_HOME: /home/runner/.gradle
+              run: ./gradlew jacocoTestReport jacocoTestCoverageVerification --build-cache --configuration-cache
 
             - name: Publish to GitHub Packages
               # Only publish on main/master branch pushes, not for PRs
               if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-              run: |
-                  podman compose -f infra/dev/compose.yml exec -T \
-                    -e GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" \
-                    -e GITHUB_ACTOR="${{ github.actor }}" \
-                    mazewall ./gradlew publishAllPublicationsToGitHubPackagesRepository --info --no-parallel --no-configuration-cache
+              run: ./gradlew publishAllPublicationsToGitHubPackagesRepository --info --no-parallel --no-configuration-cache
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   GITHUB_ACTOR: ${{ github.actor }}
-                  GRADLE_USER_HOME: /home/runner/.gradle
 
             - name: Upload Build Artifacts (JARs)
               if: success()

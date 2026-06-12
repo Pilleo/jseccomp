@@ -255,10 +255,10 @@ executor.submit {
 
 ## Demos
 
-### 🛡️ [Real-World CVE Exploitation Demo](demo/vulnerable-app/README.md)
-A comprehensive Spring Boot 3.x integration showing how `mazewall` blocks real-world exploits (Log4Shell, SSRF, XXE, etc.). The demo includes a fully-automated orchestration script [scripts/run_vulnerable_app_demo.sh](scripts/run_vulnerable_app_demo.sh) that executes all 11 exploit vectors and compiles a comparative report.
+### 🛡️ [Real-World CVE Exploitation Demo](../../demos/vulnerable-web-app/README.md)
+A comprehensive Spring Boot 3.x integration showing how `mazewall` blocks real-world exploits (Log4Shell, SSRF, XXE, etc.). The demo is orchestrated via native integration tests using Testcontainers, which executes all 11 exploit vectors and asserts the results.
 
-### 🧩 [Interactive Core Showcase](demo/README.md)
+### 🧩 [Interactive Core Showcase](../../demos/cli-demo/README.md)
 The interactive showcase demonstrating:
 - **`unsafe` vs `safe`:** Direct comparison of an exploit's impact with and without `mazewall` containment.
 - **`profile` & Enforce:** Automated `USER_NOTIF` profiling of a complex workload.
