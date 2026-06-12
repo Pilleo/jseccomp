@@ -13,37 +13,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
-/**
- * Helper app for isolated execution of [ContainedExecutorsTest] methods that
- * install irreversible kernel filters.
- */
-object ContainedExecutorsIsolatedApp {
-    @JvmStatic
-    @Suppress("CyclomaticComplexMethod")
-    fun main(args: Array<String>) {
-        val mode = args.firstOrNull() ?: return
-        try {
-            when (mode) {
-                "wrap-blocks-execve" -> testContainmentWrapperBlocksExecve()
-                "per-thread-isolation" -> testPerThreadIsolation()
-                "invoke-all-containment" -> testInvokeAllAppliesContainment()
-                "invoke-any-containment" -> testInvokeAnyAppliesContainment()
-                "landlock-stacking-success" -> testHierarchicalLandlockStackingSuccess()
-                "landlock-stacking-failure-expansion" -> testHierarchicalLandlockStackingFailureOnExpansion()
-                "landlock-stacking-failure-boundary" -> testHierarchicalLandlockStackingFailureOnComponentBoundaryMismatch()
-                "landlock-stacking-identical" -> testHierarchicalLandlockStackingIdenticalPaths()
-                else -> System.exit(1)
-            }
-            System.exit(0)
-        } catch (
-            @Suppress("TooGenericExceptionCaught") e: Throwable,
-        ) {
-            System.err.println("Isolated test failure in mode $mode: ${e.message}")
-            System.exit(2)
-        }
-    }
-
-    private fun testContainmentWrapperBlocksExecve() {
+class ContainedExecutorsTest {
+    fun testContainmentWrapperBlocksExecve() {
         val executor = Executors.newSingleThreadExecutor()
         val safeExecutor = ContainedExecutors.wrap(executor, Policy.NO_EXEC)
         val future = safeExecutor.submit {
@@ -61,7 +32,7 @@ object ContainedExecutorsIsolatedApp {
         }
     }
 
-    private fun testPerThreadIsolation() {
+    fun testPerThreadIsolation() {
         val executor = Executors.newSingleThreadExecutor()
         val safeExecutor = ContainedExecutors.wrap(executor, Policy.NO_EXEC)
         val future = safeExecutor.submit(java.util.concurrent.Callable { "installed" })
@@ -73,7 +44,7 @@ object ContainedExecutorsIsolatedApp {
         executor.shutdown()
     }
 
-    private fun testInvokeAllAppliesContainment() {
+    fun testInvokeAllAppliesContainment() {
         val executor = Executors.newFixedThreadPool(2)
         val safeExecutor = ContainedExecutors.wrap(executor, Policy.NO_EXEC)
         try {
@@ -95,7 +66,7 @@ object ContainedExecutorsIsolatedApp {
         }
     }
 
-    private fun testInvokeAnyAppliesContainment() {
+    fun testInvokeAnyAppliesContainment() {
         val executor = Executors.newFixedThreadPool(2)
         val safeExecutor = ContainedExecutors.wrap(executor, Policy.NO_EXEC)
         try {
@@ -116,7 +87,7 @@ object ContainedExecutorsIsolatedApp {
         }
     }
 
-    private fun testHierarchicalLandlockStackingSuccess() {
+    fun testHierarchicalLandlockStackingSuccess() {
         val executor = Executors.newSingleThreadExecutor()
         try {
             val future = executor.submit(
@@ -132,7 +103,7 @@ object ContainedExecutorsIsolatedApp {
         }
     }
 
-    private fun testHierarchicalLandlockStackingFailureOnExpansion() {
+    fun testHierarchicalLandlockStackingFailureOnExpansion() {
         val executor = Executors.newSingleThreadExecutor()
         try {
             val future = executor.submit {
@@ -153,7 +124,7 @@ object ContainedExecutorsIsolatedApp {
         }
     }
 
-    private fun testHierarchicalLandlockStackingFailureOnComponentBoundaryMismatch() {
+    fun testHierarchicalLandlockStackingFailureOnComponentBoundaryMismatch() {
         val executor = Executors.newSingleThreadExecutor()
         try {
             val future = executor.submit {
@@ -174,7 +145,7 @@ object ContainedExecutorsIsolatedApp {
         }
     }
 
-    private fun testHierarchicalLandlockStackingIdenticalPaths() {
+    fun testHierarchicalLandlockStackingIdenticalPaths() {
         val executor = Executors.newSingleThreadExecutor()
         try {
             val future = executor.submit(
@@ -190,13 +161,11 @@ object ContainedExecutorsIsolatedApp {
             executor.shutdown()
         }
     }
-}
 
-class ContainedExecutorsTest {
     @Test
     @EnabledIfLinuxAndSupported
     fun `test containment wrapper blocks execve`() {
-        IsolatedProcessTester.runIsolatedTest(ContainedExecutorsIsolatedApp::class.java.name, "wrap-blocks-execve")
+        IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testContainmentWrapperBlocksExecve")
     }
 
     @Test
@@ -214,19 +183,19 @@ class ContainedExecutorsTest {
     @Test
     @EnabledIfLinuxAndSupported
     fun `test per-thread isolation (TSYNC bug fix)`() {
-        IsolatedProcessTester.runIsolatedTest(ContainedExecutorsIsolatedApp::class.java.name, "per-thread-isolation")
+        IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testPerThreadIsolation")
     }
 
     @Test
     @EnabledIfLinuxAndSupported
     fun `invokeAll applies containment to all tasks`() {
-        IsolatedProcessTester.runIsolatedTest(ContainedExecutorsIsolatedApp::class.java.name, "invoke-all-containment")
+        IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testInvokeAllAppliesContainment")
     }
 
     @Test
     @EnabledIfLinuxAndSupported
     fun `invokeAny applies containment`() {
-        IsolatedProcessTester.runIsolatedTest(ContainedExecutorsIsolatedApp::class.java.name, "invoke-any-containment")
+        IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testInvokeAnyAppliesContainment")
     }
 
     @Test
@@ -283,36 +252,32 @@ class ContainedExecutorsTest {
     @Test
     @EnabledIfLinuxAndSupported
     fun `test hierarchical Landlock stacking success`() {
-        IsolatedProcessTester.runIsolatedTest(ContainedExecutorsIsolatedApp::class.java.name, "landlock-stacking-success")
+        IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testHierarchicalLandlockStackingSuccess")
     }
 
     @Test
     @EnabledIfLinuxAndSupported
     fun `test hierarchical Landlock stacking failure on expansion`() {
-        IsolatedProcessTester.runIsolatedTest(ContainedExecutorsIsolatedApp::class.java.name, "landlock-stacking-failure-expansion")
+        IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testHierarchicalLandlockStackingFailureOnExpansion")
     }
 
     @Test
     @EnabledIfLinuxAndSupported
     fun `test hierarchical Landlock stacking failure on component boundary mismatch`() {
-        IsolatedProcessTester.runIsolatedTest(ContainedExecutorsIsolatedApp::class.java.name, "landlock-stacking-failure-boundary")
+        IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testHierarchicalLandlockStackingFailureOnComponentBoundaryMismatch")
     }
 
     @Test
     @EnabledIfLinuxAndSupported
     fun `test hierarchical Landlock stacking identical paths`() {
-        IsolatedProcessTester.runIsolatedTest(ContainedExecutorsIsolatedApp::class.java.name, "landlock-stacking-identical")
+        IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testHierarchicalLandlockStackingIdenticalPaths")
     }
 
     @Test
     fun `installOnCurrentThread accepts both process-wide and thread-local policies`() {
-        // Just verify compiling and invoking it doesn't fail due to type checking/generics.
-        // We do not actually apply it to the main test thread because it is irreversible,
-        // but we can compile-test it or test with an empty policy or a mock, or verify signature.
         val threadLocalPolicy: Policy<PolicyScope.ThreadLocalOnly> = Policy.builder().allowFsRead("/tmp").build()
         val processWidePolicy: Policy<PolicyScope.ProcessWideSafe> = Policy.builder().build()
 
-        // Ensure they compile-assign correctly and can be passed to functions expecting Policy<*>
         val list = listOf<Policy<*>>(threadLocalPolicy, processWidePolicy)
         assertEquals(2, list.size)
     }
@@ -321,7 +286,6 @@ class ContainedExecutorsTest {
     fun `installOnProcess rejects cast thread-local policy with UnsupportedOperationException`() {
         val threadLocalPolicy = Policy.builder().allowFsRead("/tmp").build()
 
-        // Policy<ThreadLocalOnly>
         @Suppress("UNCHECKED_CAST")
         val castPolicy = threadLocalPolicy as Policy<PolicyScope.ProcessWideSafe>
 

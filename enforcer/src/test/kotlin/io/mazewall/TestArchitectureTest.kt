@@ -22,9 +22,7 @@ class TestArchitectureTest {
     fun processWideContainmentMustOnlyBeCalledInIsolatedProcesses(allClasses: JavaClasses) {
         noClasses()
             .that()
-            .doNotHaveFullyQualifiedName("io.mazewall.seccomp.SeccompIsolatedTestApp")
-            .and()
-            .doNotHaveFullyQualifiedName("io.mazewall.enforcer.ContainedExecutorsIsolatedApp")
+            .doNotHaveFullyQualifiedName("io.mazewall.IsolatedTestRunner")
             .and()
             .doNotHaveFullyQualifiedName("io.mazewall.seccomp.PureJavaBpfEngine")
             .and()

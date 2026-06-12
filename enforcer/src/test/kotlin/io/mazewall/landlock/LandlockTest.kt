@@ -23,41 +23,8 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/**
- * Helper app for isolated execution of [LandlockTest] methods.
- */
-object LandlockIsolatedApp {
-    @JvmStatic
-    @Suppress("CyclomaticComplexMethod")
-    fun main(args: Array<String>) {
-        val mode = args.firstOrNull() ?: return
-        try {
-            when (mode) {
-                "read-allowed" -> testReadAllowed(args[1], args[2])
-                "read-blocked" -> testReadBlocked(args[1])
-                "write-allowed" -> testWriteAllowed(args[1], args[2])
-                "write-blocked" -> testWriteBlocked(args[1], args[2])
-                "unconstrained" -> testUnconstrained()
-                "stacking-recycled" -> testStackingRecycled(args[1], args[2])
-                "exec-blocked" -> testExecBlocked(args[1])
-                "nonexistent-fallback" -> testNonExistentFallback(args[2])
-                "resolve-symlink" -> testResolveSymlink(args[2], args[3])
-                "auto-classpath" -> testAutoClasspath(args[1], args[2])
-                "nested-symlinks" -> testNestedSymlinks(args[1])
-                "dot-dot-traversal" -> testDotDotTraversal(args[1])
-                "circular-symlinks" -> testCircularSymlinks(args[1])
-                else -> System.exit(1)
-            }
-            System.exit(0)
-        } catch (
-            @Suppress("TooGenericExceptionCaught") e: Throwable,
-        ) {
-            System.err.println("Isolated test failure in mode $mode: ${e.message}")
-            System.exit(2)
-        }
-    }
-
-    private fun testReadAllowed(
+class LandlockTest {
+    fun testReadAllowed(
         dir: String,
         file: String,
     ) {
@@ -74,7 +41,7 @@ object LandlockIsolatedApp {
         executor.shutdown()
     }
 
-    private fun testReadBlocked(dir: String) {
+    fun testReadBlocked(dir: String) {
         val policy = Policy
             .builder()
             .base(Policy.NO_EXEC)
@@ -94,7 +61,7 @@ object LandlockIsolatedApp {
         }
     }
 
-    private fun testWriteAllowed(
+    fun testWriteAllowed(
         dir: String,
         file: String,
     ) {
@@ -111,7 +78,7 @@ object LandlockIsolatedApp {
         executor.shutdown()
     }
 
-    private fun testWriteBlocked(
+    fun testWriteBlocked(
         dir: String,
         file: String,
     ) {
@@ -134,7 +101,7 @@ object LandlockIsolatedApp {
         }
     }
 
-    private fun testUnconstrained() {
+    fun testUnconstrained() {
         val policy = Policy
             .builder()
             .base(Policy.NO_EXEC)
@@ -154,7 +121,7 @@ object LandlockIsolatedApp {
         executor.shutdown()
     }
 
-    private fun testStackingRecycled(
+    fun testStackingRecycled(
         dir: String,
         file: String,
     ) {
@@ -173,7 +140,7 @@ object LandlockIsolatedApp {
         executor.shutdown()
     }
 
-    private fun testExecBlocked(dir: String) {
+    fun testExecBlocked(dir: String) {
         val policy = Policy
             .builder()
             .allowJvmClasspath()
@@ -193,7 +160,7 @@ object LandlockIsolatedApp {
         }
     }
 
-    private fun testNonExistentFallback(file: String) {
+    fun testNonExistentFallback(file: String) {
         val policy = Policy
             .builder()
             .base(Policy.NO_EXEC)
@@ -207,7 +174,7 @@ object LandlockIsolatedApp {
         executor.shutdown()
     }
 
-    private fun testResolveSymlink(
+    fun testResolveSymlink(
         realFile: String,
         symlink: String,
     ) {
@@ -224,7 +191,7 @@ object LandlockIsolatedApp {
         executor.shutdown()
     }
 
-    private fun testAutoClasspath(
+    fun testAutoClasspath(
         dir: String,
         file: String,
     ) {
@@ -240,7 +207,7 @@ object LandlockIsolatedApp {
         executor.shutdown()
     }
 
-    private fun testNestedSymlinks(realFile: String) {
+    fun testNestedSymlinks(realFile: String) {
         val policy = Policy
             .builder()
             .base(Policy.NO_EXEC)
@@ -254,7 +221,7 @@ object LandlockIsolatedApp {
         executor.shutdown()
     }
 
-    private fun testDotDotTraversal(allowed: String) {
+    fun testDotDotTraversal(allowed: String) {
         val policy = Policy
             .builder()
             .base(Policy.NO_EXEC)
@@ -275,7 +242,7 @@ object LandlockIsolatedApp {
         }
     }
 
-    private fun testCircularSymlinks(linkA: String) {
+    fun testCircularSymlinks(linkA: String) {
         val policy = Policy
             .builder()
             .base(Policy.NO_EXEC)
@@ -300,96 +267,102 @@ object LandlockIsolatedApp {
         if (res != "eloop") throw IllegalStateException("Expected eloop, got $res")
         executor.shutdown()
     }
-}
 
-@EnabledIfLinuxAndSupported
-class LandlockTest {
     @Test
+    @EnabledIfLinuxAndSupported
     fun `testLandlockReadAllowedPath`() {
         val tempDir = createTempDirectory("landlock_test_allowed")
         val testFile = tempDir.resolve("test.txt")
         testFile.writeText("secret")
         try {
-            IsolatedProcessTester.runIsolatedTest(LandlockIsolatedApp::class.java.name, "read-allowed", tempDir.toString(), testFile.toString())
+            IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testReadAllowed", tempDir.toString(), testFile.toString())
         } finally {
             tempDir.toFile().deleteRecursively()
         }
     }
 
     @Test
+    @EnabledIfLinuxAndSupported
     fun `testLandlockReadBlockedPath`() {
         val tempDir = createTempDirectory("landlock_test_allowed")
         try {
-            IsolatedProcessTester.runIsolatedTest(LandlockIsolatedApp::class.java.name, "read-blocked", tempDir.toString())
+            IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testReadBlocked", tempDir.toString())
         } finally {
             tempDir.toFile().deleteRecursively()
         }
     }
 
     @Test
+    @EnabledIfLinuxAndSupported
     fun `testLandlockWriteAllowedPath`() {
         val tempDir = createTempDirectory("landlock_test_write_allowed")
         val testFile = tempDir.resolve("test.txt")
         try {
-            IsolatedProcessTester.runIsolatedTest(LandlockIsolatedApp::class.java.name, "write-allowed", tempDir.toString(), testFile.toString())
+            IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testWriteAllowed", tempDir.toString(), testFile.toString())
         } finally {
             tempDir.toFile().deleteRecursively()
         }
     }
 
     @Test
+    @EnabledIfLinuxAndSupported
     fun `testLandlockWriteBlockedPath`() {
         val tempDir = createTempDirectory("landlock_test_read_only")
         val testFile = tempDir.resolve("test.txt")
         try {
-            IsolatedProcessTester.runIsolatedTest(LandlockIsolatedApp::class.java.name, "write-blocked", tempDir.toString(), testFile.toString())
+            IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testWriteBlocked", tempDir.toString(), testFile.toString())
         } finally {
             tempDir.toFile().deleteRecursively()
         }
     }
 
     @Test
+    @EnabledIfLinuxAndSupported
     fun `testLandlockUnconstrainedThreadUnaffected`() {
-        IsolatedProcessTester.runIsolatedTest(LandlockIsolatedApp::class.java.name, "unconstrained")
+        IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testUnconstrained")
     }
 
     @Test
+    @EnabledIfLinuxAndSupported
     fun `testLandlockRulesetNotStackedOnRecycledThread`() {
         if (!Landlock.isSupported()) return
         val tempDir = createTempDirectory("landlock_stacking_test")
         val testFile = tempDir.resolve("test.txt")
         testFile.writeText("data")
         try {
-            IsolatedProcessTester.runIsolatedTest(LandlockIsolatedApp::class.java.name, "stacking-recycled", tempDir.toString(), testFile.toString())
+            IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testStackingRecycled", tempDir.toString(), testFile.toString())
         } finally {
             tempDir.toFile().deleteRecursively()
         }
     }
 
     @Test
+    @EnabledIfLinuxAndSupported
     fun `testLandlockBlocksExecuteOutsideAllowedPaths`() {
         if (!Landlock.isSupported()) return
         val tempDir = createTempDirectory("landlock_exec_test")
         try {
-            IsolatedProcessTester.runIsolatedTest(LandlockIsolatedApp::class.java.name, "exec-blocked", tempDir.toString())
+            IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testExecBlocked", tempDir.toString())
         } finally {
             tempDir.toFile().deleteRecursively()
         }
     }
 
     @Test
+    @EnabledIfLinuxAndSupported
     fun `testLandlockAllowWriteToNonExistentFileUsesParentDir`() {
         if (!Landlock.isSupported()) return
         val tempDir = createTempDirectory("landlock_nonexist_test")
         val newFile = tempDir.resolve("does_not_exist_yet.txt")
         try {
-            IsolatedProcessTester.runIsolatedTest(LandlockIsolatedApp::class.java.name, "nonexistent-fallback", tempDir.toString(), newFile.toString())
+            IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testNonExistentFallback", newFile.toString())
         } finally {
             tempDir.toFile().deleteRecursively()
         }
     }
 
     @Test
+    @EnabledIfLinuxAndSupported
     fun `testLandlockResolvesSymlinkPathAutomatically`() {
         if (!Landlock.isSupported()) return
         val realDir = createTempDirectory("landlock_real_target")
@@ -399,7 +372,7 @@ class LandlockTest {
         val symlink = symlinkDir.resolve("link_to_real")
         Files.createSymbolicLink(symlink, realDir)
         try {
-            IsolatedProcessTester.runIsolatedTest(LandlockIsolatedApp::class.java.name, "resolve-symlink", realDir.toString(), realFile.toString(), symlink.toString())
+            IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testResolveSymlink", realFile.toString(), symlink.toString())
         } finally {
             realDir.toFile().deleteRecursively()
             symlinkDir.toFile().deleteRecursively()
@@ -407,13 +380,14 @@ class LandlockTest {
     }
 
     @Test
+    @EnabledIfLinuxAndSupported
     fun `testContainmentWorksWithoutExplicitAllowJvmClasspath`() {
         if (!Landlock.isSupported()) return
         val tempDir = createTempDirectory("landlock_auto_cp_test")
         val testFile = tempDir.resolve("test.txt")
         testFile.writeText("auto-cp-ok")
         try {
-            IsolatedProcessTester.runIsolatedTest(LandlockIsolatedApp::class.java.name, "auto-classpath", tempDir.toString(), testFile.toString())
+            IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testAutoClasspath", tempDir.toString(), testFile.toString())
         } finally {
             tempDir.toFile().deleteRecursively()
         }
@@ -450,6 +424,7 @@ class LandlockTest {
     }
 
     @Test
+    @EnabledIfLinuxAndSupported
     fun `testLandlockNestedSymlinks`() {
         if (!Landlock.isSupported()) return
         val realDir = createTempDirectory("landlock_real_target")
@@ -460,13 +435,14 @@ class LandlockTest {
         Files.createSymbolicLink(link1, realDir)
         Files.createSymbolicLink(link2, link1)
         try {
-            IsolatedProcessTester.runIsolatedTest(LandlockIsolatedApp::class.java.name, "nested-symlinks", realFile.toString(), link1.toString(), link2.toString(), realDir.toString())
+            IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testNestedSymlinks", realFile.toString())
         } finally {
             realDir.toFile().deleteRecursively()
         }
     }
 
     @Test
+    @EnabledIfLinuxAndSupported
     fun `testLandlockDotDotTraversal`() {
         if (!Landlock.isSupported()) return
         val baseDir = createTempDirectory("landlock_base")
@@ -475,13 +451,14 @@ class LandlockTest {
         forbiddenSub.resolve("secret.txt").writeText("forbidden")
         allowedSub.resolve("ok.txt").writeText("ok")
         try {
-            IsolatedProcessTester.runIsolatedTest(LandlockIsolatedApp::class.java.name, "dot-dot-traversal", allowedSub.toString(), forbiddenSub.toString(), "", baseDir.toString())
+            IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testDotDotTraversal", allowedSub.toString())
         } finally {
             baseDir.toFile().deleteRecursively()
         }
     }
 
     @Test
+    @EnabledIfLinuxAndSupported
     fun `testLandlockCircularSymlinksFailGracefully`() {
         if (!Landlock.isSupported()) return
         val dir = createTempDirectory("landlock_circular")
@@ -490,7 +467,7 @@ class LandlockTest {
         Files.createSymbolicLink(linkA, linkB)
         Files.createSymbolicLink(linkB, linkA)
         try {
-            IsolatedProcessTester.runIsolatedTest(LandlockIsolatedApp::class.java.name, "circular-symlinks", linkA.toString(), linkB.toString(), dir.toString())
+            IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testCircularSymlinks", linkA.toString())
         } finally {
             dir.toFile().deleteRecursively()
         }

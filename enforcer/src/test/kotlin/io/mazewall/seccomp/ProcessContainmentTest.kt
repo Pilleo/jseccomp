@@ -1,7 +1,6 @@
 package io.mazewall.seccomp
 import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.IsolatedProcessTester
-import io.mazewall.Platform
 import io.mazewall.Policy
 import io.mazewall.PolicyScope
 import io.mazewall.core.Syscall
@@ -11,38 +10,8 @@ import org.junit.jupiter.api.Test
 import java.io.IOException
 import java.nio.channels.Selector
 
-/**
- * Helper object used to run seccomp installation tests in an isolated JVM process.
- * This prevents the Gradle Test Worker from being permanently "poisoned" by
- * irreversible seccomp filters.
- */
-object SeccompIsolatedTestApp {
-    @JvmStatic
-    fun main(args: Array<String>) {
-        if (!Platform.isSupported()) System.exit(0)
-
-        val mode = args.firstOrNull() ?: "process-wide"
-        try {
-            when (mode) {
-                "process-wide" -> testProcessWide()
-                "thread-depth" -> testThreadDepth()
-                "inheritance" -> testInheritance()
-                "nio-stability" -> testNioStability()
-                else -> System.exit(1)
-            }
-            System.exit(0)
-        } catch (e: Exception) {
-            System.err.println("Isolated test failure: ${e.message}")
-            System.err.println(e.stackTraceToString())
-            System.exit(2)
-        } catch (e: Error) {
-            System.err.println("Isolated test critical error: ${e.message}")
-            System.err.println(e.stackTraceToString())
-            System.exit(2)
-        }
-    }
-
-    private fun testProcessWide() {
+class ProcessContainmentTest {
+    fun testProcessWide() {
         val safeGlobalPolicy =
             Policy
                 .builder()
@@ -62,7 +31,7 @@ object SeccompIsolatedTestApp {
         }
     }
 
-    private fun testInheritance() {
+    fun testInheritance() {
         val policy =
             Policy
                 .builder()
@@ -86,23 +55,15 @@ object SeccompIsolatedTestApp {
         thread.join()
     }
 
-    private fun testNioStability() {
+    fun testNioStability() {
         // Warm up NIO and Networking before installing the filter.
-        // This ensures libextnet.so, libnio.so and other dependencies are loaded,
-        // avoiding UnsatisfiedLinkError when mmap(PROT_EXEC) is blocked later.
         Selector.open().close()
         try {
             java.net.Socket().connect(java.net.InetSocketAddress("127.0.0.1", 1), 1)
         } catch (e: IOException) {
-            // Expected: just triggering library loading for libextnet/libnio.
-            // We ignore the exception because the connection success is irrelevant.
             System.out.println("Warmup connection failed as expected: ${e.message}")
         }
 
-        // Process-wide NO_NETWORK (blocks bind, listen, accept, connect, etc.)
-        // allowMmapExec() is required: without it the BPF program emits the PROT_EXEC
-        // inspection which kills the JIT compiler's background threads after installation.
-        // This test validates NO_NETWORK isolation only — mmap(PROT_EXEC) is not under test.
         val noNetworkAllowJit = Policy
             .builder()
             .base(Policy.NO_NETWORK)
@@ -110,12 +71,9 @@ object SeccompIsolatedTestApp {
             .build()
         ContainedExecutors.installOnProcess(noNetworkAllowJit)
 
-        // NIO Selector uses epoll_create/epoll_ctl under the hood on Linux.
-        // These should NOT be blocked by NO_NETWORK.
         val selector = Selector.open()
         selector.close()
 
-        // Verify that network calls are actually blocked
         try {
             java.net.Socket().connect(java.net.InetSocketAddress("127.0.0.1", 80))
             throw IllegalStateException("Connect should have failed")
@@ -126,7 +84,7 @@ object SeccompIsolatedTestApp {
         }
     }
 
-    private fun testThreadDepth() {
+    fun testThreadDepth() {
         val safeSyscalls =
             listOf(
                 Syscall.EXECVE,
@@ -194,31 +152,29 @@ object SeccompIsolatedTestApp {
             }
         }
     }
-}
 
-class ProcessContainmentTest {
     @Test
     @EnabledIfLinuxAndSupported
     fun `installOnProcess applies containment globally`() {
-        IsolatedProcessTester.runIsolatedTest("io.mazewall.seccomp.SeccompIsolatedTestApp", "process-wide")
+        IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testProcessWide")
     }
 
     @Test
     @EnabledIfLinuxAndSupported
     fun `subsequent threads inherit process-wide filter`() {
-        IsolatedProcessTester.runIsolatedTest("io.mazewall.seccomp.SeccompIsolatedTestApp", "inheritance")
+        IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testInheritance")
     }
 
     @Test
     @EnabledIfLinuxAndSupported
     fun `process-wide NO_NETWORK does not break NIO selector`() {
-        IsolatedProcessTester.runIsolatedTest("io.mazewall.seccomp.SeccompIsolatedTestApp", "nio-stability")
+        IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testNioStability")
     }
 
     @Test
     @EnabledIfLinuxAndSupported
     fun `thread-local installation respects filter depth`() {
-        IsolatedProcessTester.runIsolatedTest("io.mazewall.seccomp.SeccompIsolatedTestApp", "thread-depth")
+        IsolatedProcessTester.runIsolatedMethod(this::class.java.name, "testThreadDepth")
     }
 
     @Test
