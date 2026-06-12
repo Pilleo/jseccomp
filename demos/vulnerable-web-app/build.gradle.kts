@@ -71,16 +71,8 @@ tasks.withType<Test> {
     dependsOn(tasks.named("bootJar"))
 }
 
-tasks.matching {
-    it.name.startsWith("spotbugs") ||
-    it.name.contains("detekt", ignoreCase = true) ||
-    it.name.contains("jacoco", ignoreCase = true) ||
-    it.name.contains("ktlint", ignoreCase = true)
-}.configureEach {
-    enabled = false
-}
-
 // Disable static analysis for this deliberately vulnerable demo app
+
 tasks.configureEach {
     if (name.contains("detekt", ignoreCase = true) ||
         name.contains("spotbugs", ignoreCase = true) ||

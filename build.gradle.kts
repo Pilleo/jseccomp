@@ -96,6 +96,9 @@ ktlint {
 }
 
 subprojects {
+    if (project.path.startsWith(":demos")) {
+        return@subprojects
+    }
     apply(plugin = "java")
     apply(plugin = "maven-publish")
     apply(plugin = "base")
