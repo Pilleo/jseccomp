@@ -79,6 +79,10 @@ dependencyCheck {
     System.getenv("NVD_API_KEY")?.takeIf { it.isNotBlank() }?.let {
         nvd.apiKey = it
     }
+    // Disable OSS Index as it requires separate credentials and is currently failing in CI
+    ossIndex {
+        enabled = false
+    }
 }
 
 tasks.named("dependencyCheckAnalyze").configure {

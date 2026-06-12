@@ -21,8 +21,9 @@ jobs:
             - name: Setup Gradle
               uses: gradle/actions/setup-gradle@v4
               with:
-                  # Only provide the key if the secret is actually set
                   cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+            - name: Grant Execute Permission for Gradlew
+              run: chmod +x gradlew
             - name: Run Linting
               run: ./gradlew detekt spotbugsMain spotbugsTest --build-cache --configuration-cache --no-daemon
 
@@ -44,6 +45,8 @@ jobs:
                       caches
                       notifications
                       dependency-check-data
+            - name: Grant Execute Permission for Gradlew
+              run: chmod +x gradlew
             - name: Run Dependency Check
               run: ./gradlew dependencyCheckAnalyze --no-configuration-cache --no-daemon --info
               env:
@@ -64,6 +67,8 @@ jobs:
               uses: gradle/actions/setup-gradle@v4
               with:
                   cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+            - name: Grant Execute Permission for Gradlew
+              run: chmod +x gradlew
             - name: Setup Podman Socket
               run: |
                   systemctl --user enable --now podman.socket
@@ -90,6 +95,8 @@ jobs:
               uses: gradle/actions/setup-gradle@v4
               with:
                   cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+            - name: Grant Execute Permission for Gradlew
+              run: chmod +x gradlew
             - name: Setup Podman Socket
               run: |
                   systemctl --user enable --now podman.socket
@@ -116,6 +123,8 @@ jobs:
               uses: gradle/actions/setup-gradle@v4
               with:
                   cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+            - name: Grant Execute Permission for Gradlew
+              run: chmod +x gradlew
             - name: Run PITest (Host)
               run: ./gradlew :enforcer:pitest -Dpitest.threads=12 --build-cache --configuration-cache
 
@@ -135,6 +144,8 @@ jobs:
               uses: gradle/actions/setup-gradle@v4
               with:
                   cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+            - name: Grant Execute Permission for Gradlew
+              run: chmod +x gradlew
             - name: Setup Podman Socket
               run: |
                   systemctl --user enable --now podman.socket
@@ -163,8 +174,8 @@ jobs:
                   distribution: "temurin"
             - name: Setup Gradle
               uses: gradle/actions/setup-gradle@v4
-              with:
-                  cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+            - name: Grant Execute Permission for Gradlew
+              run: chmod +x gradlew
             - name: Publish to GitHub Packages
               run: ./gradlew publishAllPublicationsToGitHubPackagesRepository --info --no-parallel --no-configuration-cache
               env:
