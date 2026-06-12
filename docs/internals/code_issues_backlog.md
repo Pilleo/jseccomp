@@ -319,6 +319,14 @@ Consequently, if a workload relies on `io_uring` for file access, `StraceProfile
 **Context:** Accessing thread-local state requires explicit `.get()` and `.set()` calls on `ThreadLocal` objects.
 **Needed:** Implement property delegates for `ThreadLocal` values. This would allow accessing the current thread's sandbox state as a standard property (`var currentPolicy by ThreadLocalDelegate(...)`), making the code more readable while safely encapsulating the underlying storage.
 
+### 🔴 [Severity: HIGH]: Tier S Profiler is blind to background threads (No TSYNC/Inheritance)
+**Target:** `io.mazewall.profiler.Profiler.kt`, `io.mazewall.profiler.engine.ProfilerInstaller.kt`
+**Context:** Seccomp filters and `USER_NOTIF` file descriptors are per-thread by default. The current Tier S `Profiler.profile { ... }` only installs the filter on the calling thread. Background JVM threads (GC, JIT, ForkJoinPool) completely bypass the profiler, leading to an incomplete "JVM Floor" baseline.
+**Needed:** Implement process-wide tracing support in Tier S. Two potential paths:
+1. **`SECCOMP_FILTER_FLAG_TSYNC`:** Synchronize the filter to all existing threads in the thread group at installation time.
+2. **`SECCOMP_FILTER_FLAG_NEW_LISTENER` + Clone Tracking:** Ensure new child threads automatically inherit the seccomp filter and notify the same supervisor daemon.
+This is critical for generating a production-grade JVM Syscall Floor that accounts for background management tasks.
+
 ### 🟢 [RESOLVED]: `ContainedExecutors.kt` violates single-responsibility at the API surface
 **Target:** `io.mazewall.enforcer.ContainedExecutors`
 **Fix:** `ContainedExecutors` was refactored, and the inner class `ContainedExecutorWrapper` was extracted into its own file (`enforcer/internal/ContainedExecutorWrapper.kt`).
