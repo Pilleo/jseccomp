@@ -16,7 +16,7 @@ When `Landlock.applyRuleset()` is invoked, it checks `getAccessMask()`. If the s
 However, `PURE_COMPUTE_UNSAFE` does **not** block `Syscall.IOCTL` (likely because standard out `isatty` requires it). Therefore, running `PURE_COMPUTE` on any kernel older than Linux 6.10 (e.g., Ubuntu 24.04 uses 6.8) results in a fatal `UnsupportedOperationException` on startup. 
 **Needed:** Either `PURE_COMPUTE_UNSAFE` / `PURE_COMPUTE` must explicitly block `ioctl` (and accept that `isatty` fails, perhaps redirecting it), OR the Landlock ABI < 5 check for `ioctl` should only be a warning if the policy is an out-of-the-box preset. Alternatively, `PURE_COMPUTE` should be adjusted to block `ioctl` explicitly.
 
-### 🔴 [Severity: HIGH]: Landlock.applyRestrictiveBarrier() silent fail-open
+### 🟢 [RESOLVED]: Landlock.applyRestrictiveBarrier() silent fail-open
 **Target:** /enforcer/src/main/kotlin/io/mazewall/landlock/Landlock.kt
 **Context:** In applyRestrictiveBarrier(), the calls to LinuxNative.prctl(PR_SET_NO_NEW_PRIVS) and LinuxNative.syscall(LANDLOCK_RESTRICT_SELF_NR) return a SyscallResult. The method ignores the returnValue (and errno) of these calls. If the restrictive barrier fails to apply (e.g., due to Landlock configuration limits or permission errors), the profiler will proceed with no restrictions, bypassing the intended restrictive barrier entirely.
 **Needed:** Add checks for returnValue < 0 for both prctl and syscall, throwing an IllegalStateException on failure to adhere to the fail-closed doctrine, matching the logic in enforceRuleset().
@@ -397,3 +397,60 @@ This is critical for generating a production-grade JVM Syscall Floor that accoun
 **Target:** `AllowListTest.preWarm()`, `containment_design.md §3g`
 **Context:** When `defaultAction = ACT_ERRNO` (ALLOW_LIST), `openat` is blocked unless explicitly in the allow set. Classes referenced by `PureJavaBpfEngine` immediately after filter installation (specifically `SeccompInstallationState$Failed`) are loaded lazily via `openat`. After the filter blocks `openat`, these classes can no longer be loaded → `NoClassDefFoundError`. The old `JitWarmup` attempted to solve this globally but was fragile and non-deterministic. The correct fix is targeted: explicitly touch the exact class graph that will be used post-installation, in the specific test/component that uses the restrictive ALLOW_LIST policy.
 **Fix:** Extended `AllowListTest.preWarm()` to touch all `SeccompInstallationState` subclasses before the filter is installed. Added `§3g` to `containment_design.md` documenting the rule and its scope.
+
+### 🔴 [Severity: HIGH]: `IterativeProfiler` Context Loss via thread creation
+*   **Dimension:** DX
+*   **Target Area:** `profiler/src/main/kotlin/io/mazewall/profiler/iterative/IterativeProfiler.kt` (specifically `executeTask`)
+*   **Failure Hypothesis:** When a developer profiles a workload that relies on `ThreadLocal` context variables (e.g. MDC logging, Spring Security context, or database transactions) using `IterativeProfiler.profile { ... }`, the profiler strips all this context, causing the workload to crash or behave incorrectly during the profiling run.
+*   **Context & Proof:** In `IterativeProfiler.executeTask`, the task is executed by spawning a completely new thread: `val thread = Thread { ... task.run() }`. Standard `Thread` creation does not copy `ThreadLocal` variables from the parent thread. Consequently, when the task runs, any state initialized in the main thread is lost.
+*   **Cascading Risk Potential:** High DX friction and compatibility risk. Breaks profiling for modern enterprise Java frameworks that heavily rely on thread-local contexts.
+*   **Recommendation:** Use `InheritableThreadLocal` where appropriate, or allow the caller to pass a custom `ExecutorService` (like a Spring `TaskExecutor`) that implements context propagation, rather than raw `Thread` instantiation.
+
+### 🔴 [Severity: HIGH]: `IterativeProfiler` Path Truncation on Spaces
+*   **Dimension:** Cascading Failure Analysis
+*   **Target Area:** `profiler/src/main/kotlin/io/mazewall/profiler/iterative/IterativeProfiler.kt` (specifically `findPathEnd`)
+*   **Failure Hypothesis:** When a profiled workload is denied access to a file whose absolute path contains spaces (e.g. `/var/log/my file.txt`), the `IterativeProfiler` incorrectly truncates the path at the first whitespace when parsing the exception message, returning an invalid path and failing to whitelist the correct resource.
+*   **Context & Proof:** In `IterativeProfiler.findPathEnd`, the backwards scan loop continues while `end >= 0 && (msg[end].isWhitespace() || msg[end] == '(')`. This strips trailing spaces. Then, `resolveAbsolutePath` scans backwards until it hits `!msg[start - 1].isWhitespace()`. This means that any spaces *within* the path itself will act as boundary markers, prematurely ending the path resolution. The profiler then attempts to whitelist the truncated snippet, leaving the actual file blocked.
+*   **Cascading Risk Potential:** High stability and usability bug. Completely breaks iterative profiling for any workload executing in directories containing spaces.
+*   **Recommendation:** Stop relying on naive string-message parsing for `IOException` or fallback exception wrappers. If exceptions must be parsed, consider injecting specific delimiters around the path string in the enforcer exception message, or using regex boundary matching that accounts for quoted/spaced paths.
+
+### 🔴 [Severity: MEDIUM]: `ContainmentDesignSpec` test fails on systems without Landlock support
+*   **Dimension:** Cascading Failure Analysis
+*   **Target Area:** `enforcer/src/integrationTest/kotlin/io/mazewall/seccomp/ContainmentDesignSpec.kt` (specifically `"Pre-warmed JVM task runs successfully..."`)
+*   **Failure Hypothesis:** The test instantiates `ContainedExecutors.wrap(executor, Policy.builder().build())`. Because the default policy allows `IO_URING_SETUP`, `ContainedExecutors` automatically triggers Landlock. If the kernel does not support Landlock, `Landlock.applyRuleset` throws an `UnsupportedOperationException`. The test fails because it only conditionally checks `Arch.current()` support but does not check or handle `Landlock.isSupported()`.
+*   **Context & Proof:** The test execution log shows `java.util.concurrent.ExecutionException: java.lang.UnsupportedOperationException: Landlock is not supported on this kernel but FS rules were requested.` which originates from `handleUnsupportedLandlock`. Since tests are executed in a sandbox environment that lacks Landlock, this test deterministically fails, breaking the build.
+*   **Cascading Risk Potential:** Medium. Breaks CI pipelines and test suites on environments lacking advanced kernel features.
+*   **Recommendation:** Wrap the execution in an `Assumptions.assumeTrue(Landlock.isSupported())` or skip it natively. Wait, as an agent I cannot fix the source code, but the backlog must track this CI failure.
+
+### 🔴 [Severity: MEDIUM]: `Landlock` getAccessMask missing ABI 4 Support (Net Capabilities)
+*   **Dimension:** FFM ABI / OS Invariants
+*   **Target Area:** `enforcer/src/main/kotlin/io/mazewall/landlock/Landlock.kt` (specifically `getAccessMask` and `getFullAccessMask`)
+*   **Failure Hypothesis:** Linux Landlock ABI 4 introduced `LANDLOCK_ACCESS_NET_BIND_TCP` and `LANDLOCK_ACCESS_NET_CONNECT_TCP`. The `getAccessMask` and `getFullAccessMask` methods compute access flags for ABI versions up to ABI 5 (e.g. `if (abi >= ABI_V5) mask = mask or LANDLOCK_ACCESS_FS_IOCTL_DEV`), but they completely skip ABI 4 networking capabilities. If a user expects network containment via Landlock on an ABI 4+ kernel, they will not be contained.
+*   **Context & Proof:** `Landlock.kt` defines `getAccessMask`. It checks `abi >= 2` (REFER), `abi >= ABI_V3` (TRUNCATE), and `abi >= ABI_V5` (IOCTL_DEV). There is no check for `abi >= 4` to append network capability masks. Although `createRuleset` checks `if (abi >= 4)` to expand the `rulesetAttr` size to include `handled_access_net`, the actual value written to `handled_access_net` is hardcoded to `0L`: `rulesetAttr.set(ValueLayout.JAVA_LONG, Layouts.LANDLOCK_RULESET_ATTR_NET_OFFSET, 0L)`. Thus, Landlock network containment is silently unsupported/disabled despite ABI 4+ sizing handling.
+*   **Cascading Risk Potential:** Medium feature gap and potential security evasion if developers rely solely on Landlock for network isolation instead of Seccomp-BPF.
+*   **Recommendation:** Document that Landlock ABI 4 network isolation is not supported and rely entirely on Seccomp-BPF for network rules, or implement the ABI 4 `handled_access_net` capability flags.
+
+### 🔴 [Severity: MEDIUM]: `PureJavaBpfEngine` Thread State Synchronization
+*   **Dimension:** Cascading Failure Analysis
+*   **Target Area:** `enforcer/src/main/kotlin/io/mazewall/seccomp/PureJavaBpfEngine.kt` (specifically `installOnProcess` and `threadState`)
+*   **Failure Hypothesis:** The `PureJavaBpfEngine` uses a `ThreadLocal` called `threadState` to track the installation progress (e.g. `PrivilegesLocked`, `FilterBuilt`, `SystemCallApplied`). When `installOnProcess` is called, it installs a global seccomp filter using the `TSYNC` flag, affecting all sibling threads. However, it only updates the `ThreadLocal` state of the *calling* thread.
+*   **Context & Proof:** In `installInternal`, the code calls `threadState.set(SeccompInstallationState...)` sequentially. Since `threadState` is a `ThreadLocal`, sibling threads that were just subjected to the `TSYNC` seccomp filter will still evaluate `PureJavaBpfEngine.state` as `Uninitialized`. If any sibling thread later attempts to verify its installation state or perform operations that check `state`, it will falsely believe no filter is applied.
+*   **Cascading Risk Potential:** Medium diagnostic and internal state inconsistency. The global OS state diverges from the JVM's thread-local state map.
+*   **Recommendation:** Document this state divergence, or implement a global `processState` alongside `threadState` so that `installOnProcess` correctly signals global containment.
+
+
+### 🔴 [Severity: MEDIUM]: Unhandled `TSYNC` edge cases during JIT classloading
+*   **Dimension:** OS Invariants / Cascading Failure
+*   **Target Area:** `enforcer/src/main/kotlin/io/mazewall/seccomp/PureJavaBpfEngine.kt` (specifically `installFilter`)
+*   **Failure Hypothesis:** When `installOnProcess` calls `seccomp` with `SECCOMP_FILTER_FLAG_TSYNC`, the Linux kernel applies the filter to all sibling threads synchronously. If the JVM is heavily multithreaded and a background JIT compiler thread (C1/C2) is currently executing a blocked system call (e.g., `openat` for lazy classloading) exactly when `TSYNC` takes effect, the syscall might be abruptly interrupted or subsequently denied with `EPERM` when retried.
+*   **Context & Proof:** `PureJavaBpfEngine.installInternal` locks privileges and applies the filter using `SECCOMP_FILTER_FLAG_TSYNC`. The kernel ensures atomicity of filter application, but the JVM provides no safety guarantee that background threads are not actively engaged in IO or network calls that are about to be denied. While `mazewall` documents JIT `mmap(PROT_EXEC)` deadlocks, it does not explicitly handle TOCTOU race conditions where `TSYNC` cuts off actively running operations, leading to non-deterministic JIT aborts in production.
+*   **Cascading Risk Potential:** Medium stability risk. Can cause random, hard-to-debug JVM crashes during process-wide filter installation in high-traffic applications.
+*   **Recommendation:** Document the inherent risks of `TSYNC` concurrency in `SECURITY_CONSIDERATIONS.md` and recommend applying process-wide policies only during application initialization (e.g. `public static void main`) before extensive multithreading or JIT activity begins.
+
+### 🔴 [Severity: LOW]: Inefficient Regex Compilation in `ContainmentViolationDetector`
+*   **Dimension:** Performance & Efficiency
+*   **Target Area:** `enforcer/src/main/kotlin/io/mazewall/enforcer/ContainmentViolationDetector.kt` (specifically `DENIED_PHRASES`)
+*   **Failure Hypothesis:** The `ContainmentViolationDetector` stores `DENIED_PHRASES` as an array of strings and checks them using `DENIED_PHRASES.any { msg.contains(it, ignoreCase = true) }`. Under heavy load (e.g. iterative profiling loops or logging intercepted exceptions), this causes redundant string allocations and linear substring scans across all messages.
+*   **Context & Proof:** `contains(it, ignoreCase = true)` dynamically converts both strings or handles case-insensitive scanning inefficiently on every invocation. Compiling a single `Regex` pattern (e.g. `Regex("Operation not permitted|Permission denied|refusé|verweigert|negado", RegexOption.IGNORE_CASE)`) would allow the regex engine to construct an optimized DFA/NFA state machine and evaluate the message in a single pass.
+*   **Cascading Risk Potential:** Low performance overhead, but adds unnecessary garbage collection pressure and CPU cycles during high-frequency exception trapping in Tier A profiling.
+*   **Recommendation:** Refactor `DENIED_PHRASES` into a compiled `Regex` for optimal performance.
