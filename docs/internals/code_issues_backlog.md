@@ -454,3 +454,146 @@ This is critical for generating a production-grade JVM Syscall Floor that accoun
 *   **Context & Proof:** `contains(it, ignoreCase = true)` dynamically converts both strings or handles case-insensitive scanning inefficiently on every invocation. Compiling a single `Regex` pattern (e.g. `Regex("Operation not permitted|Permission denied|refusé|verweigert|negado", RegexOption.IGNORE_CASE)`) would allow the regex engine to construct an optimized DFA/NFA state machine and evaluate the message in a single pass.
 *   **Cascading Risk Potential:** Low performance overhead, but adds unnecessary garbage collection pressure and CPU cycles during high-frequency exception trapping in Tier A profiling.
 *   **Recommendation:** Refactor `DENIED_PHRASES` into a compiled `Regex` for optimal performance.
+
+### 🔴 [Severity: MEDIUM]: Unhandled `IOCTL` fallbacks during legacy JVM syscall tracing
+*   **Dimension:** Micro-Implementation & FFM ABI Rigor
+*   **Target Area:** `io.mazewall.profiler.engine.ProfilerDaemon`
+*   **Failure Hypothesis:** When tracing `IOCTL`, older kernels may pass unexpected data structures in the argument block due to architectural differences or internal kernel fallbacks. If the `ProfilerDaemon` attempts to read these structs from memory unconditionally, it may hit unmapped pages or receive structurally malformed data, leading to incomplete traces or Daemon crashes on specific kernel versions.
+*   **Context & Proof:** The `ProfilerDaemon` intercepts syscalls via `USER_NOTIF`. For complex syscalls with pointer arguments (like `ioctl`), it reads the argument memory using `process_vm_readv`. However, standard `ioctl` arguments are highly polymorphic and depend heavily on the device and request code. Attempting to parse them genericly without strict bounds checking or request-code verification can cause `process_vm_readv` to fail or read garbage.
+*   **Cascading Risk Potential:** Medium diagnostic defect. Tracing applications that rely heavily on complex `ioctl` calls (e.g. specialized hardware communication or TTY manipulation) might produce garbled `BillOfBehavior` outputs or cause the Daemon to drop events.
+*   **Recommendation:** Implement robust request-code filtering and structural bounds checking before attempting to read `ioctl` argument payloads in the Profiler Daemon.
+
+### 🔴 [Severity: MEDIUM]: Potential Race Condition in Async IO Thread Shutdown
+*   **Dimension:** Cascading Failure Analysis
+*   **Target Area:** `io.mazewall.enforcer.ContainedExecutors`
+*   **Failure Hypothesis:** If a wrapped `ExecutorService` is shut down while background tasks (like async I/O handlers) are still initializing their thread-local seccomp filters, the thread pool might aggressively terminate these threads. This can leave the `ContainerStateRegistry` out of sync, or worse, cause native resources (like allocated Arenas) to be leaked or improperly finalized.
+*   **Context & Proof:** `ContainedExecutors` relies on `applyContainment` wrapping each task. If `shutdownNow()` is called on the underlying executor, threads may be interrupted during the delicate FFM downcalls (e.g. `seccomp` or `prctl`). The JVM does not guarantee atomic execution of these FFM boundaries against thread interruptions.
+*   **Cascading Risk Potential:** Medium stability risk. Could lead to memory leaks or JVM crashes if native Arenas are accessed after the thread is aggressively killed during shutdown sequences.
+*   **Recommendation:** Document the need for graceful shutdown (`shutdown()` and `awaitTermination()`) when using `ContainedExecutors`, and explore adding explicit resource cleanup hooks that are resilient to thread interruptions.
+
+### 🔴 [Severity: MEDIUM]: Uncaught Native Exceptions Escaping BPF Installation
+*   **Dimension:** Cascading Failure Analysis
+*   **Target Area:** `io.mazewall.seccomp.PureJavaBpfEngine`
+*   **Failure Hypothesis:** If `process_vm_readv` or `seccomp` downcalls throw an unhandled JVM Error or Exception (e.g., `OutOfMemoryError` during Arena allocation, or a sudden FFM `IllegalArgumentException`), the `installInternal` method catches `Throwable` and blindly sets the thread state to `Failed(stepName, errno, e)`, but it might leave the process in a partially restricted state where `no_new_privs` is enabled but the filter is missing.
+*   **Context & Proof:** `PureJavaBpfEngine.installInternal` calls `setNoNewPrivs()`, builds the filter, and installs it. If an exception occurs after `setNoNewPrivs()` but before `installFilter`, the process has permanently locked its privileges (cannot call `execve` with setuid) without actually applying the security policy. Subsequent attempts to retry or recover might fail.
+*   **Cascading Risk Potential:** Medium application stability defect. Leaves the JVM in a non-deterministic state where native OS state does not match the intended policy, potentially causing confusing failures during later application phases.
+*   **Recommendation:** Document the permanence of `setNoNewPrivs` and ensure `installInternal` allocates memory and parses the policy *before* invoking `prctl(PR_SET_NO_NEW_PRIVS)` to minimize the critical section where partial failure can occur.
+
+
+### 🔴 [Severity: MEDIUM]: Unhandled Signal Interruptions (`EINTR`) during `seccomp` Filter Installation
+*   **Dimension:** OS Invariants
+*   **Target Area:** `io.mazewall.seccomp.PureJavaBpfEngine`
+*   **Failure Hypothesis:** If the `seccomp` downcall in `installFilter` is interrupted by an asynchronous POSIX signal (e.g., a JVM profiling signal or timer tick), it may fail with `EINTR`. The current code does not retry the syscall on `EINTR` and immediately throws an `IllegalStateException`, aborting the installation.
+*   **Context & Proof:** The `PureJavaBpfEngine.installFilter` method calls `LinuxNative.syscall(NativeConstants.SECCOMP_SET_MODE_FILTER, ...)`. The kernel can interrupt almost any blocking or slow system call with `EINTR`. If `seccomp` returns `EINTR`, `r3.returnValue` will not be `0`, and the code falls back to `prctl`, which might also fail or behave unexpectedly. The method lacks a robust `while (errno == EINTR)` retry loop.
+*   **Cascading Risk Potential:** Medium stability risk. Spurious `EINTR` signals could cause non-deterministic failures when initializing the sandbox in heavily multi-threaded or profiled JVM environments.
+*   **Recommendation:** Wrap the `seccomp` and `prctl` filter installation downcalls in a retry loop that specifically handles `EINTR`.
+
+### 🔴 [Severity: MEDIUM]: Unhandled Signal Interruptions (`EINTR`) in `poll` and `recvmsg` in `ProfilerDaemon`
+*   **Dimension:** OS Invariants
+*   **Target Area:** `io.mazewall.profiler.engine.ProfilerDaemon`
+*   **Failure Hypothesis:** The `ProfilerDaemon` uses a `poll` and `recvmsg` loop to multiplex and read incoming `USER_NOTIF` events from trace listeners over Unix Domain Sockets. If an asynchronous signal interrupts these downcalls, they will fail with `EINTR`. The daemon may not correctly retry the interrupted calls, potentially losing events, desynchronizing the protocol, or incorrectly terminating the connection.
+*   **Context & Proof:** `ProfilerDaemon.reactorLoop` and `ProfilerSessionHandler.waitForParentAck` make blocking calls via `LinuxNative.getFileSystem().poll` and `LinuxNative.getNetwork().recvmsg`. The kernel routinely interrupts these calls with `EINTR` (e.g. for GC safepoints or user-defined signals). While `recvmsg` might have been patched in the listener, the daemon-side `poll` loop lacks an explicit `EINTR` retry.
+*   **Cascading Risk Potential:** Medium. Can lead to non-deterministic trace event drops or premature termination of the profiler daemon connection, especially during heavy workload profiling on multi-core VMs.
+*   **Recommendation:** Wrap all blocking network/file system downcalls (`poll`, `recvmsg`, `sendmsg`) in standard POSIX `while (res.returnValue < 0 && res.errno == EINTR) { ... }` loops.
+
+### 🔴 [Severity: LOW]: Suboptimal BPF `RET` instruction placement in `emitLinearScan`
+*   **Dimension:** Performance & Efficiency
+*   **Target Area:** `io.mazewall.BpfFilter` (specifically `emitLinearScan`)
+*   **Failure Hypothesis:** The BPF `emitLinearScan` generates a sequence of checks like `JEQ syscall_nr -> RET action; JEQ syscall_nr_2 -> RET action`. If the policy has a default action of `ACT_ALLOW` (blacklist) and blocks a small number of syscalls (e.g. `EXECVE`), every single allowed system call must jump through the entire block list before reaching the final `RET ALLOW` instruction at the end of the filter.
+*   **Context & Proof:** `emitLinearScan` iterates over blocked syscalls and adds checks. The default action is appended at the very end. This structure means the "fast path" (allowed syscalls) is actually the "slowest path" through the filter, requiring N evaluations. Since most system calls are allowed in a typical application, the kernel evaluates the maximum number of instructions for every single standard file or network operation.
+*   **Cascading Risk Potential:** Low performance risk, but contributes to unnecessary CPU overhead per system call.
+*   **Recommendation:** Optimize the BPF compiler. If the default action is `ALLOW`, invert the logic: use a binary search tree or jump tables within the BPF bytecode to reach the decision faster, or early-exit if the syscall number falls outside the blocked ranges.
+
+### 🔴 [Severity: DX-FRICTION]: Missing Extensibility in Exception Message Parsing
+*   **Dimension:** DX & API Ergonomics
+*   **Target Area:** `io.mazewall.profiler.iterative.IterativeProfiler` and `io.mazewall.enforcer.ContainmentViolationDetector`
+*   **Failure Hypothesis:** Different JVM languages, native wrappers, or custom `FileSystemProvider` implementations might throw exceptions containing localized error strings or unusual formatting when access is denied. The `DENIED_PHRASES` list in `ContainmentViolationDetector` is hardcoded.
+*   **Context & Proof:** `ContainmentViolationDetector` uses a fixed `arrayOf` strings (e.g., `"Operation not permitted"`, `"refusé"`). The `IterativeProfiler` uses this exact array to identify exception boundaries. If a user's framework throws a custom wrapper containing "Blocked by sandbox", the violation is completely ignored.
+*   **Cascading Risk Potential:** DX friction. Users in non-standard environments or using custom filesystem providers cannot use the Iterative Profiler.
+*   **Recommendation:** Provide a public configuration hook in `IterativeProfiler` or `Policy` allowing developers to supply custom regexes or phrases for violation detection.
+
+### 🔴 [Severity: MEDIUM]: Unhandled `O_CLOEXEC` Omission on Profiler Unix Sockets
+*   **Dimension:** OS Invariants
+*   **Target Area:** `io.mazewall.profiler.internal.ProfilerSocket`
+*   **Failure Hypothesis:** The `ProfilerSocket` creates a `socket(AF_UNIX, SOCK_STREAM, 0)`. It does not apply the `O_CLOEXEC` (Close-on-Exec) flag. If the profiled JVM spawns a child process (e.g. via `ProcessBuilder`) while the profiler connection is open, the child process inherits the open socket file descriptor to the Profiler Daemon.
+*   **Context & Proof:** `ProfilerSocket.kt` makes the raw Linux `socket` downcall. Because `SOCK_CLOEXEC` is not bitwise OR'd into the socket type, the descriptor remains open across `execve`. Although the Tier 2 policy might block `execve`, if a user allows `execve` (or uses Tier S process-wide profiling without blocking `execve`), child processes will unknowingly hold a reference to the daemon socket.
+*   **Cascading Risk Potential:** Medium. File descriptor leak to untrusted child processes, potentially allowing children to write spoofed `USER_NOTIF` ACKs or keep the daemon connection alive indefinitely, preventing cleanup.
+*   **Recommendation:** Always bitwise OR `NativeConstants.SOCK_CLOEXEC` into the `type` argument when calling `LinuxNative.socket`.
+
+### 🔴 [Severity: MEDIUM]: Unhandled `O_PATH` Omission on Landlock Fallback Directories
+*   **Dimension:** Security Privileges
+*   **Target Area:** `io.mazewall.landlock.Landlock`
+*   **Failure Hypothesis:** When `Landlock.addRule` falls back to opening a parent directory using `handleInitialOpenFailure`, it invokes `LinuxNative.getFileSystem().open(arena.allocateFrom(parentPath), flags)`. However, `flags` is `NativeConstants.O_PATH or NativeConstants.O_CLOEXEC or NativeConstants.O_NOFOLLOW`. If the parent directory is actually a symlink to another directory, `O_NOFOLLOW` will cause `open` to fail with `ELOOP`, rejecting the fallback completely and preventing Landlock from applying the rule.
+*   **Context & Proof:** `Landlock.addRule` passes `O_NOFOLLOW` to prevent symlink traversal for the specific file rule. However, when falling back to a parent directory (e.g. `File(resolvedPath).parent`), the parent path might be an implicitly resolved system symlink (e.g. `/var/run` -> `/run`). If the fallback uses `O_NOFOLLOW`, the parent open fails, and the user's intended sandbox rule is entirely dropped.
+*   **Cascading Risk Potential:** Medium feature failure. Can silently drop valid path rules if system paths involve intermediate directory symlinks.
+*   **Recommendation:** When performing the directory fallback in `handleInitialOpenFailure`, remove the `O_NOFOLLOW` flag to allow the kernel to traverse to the real parent directory.
+
+### 🔴 [Severity: LOW]: Memory Segment Lifetime Leak in Async Profiler Events
+*   **Dimension:** Memory Lifetimes & Escapes
+*   **Target Area:** `io.mazewall.profiler.engine.ProfilerSessionHandler`
+*   **Failure Hypothesis:** The `ProfilerSessionHandler` receives events and creates detached FFM `MemorySegment` objects for trace elements. If these segments are passed to background logging threads or asynchronous channels without an explicit lifecycle scope (like an `Arena.ofConfined().use { ... }` block binding the entire trace lifecycle), the garbage collector must finalize the native memory, causing high GC pressure or native memory leaks under heavy profiling loads.
+*   **Context & Proof:** `ProfilerDaemon` uses a persistent `Arena.ofShared()` for some operations, but `process_vm_readv` strings are copied into JVM `String` objects, avoiding direct memory segment escapes. However, if any internal structs (like `seccomp_data` slices) are accidentally retained by the `TraceEvent` objects, they would escape their confined arenas.
+*   **Cascading Risk Potential:** Low. The current implementation aggressively converts native data to immutable Kotlin classes (`String`, `Syscall`), so segments don't escape. However, any future optimization attempting to zero-copy `TraceEvent` data could introduce critical memory safety bugs.
+*   **Recommendation:** Document the strict requirement that all FFM `MemorySegment` data must be materialized into JVM heap objects before crossing the `TraceEvent` boundary into the compiler/logger.
+
+### 🔴 [Severity: MEDIUM]: TOCTOU Vulnerability in `prctl` Argument Inspection
+*   **Dimension:** TOCTOU & Concurrency
+*   **Target Area:** `io.mazewall.BpfFilter` (specifically `allowUnsafePrctl` block)
+*   **Failure Hypothesis:** The BPF filter inspects `args[0]` of the `prctl` system call (the `option` parameter). Since the `prctl` arguments are passed in registers, they cannot be modified by another thread *between* the BPF check and the kernel execution (preventing a standard memory TOCTOU). However, if an attacker uses an allowed `prctl` option (like `PR_SET_NAME`) but points the `arg2` pointer to a memory region concurrently mutated by a sibling thread, they might trigger kernel bugs or bypass intended name restrictions.
+*   **Context & Proof:** `BpfFilter.kt` correctly inspects `args[0]` (the register value) which is immune to TOCTOU. `mazewall`'s threat model assumes `prctl` is unsafe primarily because of `PR_SET_SECCOMP` or `PR_SET_NO_NEW_PRIVS`. However, memory-pointer arguments in other `prctl` options (e.g. `PR_SET_MM`) are inherently vulnerable to TOCTOU if the attacker controls sibling threads.
+*   **Cascading Risk Potential:** Medium. Restricting `prctl` to only safe options mitigates this, but `allowUnsafePrctl=true` completely opens the door to arbitrary kernel interactions.
+*   **Recommendation:** Document that `allowUnsafePrctl` is extremely dangerous and inherently vulnerable to concurrent memory mutation attacks by sibling threads.
+
+### 🔴 [Severity: LOW]: Overly Broad Catch Block in `ProfilerDaemon.reactorLoop`
+*   **Dimension:** Cascading Failure Analysis
+*   **Target Area:** `io.mazewall.profiler.engine.ProfilerDaemon`
+*   **Failure Hypothesis:** The `reactorLoop` wraps the entire multiplexing process in a generic `try { ... } catch (e: Exception) { logger.log(Level.SEVERE, "Daemon loop error", e) }` block. If an unrecoverable FFM error (like `IllegalArgumentException` from a bad layout cast) or an `OutOfMemoryError` occurs, the loop swallows it, logs it, and continues executing. This can lead to a spinning loop of failures, 100% CPU utilization, and corrupted profiler state.
+*   **Context & Proof:** Generic exception catching inside infinite daemon loops often hides critical system state corruption. If the daemon encounters a corrupted `USER_NOTIF` packet structure, it will crash processing that packet, catch the error, and immediately poll again, likely receiving the exact same corrupted packet or losing synchronization with the kernel queue.
+*   **Cascading Risk Potential:** Low security risk but high stability risk for the profiler daemon itself.
+*   **Recommendation:** Differentiate between recoverable I/O exceptions (like `IOException` on a dropped connection) and unrecoverable structural errors (like `IllegalArgumentException` or `IndexOutOfBoundsException`). The daemon should intentionally crash or disconnect the specific session on structural errors to prevent infinite error spinning.
+
+
+### 🔴 [Severity: MEDIUM]: Unhandled Endianness in `process_vm_readv` Socket Message Tracing
+*   **Dimension:** Micro-Implementation & FFM ABI Rigor
+*   **Target Area:** `io.mazewall.profiler.engine.ProfilerDaemon`
+*   **Failure Hypothesis:** When tracing `sendmsg` or `recvmsg`, the daemon reads `msghdr` and `sockaddr_un` structures directly from the tracee's memory. If the tracee and the profiler daemon have mismatched endianness (e.g. running under QEMU emulation or cross-architecture containers), reading raw integer fields like `sun_family` or `msg_namelen` directly into native memory segments will result in reversed bytes and catastrophic path resolution failures.
+*   **Context & Proof:** The Linux `process_vm_readv` syscall copies raw bytes. `ProfilerDaemon` uses `ValueLayout.JAVA_SHORT` and `ValueLayout.JAVA_INT` to read these values. FFM `ValueLayout` defaults to the host byte order. While `mazewall` currently only supports Linux x86_64 and aarch64 (both typically little-endian), `sun_family` is often evaluated as a network byte order or host byte order depending on the socket domain. If any structural parsing assumes host-byte order but the struct is packed or network-byte-ordered, it will fail.
+*   **Cascading Risk Potential:** Medium feature failure. Can break profiler socket address resolution on specific edge-case architectures.
+*   **Recommendation:** Explicitly define the byte order for FFM layouts reading C structs (e.g., `.withOrder(ByteOrder.nativeOrder())`), and double-check `sun_family` endianness rules.
+
+*   **Context & Proof:** `Layouts.SOCK_FPROG` defines `len` as `JAVA_SHORT`. `MemoryImpl.newSockFProg` assigns `filters.size.toShort()` to `len`. The Linux kernel `bpf_prog_alloc` limits seccomp BPF programs to 4096 instructions (`BPF_MAXINSNS`). While 4096 fits within a 16-bit short, the `mazewall` JVM layer currently does not explicitly validate `filters.size <= 4096` before allocating the struct. If a malicious or auto-generated policy creates 5000 instructions, `toShort()` casts it, and the kernel receives a truncated filter, breaking security guarantees.
+*   **Cascading Risk Potential:** Medium security defect. Can lead to silently incomplete sandbox policies if developers generate massive rulesets.
+*   **Recommendation:** Add an explicit `require(filters.size <= 4096) { "BPF program exceeds kernel maximum instruction limit" }` in `newSockFProg` or `BpfFilter.build`.
+
+### 🔴 [Severity: MEDIUM]: TOCTOU in Path Normalization under Multi-Threaded I/O
+*   **Dimension:** TOCTOU & Concurrency
+*   **Target Area:** `io.mazewall.SbobParser`
+*   **Failure Hypothesis:** A profiled application operates on a directory symlink that is constantly being updated by a sibling thread or background process (e.g. `/app/current -> /app/v1` switching to `/app/v2`). If the Iterative Profiler records the resolved target (`/app/v1/file`), but by the time the `SbobParser` generates the Landlock policy the symlink points to `/app/v2`, the generated policy will hardcode `/app/v1`, denying access to the application in production.
+*   **Context & Proof:** Landlock's absolute path resolution binds strictly to the inode at `addRule` time. Dynamic symlinks or active directory swaps (like Capistrano deployments) break statical Landlock profiling.
+*   **Cascading Risk Potential:** Medium DX friction. Applications using atomic directory swapping will fail under strict Landlock profiles.
+*   **Recommendation:** Document the incompatibility of Landlock rules with atomic directory symlink swapping, and advise users to profile and restrict the parent umbrella directory (`/app/`) rather than the dynamic target.
+
+
+### 🔴 [Severity: MEDIUM]: Unhandled Signal Mask Inheritance in `ContainedExecutors`
+*   **Dimension:** OS Invariants
+*   **Target Area:** `io.mazewall.enforcer.ContainedExecutors`
+*   **Failure Hypothesis:** Standard JVM thread pools do not reset POSIX signal masks (`sigprocmask`) or alternate signal stacks (`sigaltstack`) when reusing threads. If a previous uncontained task executing native code (JNI/FFM) blocked `SIGSYS` or corrupted the signal stack, a subsequently contained task on that same carrier thread will not receive `SIGSYS` when it violates the seccomp policy, defeating `ACT_TRAP` actions.
+*   **Context & Proof:** `ContainedExecutors.wrap` applies the seccomp filter but relies on the kernel delivering `SIGSYS` if the user configures `ACT_TRAP`. If the thread's signal mask currently blocks `SIGSYS` (which is highly unusual for pure Java, but possible if native libraries are used), the kernel might leave the thread in an unkillable zombie state or delay the signal indefinitely.
+*   **Cascading Risk Potential:** Medium. `mazewall` currently defaults to `ACT_ERRNO`, avoiding `SIGSYS` handling entirely. But if developers use `ACT_TRAP` for debugging or specific integrations, signal masking will break containment reporting.
+*   **Recommendation:** Document that `ACT_TRAP` is unreliable in environments where native libraries might modify thread signal masks.
+
+### 🔴 [Severity: MEDIUM]: TOCTOU in `USER_NOTIF` Argument Dereferencing
+*   **Dimension:** TOCTOU & Concurrency
+*   **Target Area:** `io.mazewall.profiler.engine.ProfilerDaemon`
+*   **Failure Hypothesis:** When the Profiler Daemon receives a `USER_NOTIF` for a syscall like `openat`, it uses `process_vm_readv` to read the path string from the tracee's memory. Because the tracee thread is stopped but other sibling threads in the same process are still running, a malicious or poorly synchronized sibling thread can rewrite the path string in memory *after* the BPF filter has triggered the notification but *before* the Profiler reads it.
+*   **Context & Proof:** The Linux `SECCOMP_RET_USER_NOTIF` mechanism stops the thread making the system call. The daemon reads the arguments from the tracee's memory. Since memory is shared across threads, a TOCTOU (Time of Check to Time of Use) is possible. The kernel will eventually execute the syscall with the *current* memory contents, which might differ from what the profiler logged.
+*   **Cascading Risk Potential:** Medium profiling inaccuracy. If the path changes, the `BillOfBehavior` might contain the pre-mutation or post-mutation path, leading to incorrect policies.
+*   **Recommendation:** Document that the `USER_NOTIF` Tier S Profiler is vulnerable to concurrent memory mutation (TOCTOU) and is strictly intended for profiling trusted/benign workloads, not for intercepting malicious evasion attempts.
+
+### 🔴 [Severity: MEDIUM]: Missing Return Value Check for `SECCOMP_NOTIF_RESP` ACK
+*   **Dimension:** Micro-Implementation & FFM ABI Rigor
+*   **Target Area:** `io.mazewall.profiler.engine.ProfilerSessionHandler`
+*   **Failure Hypothesis:** When the daemon replies to the kernel via `ioctl(SECCOMP_IOCTL_NOTIF_SEND)`, it might fail (e.g. if the tracee thread died prematurely, receiving `ENOENT`). If the daemon does not check the return value, it might leak internal state or assume the event was successfully handled, leading to desynchronization.
+*   **Context & Proof:** `ProfilerSessionHandler.kt` calls `LinuxNative.ioctl(fd, NativeConstants.SECCOMP_IOCTL_NOTIF_SEND, respSegment.address())`. The return value is a `SyscallResult`. If `returnValue < 0`, the kernel rejected the response.
+*   **Cascading Risk Potential:** Low to Medium. Usually the kernel just drops the response if the thread is gone, but failing to handle errors can mask deeper protocol issues.
+*   **Recommendation:** Log a warning if the `NOTIF_SEND` ioctl returns an error.
