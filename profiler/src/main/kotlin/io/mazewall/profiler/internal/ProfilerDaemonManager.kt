@@ -62,6 +62,9 @@ internal object ProfilerDaemonManager {
     }
 
     private fun spawnDaemon(): DaemonContext {
+        // Diagnostic: ensure the daemon class is accessible (provides compile-time safety)
+        val daemonClassName = io.mazewall.profiler.engine.ProfilerDaemon::class.java.name
+
         val perms = PosixFilePermissions.fromString("rwx------")
         val socketDir = Files.createTempDirectory("mazewall-profiler-", PosixFilePermissions.asFileAttribute(perms))
         val socketPath = socketDir.resolve("profiler.sock").toAbsolutePath().toString()
@@ -82,12 +85,28 @@ internal object ProfilerDaemonManager {
         }
         pbArgs.add("-cp")
         pbArgs.add(classpath)
-        pbArgs.add("io.mazewall.profiler.engine.ProfilerDaemon")
+        pbArgs.add(daemonClassName)
         pbArgs.add(socketPath)
+
+        logger.info("Spawning ProfilerDaemon: ${pbArgs.joinToString(" ")}")
 
         val pb = ProcessBuilder(pbArgs)
         val daemonProcess = pb.start()
         val daemonPid = daemonProcess.pid()
+
+        // Give it a tiny bit of time to check for immediate crashes (e.g. ClassNotFoundException)
+        @Suppress("MagicNumber")
+        Thread.sleep(1000)
+        if (!daemonProcess.isAlive) {
+            val exitCode = daemonProcess.exitValue()
+            val errorOutput = daemonProcess.errorStream.bufferedReader().readText()
+            val output = daemonProcess.inputStream.bufferedReader().readText()
+            throw IllegalStateException(
+                "ProfilerDaemon failed to start (exitCode=$exitCode).\n" +
+                    "STDOUT: $output\n" +
+                    "STDERR: $errorOutput",
+            )
+        }
 
         LinuxNative.prctl(NativeConstants.PR_SET_PTRACER, daemonPid, 0, 0, 0)
 
@@ -101,6 +120,18 @@ internal object ProfilerDaemonManager {
         }.apply {
             isDaemon = true
             name = "profiler-daemon-stderr"
+        }.start()
+
+        Thread {
+            daemonProcess.inputStream.bufferedReader().useLines { lines ->
+                lines.forEach { line ->
+                    System.err.println("[DAEMON OUT] $line")
+                    System.err.flush()
+                }
+            }
+        }.apply {
+            isDaemon = true
+            name = "profiler-daemon-stdout"
         }.start()
 
         val shutdownHook = Thread {

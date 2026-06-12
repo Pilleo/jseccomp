@@ -22,7 +22,7 @@ internal object ProfilerSocket {
 
     fun connectWithRetry(
         socketPath: String,
-        maxRetries: Int = 150,
+        maxRetries: Int = 300,
         delayMs: Long = 100L,
     ): Int {
         Arena.ofConfined().use { arena ->

@@ -42,8 +42,6 @@ class ProfilerInstallerTest {
         thread.join()
 
         val ex = errorRef.get()
-        System.err.println("[TEST DEBUG] connection retry failure ex: $ex")
-        ex?.printStackTrace()
         assertTrue(ex is IllegalStateException)
         assertTrue(ex.message?.contains("Simulated connection retry failure") == true)
     }
@@ -81,8 +79,6 @@ class ProfilerInstallerTest {
 
         val duration = System.currentTimeMillis() - startTime
         val ex = errorRef.get()
-
-        System.err.println("[TEST DEBUG] delayed error duration: $duration ms, ex: $ex")
 
         // This assertion will fail if the race condition is present (duration will be < 500ms)
         assertTrue(duration >= 500, "Main thread should have waited at least 500ms, but took $duration ms")
@@ -123,8 +119,6 @@ class ProfilerInstallerTest {
         thread.join()
 
         val ex = errorRef.get()
-        System.err.println("[TEST DEBUG] send descriptor failure ex: $ex")
-        ex?.printStackTrace()
         assertTrue(ex is IllegalStateException)
         assertTrue(ex.message?.contains("Failed to send seccomp listener FD to daemon") == true)
     }

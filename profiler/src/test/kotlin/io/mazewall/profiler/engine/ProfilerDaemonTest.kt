@@ -124,9 +124,6 @@ class ProfilerDaemonTest {
             val pollFds = setupMockPoll(arena)
             val action = handler.handleActiveListener(pollFds, ackBuf, notif, resp, socketPollFd)
 
-            if (action !is LoopAction.Continue) {
-                System.err.println("DEBUG: Action was $action, shutdownCalled=$shutdownCalled")
-            }
             assertTrue(action is LoopAction.Continue)
             assertEquals(1, transport.sentEvents.size)
             assertEquals("OPEN", transport.sentEvents[0].syscallName)

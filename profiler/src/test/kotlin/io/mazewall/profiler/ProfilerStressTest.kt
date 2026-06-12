@@ -109,7 +109,6 @@ class ProfilerStressTest {
                     throw IllegalStateException("Task $index failed: ${e.message}", e)
                 }
             }
-        System.err.println("INTEGRITY_RESULTS: $results")
         assertTrue(results.toSet().size == concurrentRuns, "All concurrent profile blocks should return unique IDs. Got: $results")
 
         pool.shutdown()
