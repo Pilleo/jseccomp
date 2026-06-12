@@ -7,6 +7,46 @@ kotlin {
     jvmToolchain(25)
 }
 
+sourceSets {
+    create("integrationTest") {
+        compileClasspath += main.get().output + test.get().output
+        runtimeClasspath += main.get().output + test.get().output
+    }
+}
+
+// Associate integration tests with main and test to allow accessing internal members and test utilities
+val kotlinExtension = extensions.getByType<org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension>()
+val kotlinCompilations = kotlinExtension.target.compilations
+kotlinCompilations.named("integrationTest") {
+    associateWith(kotlinCompilations.getByName("main"))
+    associateWith(kotlinCompilations.getByName("test"))
+}
+
+val integrationTestImplementation by configurations.getting {
+    extendsFrom(configurations.testImplementation.get())
+}
+
+val integrationTestRuntimeOnly by configurations.getting {
+    extendsFrom(configurations.testRuntimeOnly.get())
+}
+
+val integrationTest =
+    tasks.register<Test>("integrationTest") {
+        group = "verification"
+        testClassesDirs = sourceSets["integrationTest"].output.classesDirs
+        classpath = sourceSets["integrationTest"].runtimeClasspath
+        useJUnitPlatform()
+        jvmArgs("--enable-native-access=ALL-UNNAMED")
+        systemProperty("kotest.framework.classpath.scanning.config.disable", "true")
+        testLogging {
+            showStandardStreams = true
+        }
+    }
+
+tasks.check {
+    dependsOn(integrationTest)
+}
+
 tasks.test {
     useJUnitPlatform()
     jvmArgs("--enable-native-access=ALL-UNNAMED")
@@ -31,12 +71,6 @@ publishing {
         create<MavenPublication>("mavenJava") {
             from(components["java"])
         }
-    }
-}
-
-tasks.withType<Test> {
-    testLogging {
-        showStandardStreams = true
     }
 }
 

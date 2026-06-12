@@ -7,39 +7,53 @@ kotlin {
     jvmToolchain(25)
 }
 
-tasks.test {
-    useJUnitPlatform()
-    jvmArgs("--enable-native-access=ALL-UNNAMED")
-    systemProperty("kotest.framework.classpath.scanning.config.disable", "true")
-    exclude("**/seccomp/**")
-    exclude("**/landlock/**")
-    exclude("**/SecurityPolicyTest*")
-    exclude("**/ProcessContainmentInheritanceTest*")
-    exclude("**/ContainedExecutorsTest*")
-    exclude("**/VirtualThreadGuardrailTest*")
+sourceSets {
+    create("integrationTest") {
+        compileClasspath += main.get().output + test.get().output
+        runtimeClasspath += main.get().output + test.get().output
+    }
+}
+
+// Associate integration tests with main and test to allow accessing internal members and test utilities
+val kotlinExtension = extensions.getByType<org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension>()
+val kotlinCompilations = kotlinExtension.target.compilations
+kotlinCompilations.named("integrationTest") {
+    associateWith(kotlinCompilations.getByName("main"))
+    associateWith(kotlinCompilations.getByName("test"))
+}
+
+val integrationTestImplementation by configurations.getting {
+    extendsFrom(configurations.testImplementation.get())
+}
+
+val integrationTestRuntimeOnly by configurations.getting {
+    extendsFrom(configurations.testRuntimeOnly.get())
 }
 
 val integrationTest =
     tasks.register<Test>("integrationTest") {
         group = "verification"
-        description = "Runs integration tests that install seccomp or Landlock filters, forcing a fresh JVM for each test."
-        testClassesDirs = project.sourceSets["test"].output.classesDirs
-        classpath = project.sourceSets["test"].runtimeClasspath
+        testClassesDirs = sourceSets["integrationTest"].output.classesDirs
+        classpath = sourceSets["integrationTest"].runtimeClasspath
         useJUnitPlatform()
         jvmArgs("--enable-native-access=ALL-UNNAMED")
         systemProperty("kotest.framework.classpath.scanning.config.disable", "true")
         forkEvery = 1
-        include("**/seccomp/**")
-        include("**/landlock/**")
-        include("**/SecurityPolicyTest*")
-        include("**/ProcessContainmentInheritanceTest*")
-        include("**/ContainedExecutorsTest*")
-        include("**/VirtualThreadGuardrailTest*")
+        testLogging {
+            showStandardStreams = true
+        }
     }
 
 tasks.check {
     dependsOn(integrationTest)
 }
+
+tasks.test {
+    useJUnitPlatform()
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    systemProperty("kotest.framework.classpath.scanning.config.disable", "true")
+}
+
 dependencies {
     testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter.api)
@@ -58,12 +72,6 @@ publishing {
         create<MavenPublication>("mavenJava") {
             from(components["java"])
         }
-    }
-}
-
-tasks.withType<Test> {
-    testLogging {
-        showStandardStreams = true
     }
 }
 
