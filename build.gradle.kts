@@ -1,7 +1,7 @@
 import org.gradle.api.publish.PublishingExtension
 
 plugins {
-    alias(libs.plugins.kotlin) apply false
+    alias(libs.plugins.kotlin)
     alias(libs.plugins.detekt)
     alias(libs.plugins.ktlint)
     alias(libs.plugins.spotbugs)
@@ -58,6 +58,18 @@ allprojects {
     tasks.matching { it.name == "kotlinSourcesJar" }.configureEach {
         dependsOn("ktlintFormat")
     }
+}
+
+dependencies {
+    testImplementation(platform(libs.testcontainers.bom))
+    testImplementation(libs.testcontainers)
+    testImplementation(libs.testcontainers.junit)
+    testImplementation("ch.qos.logback:logback-classic:1.5.6")
+    testImplementation(kotlin("test"))
+}
+
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
 }
 
 dependencyCheck {

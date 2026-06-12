@@ -221,29 +221,14 @@ dependencies {
 
 ### 1. Run the Tests
 
-To run the integration suite directly on a Linux host with a compatible kernel (6.2+):
+To run the integration suite (which uses Testcontainers to automatically provision a Linux environment with the required capabilities and seccomp profile):
 
 ```bash
 ./gradlew test
 ```
 
-Alternatively, you can run the tests in an isolated environment using **Podman** (which includes a custom seccomp profile for nested sandboxing):
-
-```bash
-# Start the container under the custom seccomp profile
-podman compose -f infra/dev/compose.yml up -d
-podman compose -f infra/dev/compose.yml exec mazewall ./gradlew test
-```
-
-> [!IMPORTANT]
-> **Podman Native Integration:** This project is optimized for **rootless Podman**.
->
-> Standard `security_opt: seccomp=...` triggers a bug in some orchestrators where the full JSON profile is passed as a string over the socket, causing a "file name too long" (`ENAMETOOLONG`) error. We bypass this using the Podman-native annotation `io.podman.annotations.seccomp` in `infra/dev/compose.yml`.
-
-> **Note on Container Security:** Rather than running completely unconfined (which is insecure), `mazewall` includes a custom [podman-seccomp.json](infra/dev/podman-seccomp.json) profile that is automatically configured in [infra/dev/compose.yml](infra/dev/compose.yml). This profile whitelists `seccomp(2)` filter stacking, enabling the JVM inside the container to apply nested thread-level policies while keeping the container fully isolated from the host.
->
-> > [!NOTE]
-> > **Container Profiles:** This command uses the development profile (`infra/dev/compose.yml`) which runs the test environment. Do not confuse it with the CVE demo profile (`demos/vulnerable-web-app/compose.yml`) used to run the vulnerable Spring Boot app.
+> [!NOTE]
+> **Container Security:** Rather than running completely unconfined (which is insecure), `mazewall` uses a custom [podman-seccomp.json](infra/dev/podman-seccomp.json) profile within the Testcontainers configuration. This profile whitelists `seccomp(2)` filter stacking, enabling the JVM inside the container to apply nested thread-level policies while keeping the container fully isolated from the host.
 
 ### 2. Configure a Path-Restricted Thread Pool (Landlock)
 
@@ -276,7 +261,7 @@ executor.submit {
 ## Demos
 
 ### 🛡️ [Real-World CVE Exploitation Demo](demos/vulnerable-web-app/README.md)
-A comprehensive Spring Boot 3.x integration showing how `mazewall` blocks real-world exploits (Log4Shell, SSRF, XXE, etc.). The demo includes a fully-automated orchestration script [scripts/run_vulnerable_app_demo.sh](scripts/run_vulnerable_app_demo.sh) that executes all 11 exploit vectors and compiles a comparative report.
+A comprehensive Spring Boot 3.x integration showing how `mazewall` blocks real-world exploits (Log4Shell, SSRF, XXE, etc.). The demo is orchestrated via native integration tests using Testcontainers, which executes all 11 exploit vectors and asserts the results.
 
 ### 🧩 [Interactive Core Showcase](demos/cli-demo/README.md)
 The interactive showcase demonstrating:

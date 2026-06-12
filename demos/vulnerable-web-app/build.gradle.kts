@@ -38,6 +38,11 @@ dependencies {
     implementation(project(":enforcer"))
     testImplementation(project(":profiler"))
 
+    testImplementation(platform(libs.testcontainers.bom))
+    testImplementation(libs.testcontainers)
+    testImplementation(libs.testcontainers.junit)
+    testImplementation("ch.qos.logback:logback-classic:1.5.6")
+
     // Spring Boot Starters
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-thymeleaf")
@@ -63,6 +68,7 @@ dependencies {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+    dependsOn(tasks.named("bootJar"))
 }
 
 // Disable static analysis for this deliberately vulnerable demo app

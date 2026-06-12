@@ -56,6 +56,10 @@ tasks.test {
 dependencies {
     implementation(project(":enforcer"))
     implementation(libs.jackson.kotlin)
+    testImplementation(platform(libs.testcontainers.bom))
+    testImplementation(libs.testcontainers)
+    testImplementation(libs.testcontainers.junit)
+
     testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter.api)
     testImplementation(libs.junit.jupiter.params)

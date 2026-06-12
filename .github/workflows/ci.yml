@@ -89,7 +89,7 @@ jobs:
 
             - name: Run Linting
               if: success() || failure()
-              run: podman compose -f infra/dev/compose.yml exec -T mazewall ./gradlew detekt spotbugsMain spotbugsTest --build-cache --configuration-cache
+              run: podman compose -f infra/dev/compose.yml exec -T mazewall ./gradlew detekt spotbugsMain spotbugsTest dependencyCheckAnalyze --build-cache --configuration-cache
               env:
                   GRADLE_USER_HOME: /home/runner/.gradle
 

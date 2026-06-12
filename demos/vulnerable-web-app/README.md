@@ -34,14 +34,14 @@ This demonstrates that on a standard JIT JVM, thread-scoped containment is a hig
 
 ## Quick Start
 
-The easiest way to execute the entire real-world CVE exploitation demo is to run our fully-automated orchestration script in the root directory:
+The easiest way to execute the entire real-world CVE exploitation demo is to run the integration test via Gradle:
 
 ```bash
-# Execute the complete automated exploitation, report generation, and teardown
-./run_vulnerable_app_demo.sh
+# Execute the complete automated exploitation and verification
+./gradlew :demos:vulnerable-web-app:test --tests VulnerableWebAppIntegrationTest
 ```
 
-This single script will build the application, start the Podman/Docker Compose environment, wait for both services to be healthy and active, run all 11 exploits against both instances, generate the Markdown verification report (`demos/vulnerable-web-app/report.md`), output a beautiful color-coded console summary, and cleanly terminate the OCI containers on exit.
+This task will build the application, start the Testcontainers environment, wait for both services to be healthy and active, run all 11 exploits against both instances, and assert the security boundaries programmatically.
 
 ---
 

@@ -48,7 +48,7 @@ When presenting a fix or creating a PR, use the following format:
 ## 🔄 Iterative Development & Testing
 
 *   **Step-by-Step Execution:** Do not attempt massive refactors in a single pass. Make changes iteratively and surgically.
-*   **Constant Verification:** Test after **each** logical step using the Podman test suite (`podman compose exec mazewall ./gradlew test`). The codebase must remain buildable and tests must pass at every intermediate stage.
+*   **Constant Verification:** Test after **each** logical step using the Testcontainers suite (`./gradlew test`). The codebase must remain buildable and tests must pass at every intermediate stage.
 
 ---
 
@@ -117,13 +117,13 @@ Thread-scoped seccomp is **not** an absolute security boundary against an attack
     *   **For Bug Fixes:** You MUST empirically reproduce the reported issue by writing a failing test case before applying any code changes.
     *   **For New Features:** Define the expected behavior with tests before implementing the logic.
 *   **Testing is Mandatory:** Any bugfix, behavioral change, or new parameter **must** be accompanied by an automated test.
-*   **Running Tests:** Always run using the nested-seccomp OCI profile. Use the provided helper scripts for a faster workflow:
-    - `./scripts/run_tests.sh` — Runs the full test suite in the container.
+*   **Running Tests:** Always run using the nested-seccomp OCI profile via Testcontainers. Standard Gradle tasks will automatically provision the required environment:
+    - `./gradlew test` — Runs all tests, including containerized core tests and the web app demo.
+    - `./gradlew :enforcer:check` — Runs enforcer-specific checks.
     - `./scripts/check_coverage.sh` — Verifies Jacoco thresholds.
     - `./scripts/lint.sh` — Runs static analysis (Detekt, SpotBugs, ktlint).
-    - `./scripts/tail_logs.sh` — Tails the container logs for debugging.
     ```bash
-    ./scripts/run_tests.sh
+    ./gradlew test
     ```
 *   **Module Check Tasks:** Verify your changes specifically pass module checks before pushing:
     *   `:enforcer:check` (Landlock $\ge 65\%$, LinuxNative $\ge 78\%$, core classes $\ge 80\%$ Jacoco instruction coverage)
