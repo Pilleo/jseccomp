@@ -80,8 +80,8 @@ dependencyCheck {
         nvd.apiKey = it
     }
     // Disable OSS Index as it requires separate credentials and is currently failing in CI
-    ossIndex {
-        enabled = false
+    analyzers {
+        ossIndexEnabled = false
     }
 }
 
