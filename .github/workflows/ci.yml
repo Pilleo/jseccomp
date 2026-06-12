@@ -20,11 +20,8 @@ jobs:
                   distribution: "temurin"
             - name: Setup Gradle
               uses: gradle/actions/setup-gradle@v4
-            - name: Run Linting
-              # Running dependencyCheckAnalyze separately as it is the most likely to hang/be slow
-              run: ./gradlew detekt spotbugsMain spotbugsTest --build-cache --configuration-cache --no-daemon --info
-            - name: Run Dependency Check
-              run: ./gradlew dependencyCheckAnalyze --build-cache --configuration-cache --no-daemon --info
+            - name: Run Linting & Security Scan
+              run: ./gradlew detekt spotbugsMain spotbugsTest dependencyCheckAnalyze --build-cache --configuration-cache --no-daemon --info
 
     unit-tests:
         name: Unit Tests
@@ -47,20 +44,13 @@ jobs:
             - name: Run Unit Tests (Containerized)
               run: ./gradlew :test --tests ContainerizedTestRunner -Dmazewall.container.tasks=":enforcer:test :profiler:test" --build-cache --configuration-cache
             - name: Run Coverage Verification
-              run: ./gradlew jacocoTestReport jacocoTestCoverageVerification --build-cache --configuration-cache
+              run: ./gradlew jacocoTestReport jacocoTestCoverageVerification -x test -x integrationTest --build-cache --configuration-cache
             - name: Upload Test Reports
               if: always()
               uses: actions/upload-artifact@v4
               with:
                   name: junit-reports-unit
                   path: "**/build/reports/tests/**"
-                  retention-days: 5
-            - name: Upload Coverage Report
-              if: always()
-              uses: actions/upload-artifact@v4
-              with:
-                  name: coverage-reports-unit
-                  path: "**/build/reports/jacoco/**"
                   retention-days: 5
 
     integration-tests:
@@ -85,7 +75,7 @@ jobs:
             - name: Run Integration Tests (Containerized)
               run: ./gradlew :test --tests ContainerizedTestRunner -Dmazewall.container.tasks=":enforcer:integrationTest :profiler:integrationTest" --build-cache --configuration-cache
             - name: Run Coverage Verification
-              run: ./gradlew jacocoTestReport jacocoTestCoverageVerification --build-cache --configuration-cache
+              run: ./gradlew jacocoTestReport jacocoTestCoverageVerification -x test -x integrationTest --build-cache --configuration-cache
             - name: Upload Test Reports
               if: always()
               uses: actions/upload-artifact@v4
@@ -93,13 +83,23 @@ jobs:
                   name: junit-reports-integration
                   path: "**/build/reports/tests/**"
                   retention-days: 5
-            - name: Upload Coverage Report
-              if: always()
-              uses: actions/upload-artifact@v4
+
+    mutation-tests:
+        name: Mutation Tests
+        needs: unit-tests
+        runs-on: ubuntu-24.04
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+            - name: Set up JDK 25
+              uses: actions/setup-java@v4
               with:
-                  name: coverage-reports-integration
-                  path: "**/build/reports/jacoco/**"
-                  retention-days: 5
+                  java-version: "25"
+                  distribution: "temurin"
+            - name: Setup Gradle
+              uses: gradle/actions/setup-gradle@v4
+            - name: Run PITest (Host)
+              run: ./gradlew :enforcer:pitest -Dpitest.threads=12 --build-cache --configuration-cache
 
     demo-tests:
         name: Demos & Showcase
@@ -134,7 +134,7 @@ jobs:
 
     publish:
         name: Publish
-        needs: [integration-tests, analysis]
+        needs: [integration-tests, mutation-tests, analysis]
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
         runs-on: ubuntu-24.04
         permissions:
