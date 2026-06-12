@@ -10,7 +10,7 @@ import kotlin.test.*
 class LinuxNativeCoverageTest {
     @AfterEach
     fun tearDown() {
-        LinuxNative.setEngine(RealNativeEngine)
+        LinuxNative.resetToDefault()
     }
 
     @Test
@@ -62,11 +62,23 @@ class LinuxNativeCoverageTest {
     }
 
     @Test
+    fun `test toLong branches`() {
+        // We use LinuxNative methods to test the actual implementation of toLong() in RealNativeEngine
+        // null branch
+        LinuxNative.syscall(-1, null, null, null, null, null, null)
+
+        // MemorySegment branch
+        Arena.ofConfined().use { arena ->
+            val seg = arena.allocate(8)
+            LinuxNative.syscall(-1, seg, 1, 2, 3, 4, 5)
+        }
+    }
+
+    @Test
     fun `test toLong failure path`() {
-        val mock = RealNativeEngine
         assertFailsWith<IllegalArgumentException> {
             // Use a type that is not Number or MemorySegment
-            LinuxNative.prctl(0, Any())
+            LinuxNative.syscall(-1, Any())
         }
     }
 

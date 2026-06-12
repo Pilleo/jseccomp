@@ -36,6 +36,14 @@ object LinuxNative : NativeEngine {
         engine = newEngine
     }
 
+    /**
+     * Restores the default RealNativeEngine.
+     */
+    @Suppress("spotbugs:ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD")
+    fun resetToDefault() {
+        engine = RealNativeEngine
+    }
+
     fun getFileSystem(): NativeFileSystem = engine
 
     fun getNetworking(): NativeNetworking = engine

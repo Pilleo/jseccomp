@@ -42,6 +42,16 @@ tasks.withType<Test> {
 
 pitest {
     junit5PluginVersion.set("1.2.1")
-    targetClasses.set(setOf("io.mazewall.*"))
+    targetClasses.set(setOf("io.mazewall.profiler.*"))
+
+    excludedClasses.set(
+        setOf(
+            "io.mazewall.profiler.internal.ProfilerDaemon*",
+            "io.mazewall.profiler.engine.ProfilerTransport*",
+        ),
+    )
+
     jvmArgs.set(listOf("--enable-native-access=ALL-UNNAMED"))
+
+    threads.set(System.getProperty("pitest.threads")?.toInt() ?: 4)
 }

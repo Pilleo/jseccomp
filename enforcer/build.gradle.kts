@@ -77,11 +77,39 @@ tasks.register<JavaExec>("runScratch") {
 pitest {
     junit5PluginVersion.set("1.2.1")
 
-    // Minimal target set for SbobParser only
-    targetClasses.set(setOf("io.mazewall.SbobParser*"))
-    targetTests.set(setOf("io.mazewall.SbobParserTest"))
+    // Core security logic must have high mutation coverage
+    targetClasses.set(
+        setOf(
+            "io.mazewall.Policy*",
+            "io.mazewall.BpfFilter*",
+            "io.mazewall.SbobParser*",
+            "io.mazewall.enforcer.FilterInstallationPlanner*",
+            "io.mazewall.enforcer.PolicyCombining*",
+        ),
+    )
+
+    // Exclude slow/fragile kernel tests and native bridges
+    excludedClasses.set(
+        setOf(
+            "io.mazewall.LinuxNative*",
+            "io.mazewall.RealNativeEngine*",
+            "io.mazewall.IsolatedProcessTester*",
+            "io.mazewall.MockNativeEngine*",
+        ),
+    )
+
+    // Only run unit tests (fast, no kernel interaction)
+    targetTests.set(
+        setOf(
+            "io.mazewall.PolicyTest",
+            "io.mazewall.BpfFilterTest",
+            "io.mazewall.SbobParserTest",
+            "io.mazewall.enforcer.FilterInstallationPlannerTest",
+            "io.mazewall.PolicyCombinePropertyTest",
+        ),
+    )
 
     jvmArgs.set(listOf("--enable-native-access=ALL-UNNAMED"))
 
-    threads.set(1)
+    threads.set(System.getProperty("pitest.threads")?.toInt() ?: 4)
 }

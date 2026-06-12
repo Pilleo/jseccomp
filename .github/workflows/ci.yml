@@ -77,6 +77,16 @@ jobs:
                   IO_MAZEWALL_TEST: "true"
                   GRADLE_USER_HOME: /home/runner/.gradle
 
+            - name: Run Mutation Testing (PITest)
+              if: success() || failure()
+              # We only run it for :enforcer core logic in CI to keep it fast.
+              # We use high parallelism to speed up the process.
+              run: |
+                  podman compose -f infra/dev/compose.yml exec -T mazewall \
+                    ./gradlew :enforcer:pitest -Dpitest.threads=12 --build-cache --configuration-cache
+              env:
+                  GRADLE_USER_HOME: /home/runner/.gradle
+
             - name: Run Linting
               if: success() || failure()
               run: podman compose -f infra/dev/compose.yml exec -T mazewall ./gradlew detekt spotbugsMain spotbugsTest --build-cache --configuration-cache

@@ -1,17 +1,20 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="UTF-8" ?>
 <FindBugsFilter>
     <!-- SpotBugs incorrectly flags the static engine field modification as a bug.
          This is intentional for testability (fault injection). -->
     <Match>
-        <Class name="io.mazewall.LinuxNative"/>
-        <Method name="setEngine"/>
-        <Bug pattern="ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD"/>
+        <Class name="io.mazewall.LinuxNative" />
+        <Or>
+            <Method name="setEngine" />
+            <Method name="resetToDefault" />
+        </Or>
+        <Bug pattern="ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD" />
     </Match>
     <Match>
-        <Class name="io.mazewall.Platform"/>
-        <Bug pattern="ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD"/>
+        <Class name="io.mazewall.Platform" />
+        <Bug pattern="ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD" />
     </Match>
     <Match>
-        <Class name="io.mazewall.PlatformDiagnosticsTest"/>
+        <Class name="io.mazewall.PlatformDiagnosticsTest" />
     </Match>
 </FindBugsFilter>

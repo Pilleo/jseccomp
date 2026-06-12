@@ -58,6 +58,7 @@ object SbobParser {
                     }
                 }.toSet()
 
+        @Suppress("UNCHECKED_CAST")
         val builder = Policy.builder().base(base as Policy<PolicyScope>)
 
         if (base.defaultAction == SeccompAction.ACT_ALLOW) {

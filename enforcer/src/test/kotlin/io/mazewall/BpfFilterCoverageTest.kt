@@ -56,4 +56,34 @@ class BpfFilterCoverageTest {
         // Test ARM64 (AARCH64)
         assertNotNull(BpfFilter.build(Arch.AARCH64, Policy.PURE_COMPUTE_UNSAFE))
     }
+
+    @Test
+    fun `test BpfFilter emitInspections with MaskEquals`() {
+        val arch = Arch.AMD64
+        // MaskEquals is used for mmap/mprotect PROT_EXEC check when allowMmapExec is false
+        val policy = Policy
+            .builder()
+            // enforce mmap check
+            .build()
+
+        val filters = BpfFilter.build(arch, policy)
+        assertNotNull(filters)
+    }
+
+    @Test
+    fun `test BpfFilter resolveNativeAction branches`() {
+        // Resolve private method via buildFromActions
+        val arch = Arch.AMD64
+
+        listOf(
+            SeccompAction.ACT_KILL_PROCESS,
+            SeccompAction.ACT_KILL_THREAD,
+            SeccompAction.ACT_TRAP,
+            SeccompAction.ACT_LOG,
+            SeccompAction.ACT_ALLOW,
+        ).forEach { action ->
+            val policy = Policy.builder().defaultAction(action).build()
+            assertNotNull(BpfFilter.build(arch, policy))
+        }
+    }
 }
