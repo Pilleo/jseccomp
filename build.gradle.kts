@@ -85,6 +85,8 @@ dependencyCheck {
     }
     // Skip checking demo projects since they are deliberately vulnerable
     skipProjects = listOf(":demos:cli-demo", ":demos:vulnerable-web-app")
+    // Only scan production compile and runtime configurations to avoid scanning build tooling like detekt and ktlint
+    scanConfigurations = listOf("compileClasspath", "runtimeClasspath")
 }
 
 tasks.named("dependencyCheckAnalyze").configure {
