@@ -25,6 +25,8 @@ jobs:
               uses: gradle/actions/setup-gradle@v4
               with:
                   cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+                  gradle-home-cache-includes: |
+                      dependency-check-data
             - name: Grant Execute Permission for Gradlew
               run: chmod +x gradlew
             - name: Setup Podman Socket
@@ -35,7 +37,7 @@ jobs:
             - name: Run Build, Lint, Test & PITest
               run: ./gradlew build :enforcer:pitest -Dpitest.threads=12
             - name: Run Security Check
-              run: ./gradlew dependencyCheckAnalyze --info
+              run: ./gradlew dependencyCheckAnalyze --info --no-configuration-cache
               env:
                   NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
             - name: Publish to GitHub Packages
