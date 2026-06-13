@@ -119,19 +119,18 @@ pitest {
     )
 
     // Only run unit tests (fast, no kernel interaction)
+    // EXCLUDE property-based tests (like PolicyCombinePropertyTest) from mutation testing.
+    // PBTs run hundreds of iterations per mutant, causing combinatorial explosion and minion timeouts.
     targetTests.set(
         setOf(
             "io.mazewall.PolicyTest",
-            "io.mazewall.BpfFilterTest",
+            "io.mazewall.seccomp.BpfFilterTest",
             "io.mazewall.SbobParserTest",
             "io.mazewall.enforcer.FilterInstallationPlannerTest",
-            "io.mazewall.PolicyCombinePropertyTest",
         ),
     )
 
     jvmArgs.set(listOf("--enable-native-access=ALL-UNNAMED"))
 
     threads.set(System.getProperty("pitest.threads")?.toInt() ?: 4)
-
-    timeoutConstInMillis.set(120000)
 }
