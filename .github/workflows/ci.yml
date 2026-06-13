@@ -26,6 +26,8 @@ jobs:
               with:
                   cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
                   gradle-home-cache-includes: |
+                      caches
+                      notifications
                       dependency-check-data
             - name: Grant Execute Permission for Gradlew
               run: chmod +x gradlew
