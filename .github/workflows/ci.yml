@@ -25,10 +25,6 @@ jobs:
               uses: gradle/actions/setup-gradle@v4
               with:
                   cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
-                  gradle-home-cache-includes: |
-                      caches
-                      notifications
-                      dependency-check-data
             - name: Grant Execute Permission for Gradlew
               run: chmod +x gradlew
             - name: Setup Podman Socket
@@ -36,12 +32,10 @@ jobs:
                   systemctl --user enable --now podman.socket
                   echo "DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock" >> $GITHUB_ENV
                   echo "MAZEWALL_CONTAINER_ENGINE=podman" >> $GITHUB_ENV
-            - name: Run Build, Lint & Test Suite
-              run: ./gradlew build
-            - name: Run PITest (Host)
-              run: ./gradlew :enforcer:pitest -Dpitest.threads=12
+            - name: Run Build, Lint, Test & PITest
+              run: ./gradlew build :enforcer:pitest -Dpitest.threads=12
             - name: Run Security Check
-              run: ./gradlew dependencyCheckAnalyze --no-configuration-cache --no-daemon --info
+              run: ./gradlew dependencyCheckAnalyze --info
               env:
                   NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
             - name: Publish to GitHub Packages
