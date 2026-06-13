@@ -1,8 +1,8 @@
 # Thread-Scoped JVM Containment: The Mechanics
 
-[![← Part 2](https://img.shields.io/badge/←_Part_2-Dynamic_Profiling-6366f1)](article2-profiler.html)
+[![← Part 2](https://img.shields.io/badge/←_Part_2-Dynamic_Profiling-6366f1)](article2-profiler.md)
 [![Series Home](https://img.shields.io/badge/Series-Home-1e293b)](../../README.md)
-[![Part 4 →](https://img.shields.io/badge/Part_4_→-Exploit_Defense-6366f1)](article4-attacks.html)
+[![Part 4 →](https://img.shields.io/badge/Part_4_→-Exploit_Defense-6366f1)](article4-attacks.md)
 
 > **Series overview:** This is Part 3 of our series on behavioral security for cloud-native applications. **What this part adds:** the mechanics of thread-scoped sandboxing inside a live JVM using **mazewall** — how to restrict threads unprivileged, protect memory without breaking the JIT compiler, and navigate critical JVM safety constraints. All code examples use the mazewall PoC library and are for local exploration only.
 
@@ -268,7 +268,7 @@ In **Part 4**, we will run a series of concrete attacks—including shell inject
 
 ---
 
-*Next Up: [Part 4: Mazewall: The Attacks We Actually Stop](article4-attacks.html)*
+*Next Up: [Part 4: Mazewall: The Attacks We Actually Stop](article4-attacks.md)*
 
 [^seccomp]: Linux seccomp(2) manual page. https://man7.org/linux/man-pages/man2/seccomp.2.html
 [^landlock]: Landlock: unprivileged access control. https://landlock.io/

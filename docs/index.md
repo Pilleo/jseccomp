@@ -1,42 +1,37 @@
 ---
 layout: default
 ---
-# Backend Behavioral Sandboxing Series
+# mazewall — Behavioral Sandboxing for JVM Applications
 
-Welcome to the **Backend Behavioral Sandboxing** article series. While the implementation examples and laboratory configurations are demonstrated using Java/JVM (`mazewall`), the core vulnerabilities, systems engineering challenges, and Linux kernel primitives (Seccomp-BPF, Landlock LSM) apply to all backend runtimes (Go, Node.js, Python, Rust).
+**Per-thread syscall sandboxing using Linux Seccomp-BPF and Landlock LSM, from inside the JVM.**
 
-This series explores the threat model of modern cloud-native backend applications and guides you through dynamic profiling, thread-level containment, and production-grade sandboxing.
+mazewall lets you wrap any Java/Kotlin `ExecutorService` with a kernel-enforced behavioral contract. The contract restricts exactly which syscalls and filesystem paths that thread pool can access — enforced by the Linux kernel, not application code.
 
-## Project Vision & End Goal
+While the examples are JVM-specific, the underlying concepts (Seccomp-BPF, Landlock, SBoB) apply to all backend runtimes and are relevant to anyone working on cloud-native security.
 
-The ultimate goal of this project is to provide developers with easy-to-use, frictionless tools to restrict code execution as much as possible. We aim to enable:
-*   **Automatic SBoB:** Easy, automated Software Bill of Behavior (SBoB) generation for self-restraining applications.
-*   **Glassbox Architecture:** Trivial sandboxing of the most dangerous parts of code, utilizing secure portals to communicate with isolated components like WebAssembly (WASM), GraalVM Isolates, and out-of-process sidecars.
+## Read the Article Series
 
-## Read the Series
+1. **[Part 1: Do You Really Know What Your App Is Doing at Runtime?](presentation/article.html)**  
+   The threat model, SBoB concept, and why container-level profiles aren't enough.
 
-1. **[Part 1: The Core Threat Model & Attack Vectors](presentation/article.html)**  
-   Understanding in-process security boundaries, memory sharing constraints, and standard bypasses.
-
-2. **[Part 2: Dynamic Policy Profiling & Discovery](presentation/article2-profiler.html)**  
-   How to profile workloads dynamically to discover their system call and file path dependencies.
+2. **[Part 2: Let Your Code Build Its Own Sandbox](presentation/article2-profiler.html)**  
+   Dynamic profiling: how to observe a workload and auto-generate its minimal policy.
 
 3. **[Part 3: Thread-Scoped Containment Mechanics](presentation/article3-enforcement.html)**  
-   A deep dive into FFM native bindings, errno safety races, Loom virtual thread carrier poisoning, and runtime coordination whitelists.
+   FFM native bindings, errno safety races, Loom virtual thread carrier poisoning, GC safepoint whitelists.
 
 4. **[Part 4: Exploit Scenarios & Kernel Blocking](presentation/article4-attacks.html)**  
-   Testing containment against shell injection, fileless malware, JIT executable memory, and `io_uring` evasions.
+   Log4Shell, fileless malware, JIT executable memory, and `io_uring` evasions — tested against mazewall.
 
-5. **[Part 5: Ahead-of-Time SBoB compilation with GraalVM](presentation/article5-graalvm.html)**  
-   Hardening containment using AOT static analysis and removing JIT runtime compilation noise.
+5. **[Part 5: Ahead-of-Time SBoB with GraalVM](presentation/article5-graalvm.html)**  
+   How AOT compilation changes the security picture and removes JIT runtime noise.
 
-6. **[Part 6: Beyond the Thread: Isolates, WebAssembly, and Tooling](presentation/article6-isolates.html)**  
-   Achieving heap-level isolation via GraalVM Isolates, instruction-level isolation via WebAssembly, and defining the future developer tooling roadmap.
+6. **[Part 6: Beyond the Thread — Isolates, WebAssembly, and Tooling](presentation/article6-isolates.html)**  
+   Heap-level isolation via GraalVM Isolates, instruction-level isolation via WebAssembly, and the developer tooling roadmap.
 
 ---
 
-## Getting Started with Mazewall
+## Repository
 
-To inspect the source code or run the PoC sandbox locally:
-* **Repository:** [jseccomp on GitHub](https://github.com/Pilleo/mazewall)
-* **Design Docs:** [Internal Containment Design](internals/containment_design.html) | [Security Considerations](internals/SECURITY_CONSIDERATIONS.html)
+- **Source & Quick Start:** [github.com/Pilleo/mazewall](https://github.com/Pilleo/mazewall)
+- **Design Docs:** [Containment Design](internals/containment_design.html) | [Security Considerations](internals/SECURITY_CONSIDERATIONS.html) | [Architectural Map](internals/architectural_map.html)

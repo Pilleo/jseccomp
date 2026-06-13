@@ -2,7 +2,17 @@
 
 **Core runtime engine for thread-scoped and process-wide syscall sandboxing.**
 
-This subproject implements unprivileged sandboxing using Linux **Seccomp-BPF** and **Landlock LSM** through the JDK **Foreign Function & Memory (FFM) API** (JDK 22+). It is designed to be a zero-dependency, high-performance security layer for production JVM services.
+This subproject implements unprivileged sandboxing using Linux **Seccomp-BPF** and **Landlock LSM** through the JDK **Foreign Function & Memory (FFM) API** (JDK 22+). It is designed to be a zero-dependency security layer for production JVM services.
+
+> [!WARNING]
+> **Security boundary: read this before deploying.**
+> `ContainedExecutors.wrap()` (Tier 2) restricts syscalls on the *calling* thread. It stops data-plane attacks (SSRF, XXE, path traversal, fileless malware) on that thread. It does **not** isolate arbitrary Java code — an attacker who can execute Java logic (e.g., via deserialization RCE) can hop to an unrestricted thread pool using `CompletableFuture.runAsync(...)` or virtual threads.
+>
+> **Always install the Tier 1 process-wide baseline first:**
+> ```kotlin
+> ContainedExecutors.installOnProcess(Policy.NO_EXEC) // call once in main()
+> ```
+> See [SECURITY_CONSIDERATIONS.md](../docs/internals/SECURITY_CONSIDERATIONS.md) for the complete threat model.
 
 ---
 
@@ -81,5 +91,9 @@ To prevent JVM deadlocks and stability issues, `:enforcer` implements several in
 Tests require a Linux host (6.2+) or the provided dev container environment.
 
 ```bash
-./gradlew :enforcer:check
+# Unit tests (no kernel interaction)
+./gradlew :enforcer:test
+
+# Full check including integration tests (requires Podman)
+./scripts/run_tests.sh :enforcer:integrationTest
 ```

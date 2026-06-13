@@ -1,5 +1,15 @@
 # Security Considerations & Technical Risks
 
+## Security Model — Executive Summary
+
+> **Tier 1** (`ContainedExecutors.installOnProcess(Policy.NO_EXEC)`): Blocks `execve`/`fork` process-wide at startup. Nothing in this JVM ever spawns a shell or child process, regardless of which thread is compromised. This is the mandatory architectural backstop.
+>
+> **Tier 2** (`ContainedExecutors.wrap(executor, policy)`): Restricts specific syscalls and filesystem paths on a given thread pool. Stops **data-plane attacks** (SSRF, XXE, path traversal, fileless malware) on processing threads where trusted code handles untrusted data.
+>
+> ⚠️ **Tier 2 alone does NOT isolate arbitrary Java code.** An attacker who achieves Java-level code execution (e.g., via deserialization RCE) can escape to unrestricted sibling threads using `CompletableFuture.runAsync(...)` or virtual threads — no ACE required. Always stack Tier 1 first. See [§1](#1-thread-level-vs-process-level-isolation) for the complete ACE pivot analysis.
+
+---
+
 Using seccomp-bpf within the JVM introduces specific architectural risks. This document outlines high-level security properties and implementation trade-offs.
 
 ---

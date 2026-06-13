@@ -1,8 +1,8 @@
 # Generating an SBoB for Java: Where We Are and What's Missing
 
-[![← Part 4](https://img.shields.io/badge/←_Part_4-Exploit_Defense-6366f1)](article4-attacks.html)
+[![← Part 4](https://img.shields.io/badge/←_Part_4-Exploit_Defense-6366f1)](article4-attacks.md)
 [![Series Home](https://img.shields.io/badge/Series-Home-1e293b)](../../README.md)
-[![Part 6 →](https://img.shields.io/badge/Part_6_→-Isolates_&_Wasm-6366f1)](article6-isolates.html)
+[![Part 6 →](https://img.shields.io/badge/Part_6_→-Isolates_&_Wasm-6366f1)](article6-isolates.md)
 
 > **Series overview:** This is Part 5 of our series on behavioral security for cloud-native applications. **What this part adds:** the harder problem of *generating* the behavioral contract — the tooling gaps, the Merge Fallacy, and why GraalVM's closed-world model is currently the clearest path to automating it.
 
@@ -215,7 +215,7 @@ None of this is complete. All of it is tractable. If you read this far and disag
 
 In Part 6 — the final part of this series — we address the two fatal structural limits of thread-scoped sandboxing and build upward: GraalVM Isolates for heap isolation, WebAssembly for instruction-level isolation, and automated codegen portals to make these patterns practical for everyday backend developers.
 
-**[Read Part 6: Beyond the Thread: GraalVM Isolates, WebAssembly, and Self-Defending Applications](article6-isolates.html)**
+**[Read Part 6: Beyond the Thread: GraalVM Isolates, WebAssembly, and Self-Defending Applications](article6-isolates.md)**
 
 [^graalvm_static]: GraalVM Native Image Static Analysis documentation. https://www.graalvm.org/latest/reference-manual/native-image/basics/
 [^graalvm_metadata]: GraalVM Reachability Metadata repository. https://github.com/oracle/graalvm-reachability-metadata

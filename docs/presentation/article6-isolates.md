@@ -1,6 +1,6 @@
 # Beyond the Thread: GraalVM Isolates, WebAssembly, and Self-Defending Applications
 
-[![← Part 5](https://img.shields.io/badge/←_Part_5-SBoB_Generation-6366f1)](article5-graalvm.html)
+[![← Part 5](https://img.shields.io/badge/←_Part_5-SBoB_Generation-6366f1)](article5-graalvm.md)
 [![Series Home](https://img.shields.io/badge/Series-Home-1e293b)](../../README.md)
 
 > **Series overview:** This is Part 6 — the final part — of our series on behavioral security for cloud-native applications. **What this part adds:** We address the two fatal structural limits of thread-scoped sandboxing, then build upward — GraalVM Isolates for heap isolation, WebAssembly for instruction-level isolation, and automated codegen portals to make these patterns practical. All demonstrations use the mazewall PoC library.
