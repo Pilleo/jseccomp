@@ -22,6 +22,7 @@ object IsolatedProcessTester {
 
         val command = mutableListOf(
             javaBin,
+            "-Xmx32m",
             "-cp",
             classpath,
             "--enable-native-access=ALL-UNNAMED",
