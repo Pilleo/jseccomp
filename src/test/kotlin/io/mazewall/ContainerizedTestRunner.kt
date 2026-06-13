@@ -64,7 +64,7 @@ class ContainerizedTestRunner {
 
         val command = mutableListOf("./gradlew")
         command.addAll(tasks)
-        command.addAll(listOf("--info", "--no-daemon", "--stacktrace"))
+        command.addAll(listOf("--info", "--configuration-cache", "--stacktrace"))
 
         println("Executing tasks in container: ${tasks.joinToString(", ")}")
         val result = mazewall.execInContainer(*command.toTypedArray())

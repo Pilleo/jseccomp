@@ -136,4 +136,6 @@ pitest {
     jvmArgs.set(listOf("--enable-native-access=ALL-UNNAMED"))
 
     threads.set(System.getProperty("pitest.threads")?.toInt() ?: 4)
+
+    timeoutConstInMillis.set(120000)
 }
