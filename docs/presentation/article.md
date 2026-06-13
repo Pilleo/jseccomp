@@ -234,6 +234,30 @@ In this context, server-side Linux containers are the anomaly. SBoB is simply br
 ## The First Step: [VEX (Vulnerability Exploitability eXchange)](https://cyclonedx.org/capabilities/vex/)
 We are already seeing a "SBoB-lite" emerge in the form of **VEX**. While an SBOM tells you a vulnerable library exists on your disk, a VEX document tells you if that library is actually loaded and reachable at runtime. For example, a VEX advisory can formally state that an application is **"not affected"** by a vulnerability because the specific vulnerable function (e.g., a high-risk network appender in a logging library) is never called by the application logic—a justification standardized as [`code_not_reachable`](https://www.cisa.gov/resources-tools/resources/vulnerability-exploitability-exchange-vex). VEX can be generated through multiple means — runtime observation (tools like Kubescape contribute behavioral evidence via eBPF), static analysis, or manual attestation. Regardless of how it is produced, VEX is the industry's first standardized realization that composition is a poor proxy for risk; only behavior matters.
 
+## Practical Value: From "Trust Me" to "Verify Me"
+
+Beyond the technical mechanics of eBPF and Seccomp, the move toward SBoB solves two high-stakes business problems that traditional security cannot address.
+
+### 1. Behavioral Attestation for Regulated Data
+In industries like Fintech, Healthcare, and Legal, "trust" is often handled via manual audit. SBoB allows you to move that trust into the Linux kernel.
+
+Consider a thread pool responsible for processing highly sensitive data (PII, payment card data, or privileged documents). By applying a behavioral contract (like `Policy.PURE_COMPUTE` and Landlock path restrictions), you establish a contract that the kernel itself enforces:
+- **"No network call was made."** Since `connect` and `sendmsg` are blocked at the syscall level, it is physically impossible for the data to have been exfiltrated during that execution block.
+- **"No file was written outside the declared path."** Even if a misconfigured logger or a malicious library attempts to write sensitive data elsewhere, the kernel blocks the operation.
+- **"No subprocess was spawned."** The data cannot be passed to an external utility or an in-memory executor.
+
+This is **kernel-enforced attestation, not software-asserted**. The guarantee comes from the OS — not from application-level checks that an attacker could bypass.
+
+### 2. Zero-Trust for Internal Libraries (Blast Radius Control)
+Modern applications pull in hundreds of internal and third-party dependencies. You may trust your core team, but do you trust every library used by the "Experimental Feature" team?
+
+By default, every thread in a JVM process shares the same permissions. If a minor utility library has a vulnerability, it has the same network and filesystem access as your most critical core service. SBoB allows for **surgical self-restriction**:
+- **The PDF Generator** can read fonts but has no network access.
+- **The Image Processor** can read/write to a temp folder but has no exec permissions.
+- **The Legacy Integration** is restricted to a single specific IP address.
+
+If any of these libraries are compromised, the "blast radius" is limited to the specific capabilities you explicitly granted them.
+
 ## The Runtime Security Stack Is Already Here
  
 This is no longer a speculative academic exercise. The building blocks are already in production. What is instructive, though, is that these tools are **not alternatives to each other** — they operate at fundamentally different layers and solve complementary problems. Each has its own perfect fit.

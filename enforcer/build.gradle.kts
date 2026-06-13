@@ -59,10 +59,6 @@ tasks.test {
 }
 
 dependencies {
-    testImplementation(platform(libs.testcontainers.bom))
-    testImplementation(libs.testcontainers)
-    testImplementation(libs.testcontainers.junit)
-
     testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter.api)
     testImplementation(libs.junit.jupiter.params)

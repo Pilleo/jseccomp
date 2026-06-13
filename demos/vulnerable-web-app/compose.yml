@@ -8,12 +8,14 @@ services:
         environment:
             - MAZEWALL_ENABLED=false
         annotations:
-            io.podman.annotations.seccomp: ${PWD}/../../infra/dev/podman-seccomp.json
+            io.podman.annotations.seccomp: ${PWD}/infra/dev/podman-seccomp.json
 
     protected:
         build:
             context: ../../
             dockerfile: demos/vulnerable-web-app/Containerfile
+        ports:
+            - "8081:8081"
         environment:
             - MAZEWALL_ENABLED=true
             - MAZEWALL_PROFILE=true
@@ -22,4 +24,4 @@ services:
         volumes:
             - ../output:/app/output:rw
         annotations:
-            io.podman.annotations.seccomp: ${PWD}/../../infra/dev/podman-seccomp.json
+            io.podman.annotations.seccomp: ${PWD}/infra/dev/podman-seccomp.json
