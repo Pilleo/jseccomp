@@ -1,0 +1,577 @@
+@startuml Profiler Class Diagram
+!pragma useIntermediatePackages false
+
+class "BaselinePathProfile" as io.mazewall.profiler.BaselinePathProfile {
+  +Set<String> getExactPaths()
+  +Set<String> getPathPrefixes()
+  +boolean matches(String)
+  +Set<String> component1()
+  +Set<String> component2()
+  +BaselinePathProfile copy(Set<String>, Set<String>)
+}
+class "BillOfBehavior" as io.mazewall.profiler.BillOfBehavior {
+  + {static}Companion Companion
+  __
+  +Set<String> getOpens()
+  +Set<String> getFsWritePaths()
+  +Set<Syscall> getSyscalls()
+  +Set<String> getExecs()
+  +Map<TraceEvent, List<StackTraceElement[]>> getStackProfile()
+  +Policy<?> toPolicy(Policy<?>)
+  +String toDsl(String, Policy<?>)
+  +BillOfBehavior plus(BillOfBehavior)
+  +BillOfBehavior filterPaths(BaselinePathProfile)
+  +String toJson()
+  +String toStackTracesJson()
+  +Set<String> component1()
+  +Set<String> component2()
+  +Set<Syscall> component3()
+  +Set<String> component4()
+  +Map<TraceEvent, List<StackTraceElement[]>> component5()
+  +BillOfBehavior copy(Set<String>, Set<String>, Set<? extends Syscall>, Set<String>, Map<TraceEvent, ? extends List<StackTraceElement[]>>)
+}
+class "BillOfBehavior$Companion" as io.mazewall.profiler.BillOfBehavior$Companion {
+  +BillOfBehavior fromFile(Path)
+  +BillOfBehavior fromStream(InputStream)
+  +BillOfBehavior fromJson(String)
+}
+class "BillOfBehavior$1" as io.mazewall.profiler.BillOfBehavior$toDsl$$inlined$sortedBy$1<T> {
+  +int compare(T, T)
+}
+class "BillOfBehavior$2" as io.mazewall.profiler.BillOfBehavior$toDsl$$inlined$sortedBy$2<T> {
+  +int compare(T, T)
+}
+class "BillOfBehavior$1" as io.mazewall.profiler.BillOfBehavior$toJson$$inlined$sortedBy$1<T> {
+  +int compare(T, T)
+}
+class "BillOfBehavior$2" as io.mazewall.profiler.BillOfBehavior$toJson$$inlined$sortedBy$2<T> {
+  +int compare(T, T)
+}
+class "BillOfBehavior$1" as io.mazewall.profiler.BillOfBehavior$toStackTracesJson$$inlined$sortedBy$1<T> {
+  +int compare(T, T)
+}
+class "BillOfBehaviorDto" as io.mazewall.profiler.BillOfBehaviorDto {
+  +Set<String> getOpens()
+  +Set<String> getFsWritePaths()
+  +Set<String> getSyscalls()
+  +Set<String> getExecs()
+  +List<StackProfileEntryDto> getStackProfile()
+}
+class "BillOfBehaviorKt" as io.mazewall.profiler.BillOfBehaviorKt {
+}
+class "JvmBaselineProfiles" as io.mazewall.profiler.JvmBaselineProfiles {
+  + {static}JvmBaselineProfiles INSTANCE
+  __
+  +BaselinePathProfile jvmBootstrapNoise()
+}
+class "Profiler" as io.mazewall.profiler.Profiler {
+  + {static}Profiler INSTANCE
+  __
+  +ConcurrentHashMap<Integer, Thread> getThreadRegistry()
+  +ProfilingResult<T> profile(Function0<? extends T>)
+  +ProfilerExecutorWrapper wrap(ExecutorService, Policy<?>[])
+  +boolean sendDescriptorInternal$io_mazewall_profiler(int, int)
+}
+class "Profiler$ProfilerExecutorWrapper" as io.mazewall.profiler.Profiler$ProfilerExecutorWrapper {
+  +CopyOnWriteArrayList<TraceEvent> getRecentLogs()
+  +ConcurrentHashMap<TraceEvent, List<StackTraceElement[]>> getRecentStackProfiles()
+  +BillOfBehavior compileBillOfBehavior()
+  +void execute(Runnable)
+  +Future<T> submit(Callable<T>)
+  +Future<T> submit(Runnable, T)
+  +Future<?> submit(Runnable)
+  +void close()
+  +void shutdown()
+  +List<Runnable> shutdownNow()
+  +boolean isShutdown()
+  +boolean isTerminated()
+  +boolean awaitTermination(long, TimeUnit)
+  +List<Future<T>> invokeAll(Collection<? extends Callable<T>>)
+  +List<Future<T>> invokeAll(Collection<? extends Callable<T>>, long, TimeUnit)
+  +T invokeAny(Collection<? extends Callable<T>>)
+  +T invokeAny(Collection<? extends Callable<T>>, long, TimeUnit)
+}
+class "ProfilingResult" as io.mazewall.profiler.ProfilingResult<T> {
+  +T getValue()
+  +BillOfBehavior getBehavior()
+  +T component1()
+  +BillOfBehavior component2()
+  +ProfilingResult<T> copy(T, BillOfBehavior)
+}
+class "StackProfileEntryDto" as io.mazewall.profiler.StackProfileEntryDto {
+  +String getSyscall()
+  +List<String> getPaths()
+  +List<Long> getArgs()
+  +List<String> getStackTrace()
+}
+interface "TraceableWorkload" as io.mazewall.profiler.TraceableWorkload {
+}
+class "BobCompiler" as io.mazewall.profiler.compiler.BobCompiler {
+  + {static}BobCompiler INSTANCE
+  __
+  +BillOfBehavior compile(List<TraceEvent>)
+}
+class "DescriptorPassing" as io.mazewall.profiler.engine.DescriptorPassing {
+  + {static}DescriptorPassing INSTANCE
+  __
+  +MemorySegment setupScmRightsMsgHdr(Arena, MemorySegment, MemorySegment)
+}
+abstract class "LoopAction" as io.mazewall.profiler.engine.LoopAction {
+}
+class "LoopAction$Break" as io.mazewall.profiler.engine.LoopAction$Break {
+  + {static}Break INSTANCE
+}
+class "LoopAction$Continue" as io.mazewall.profiler.engine.LoopAction$Continue {
+  + {static}Continue INSTANCE
+}
+class "LoopAction$Shutdown" as io.mazewall.profiler.engine.LoopAction$Shutdown {
+  + {static}Shutdown INSTANCE
+}
+class "ProfilerConstantsKt" as io.mazewall.profiler.engine.ProfilerConstantsKt {
+  + {static}int ADDR_UN_SIZE
+  + {static}int SOCKADDR_UN_PATH_SIZE
+  + {static}int BACKLOG_SIZE
+  + {static}int AF_UNIX
+  + {static}int SOCK_STREAM
+  + {static}int MSG_PEEK
+  + {static}int EINTR
+  + {static}int POLL_ACK_TIMEOUT_MS
+  + {static}int POLL_TIMEOUT_MS
+  + {static}byte PROTOCOL_ACK_BYTE
+  + {static}byte SHUTDOWN_COMMAND_BYTE
+  + {static}long ACK_BUF_SIZE
+  + {static}long NOTIF_ID_OFF
+  + {static}long NOTIF_PID_OFF
+  + {static}long NOTIF_NR_OFF
+  + {static}long NOTIF_ARGS_OFF
+  + {static}long RESP_ID_OFF
+  + {static}long RESP_VAL_OFF
+  + {static}long RESP_ERR_OFF
+  + {static}long RESP_FLAGS_OFF
+  + {static}long POLLFD_FD_OFF
+  + {static}long POLLFD_EVENTS_OFF
+  + {static}long POLLFD_REVENTS_OFF
+  + {static}int MAX_SYSCALL_ARGS
+  + {static}int ARG_DIR_FD
+  + {static}int ARG_PATH
+  + {static}int ARG_OLD_DIR_FD
+  + {static}int ARG_OLD_PATH
+  + {static}int ARG_NEW_DIR_FD
+  + {static}int ARG_NEW_PATH
+  + {static}long AT_FDCWD_VAL
+  + {static}long AT_FDCWD_UNSIGNED_VAL
+  + {static}int AT_FDCWD_INT_VAL
+  + {static}long SECCOMP_IOCTL_NOTIF_RECV
+  + {static}long SECCOMP_IOCTL_NOTIF_SEND
+  + {static}String DAEMON_READY_SENTINEL
+  __
+  + {static}long getPOLLFD_REVENT_DATA_OFF()
+}
+class "ProfilerDaemon" as io.mazewall.profiler.engine.ProfilerDaemon {
+  + {static}ProfilerDaemon INSTANCE
+  __
+  + {static}void main(String[])
+}
+class "ProfilerDaemonEngine" as io.mazewall.profiler.engine.ProfilerDaemonEngine {
+  +ProfilerDaemonState getState()
+  +void run()
+  +void triggerGlobalShutdown(String)
+}
+interface "ProfilerDaemonState" as io.mazewall.profiler.engine.ProfilerDaemonState {
+}
+class "ProfilerDaemonState$Active" as io.mazewall.profiler.engine.ProfilerDaemonState$Active {
+  +int getServerFd()
+  +int component1()
+  +Active copy(int)
+}
+class "ProfilerDaemonState$Listening" as io.mazewall.profiler.engine.ProfilerDaemonState$Listening {
+  +int getServerFd()
+  +String getSocketPath()
+  +int component1()
+  +String component2()
+  +Listening copy(int, String)
+}
+class "ProfilerDaemonState$ShuttingDown" as io.mazewall.profiler.engine.ProfilerDaemonState$ShuttingDown {
+  + {static}ShuttingDown INSTANCE
+}
+class "ProfilerDaemonState$Terminated" as io.mazewall.profiler.engine.ProfilerDaemonState$Terminated {
+  + {static}Terminated INSTANCE
+}
+class "ProfilerDaemonState$Uninitialized" as io.mazewall.profiler.engine.ProfilerDaemonState$Uninitialized {
+  + {static}Uninitialized INSTANCE
+}
+class "ProfilerInstaller" as io.mazewall.profiler.engine.ProfilerInstaller {
+  + {static}ProfilerInstaller INSTANCE
+  __
+  +void installProfilingFilterForThread(String, Policy<?>, List<TraceEvent>, Map<TraceEvent, List<StackTraceElement[]>>, Map<String, Long>, Function0<? extends Thread>, Function1<? super String, Integer>, Function5<? super Integer, ? super List<TraceEvent>, ? super Map<TraceEvent, List<StackTraceElement[]>>, ? super Map<String, Long>, ? super Function0<? extends Thread>, Unit>)
+}
+class "ProfilerInstallerSession" as io.mazewall.profiler.engine.ProfilerInstallerSession {
+  +ProfilerInstallerState getState()
+  +void install()
+}
+interface "ProfilerInstallerState" as io.mazewall.profiler.engine.ProfilerInstallerState {
+}
+class "ProfilerInstallerState$Active" as io.mazewall.profiler.engine.ProfilerInstallerState$Active {
+  +int getListenerFd()
+  +int getSocketFd()
+  +int component1()
+  +int component2()
+  +Active copy(int, int)
+}
+class "ProfilerInstallerState$Connecting" as io.mazewall.profiler.engine.ProfilerInstallerState$Connecting {
+  +int getListenerFd()
+  +int component1()
+  +Connecting copy(int)
+}
+class "ProfilerInstallerState$Failed" as io.mazewall.profiler.engine.ProfilerInstallerState$Failed {
+  +Throwable getError()
+  +Throwable component1()
+  +Failed copy(Throwable)
+}
+class "ProfilerInstallerState$InstallingBpf" as io.mazewall.profiler.engine.ProfilerInstallerState$InstallingBpf {
+  + {static}InstallingBpf INSTANCE
+}
+class "ProfilerInstallerState$SendingDescriptor" as io.mazewall.profiler.engine.ProfilerInstallerState$SendingDescriptor {
+  __
+  +int getListenerFd()
+  +int getSocketFd()
+  +int component1()
+  +int component2()
+  +SendingDescriptor copy(int, int)
+}
+class "ProfilerInstallerState$Uninitialized" as io.mazewall.profiler.engine.ProfilerInstallerState$Uninitialized {
+  + {static}Uninitialized INSTANCE
+}
+class "ProfilerInstallerState$VerifyingAck" as io.mazewall.profiler.engine.ProfilerInstallerState$VerifyingAck {
+  __
+  +int getListenerFd()
+  +int getSocketFd()
+  +int component1()
+  +int component2()
+  +VerifyingAck copy(int, int)
+}
+interface "ProfilerMemoryReader" as io.mazewall.profiler.engine.ProfilerMemoryReader {
+  + {abstract}String readStringFromProcess(int, long, int)
+  + {abstract}String resolveLink(int, String)
+}
+class "ProfilerMemoryReader$DefaultImpls" as io.mazewall.profiler.engine.ProfilerMemoryReader$DefaultImpls {
+}
+class "ProfilerSessionHandler" as io.mazewall.profiler.engine.ProfilerSessionHandler {
+  +ProfilerState getState()
+  +LoopAction handleActiveListener(MemorySegment, MemorySegment, MemorySegment, MemorySegment, MemorySegment)
+  +boolean processNotification$io_mazewall_profiler(MemorySegment, MemorySegment, MemorySegment, MemorySegment)
+}
+interface "ProfilerState" as io.mazewall.profiler.engine.ProfilerState {
+}
+class "ProfilerState$ActiveSession" as io.mazewall.profiler.engine.ProfilerState$ActiveSession {
+  +int getSocketFd()
+  +int getListenerFd()
+  +int component1()
+  +int component2()
+  +ActiveSession copy(int, int)
+}
+class "ProfilerState$Connected" as io.mazewall.profiler.engine.ProfilerState$Connected {
+  +int getSocketFd()
+  +int component1()
+  +Connected copy(int)
+}
+class "ProfilerState$HandshakeAck" as io.mazewall.profiler.engine.ProfilerState$HandshakeAck {
+  +int getSocketFd()
+  +int getListenerFd()
+  +int component1()
+  +int component2()
+  +HandshakeAck copy(int, int)
+}
+class "ProfilerState$Notified" as io.mazewall.profiler.engine.ProfilerState$Notified {
+  +int getSocketFd()
+  +int getListenerFd()
+  +long getNotifId()
+  +TraceEvent getEvent()
+  +int component1()
+  +int component2()
+  +long component3()
+  +TraceEvent component4()
+  +Notified copy(int, int, long, TraceEvent)
+}
+class "ProfilerState$Terminated" as io.mazewall.profiler.engine.ProfilerState$Terminated {
+  + {static}Terminated INSTANCE
+}
+class "ProfilerState$WaitingForAck" as io.mazewall.profiler.engine.ProfilerState$WaitingForAck {
+  __
+  +int getSocketFd()
+  +int getListenerFd()
+  +long getNotifId()
+  +int component1()
+  +int component2()
+  +long component3()
+  +WaitingForAck copy(int, int, long)
+}
+interface "ProfilerTransport" as io.mazewall.profiler.engine.ProfilerTransport {
+  + {abstract}void sendTraceEvent(int, TraceEvent)
+  + {abstract}Integer recvDescriptor(int)
+  + {abstract}SyscallResult poll(MemorySegment, long, int)
+  + {abstract}SyscallResult read(int, MemorySegment, long)
+  + {abstract}SyscallResult write(int, MemorySegment, long)
+  + {abstract}SyscallResult recv(int, MemorySegment, long, int)
+  + {abstract}SyscallResult ioctl(int, long, MemorySegment)
+  + {abstract}int createServer(String)
+  + {abstract}int accept(int)
+  + {abstract}void close(int)
+}
+class "RealMemoryReader" as io.mazewall.profiler.engine.RealMemoryReader {
+  + {static}RealMemoryReader INSTANCE
+  __
+  +String readStringFromProcess(int, long, int)
+  +String resolveLink(int, String)
+}
+class "RealProfilerTransport" as io.mazewall.profiler.engine.RealProfilerTransport {
+  + {static}RealProfilerTransport INSTANCE
+  __
+  +void sendTraceEvent(int, TraceEvent)
+  +Integer recvDescriptor(int)
+  +SyscallResult poll(MemorySegment, long, int)
+  +SyscallResult read(int, MemorySegment, long)
+  +SyscallResult write(int, MemorySegment, long)
+  +SyscallResult recv(int, MemorySegment, long, int)
+  +SyscallResult ioctl(int, long, MemorySegment)
+  +int createServer(String)
+  +int accept(int)
+  +void close(int)
+}
+class "SyscallPathResolver" as io.mazewall.profiler.engine.SyscallPathResolver {
+  +List<String> getPathArgs(String, long[])
+}
+class "TraceEvent" as io.mazewall.profiler.engine.TraceEvent {
+  +int getPid()
+  +String getSyscallName()
+  +long[] getArgs()
+  +List<String> getPaths()
+  +List<String> getStackTrace()
+  +int component1()
+  +String component2()
+  +long[] component3()
+  +List<String> component4()
+  +List<String> component5()
+  +TraceEvent copy(int, String, long[], List<String>, List<String>)
+}
+class "DaemonContext" as io.mazewall.profiler.internal.DaemonContext {
+  +String getSocketPath()
+  +Path getSocketDir()
+  +Process getDaemonProcess()
+  +Thread getShutdownHook()
+  +String component1()
+  +Path component2()
+  +Process component3()
+  +Thread component4()
+  +DaemonContext copy(String, Path, Process, Thread)
+}
+class "NativeSocketInputStream" as io.mazewall.profiler.internal.NativeSocketInputStream {
+  + {static}Companion Companion
+  __
+  +int read()
+  +int read(byte[], int, int)
+  +void close()
+}
+class "NativeSocketInputStream$Companion" as io.mazewall.profiler.internal.NativeSocketInputStream$Companion {
+}
+class "ProfilerDaemonManager" as io.mazewall.profiler.internal.ProfilerDaemonManager {
+  + {static}ProfilerDaemonManager INSTANCE
+  __
+  +DaemonContext getOrSpawnSharedDaemon()
+  +void cleanupDaemon(DaemonContext)
+}
+class "ProfilerSocket" as io.mazewall.profiler.internal.ProfilerSocket {
+  + {static}ProfilerSocket INSTANCE
+  + {static}int AF_UNIX
+  + {static}int SOCK_STREAM
+  + {static}int ADDR_UN_SIZE
+  + {static}int SOCKADDR_UN_PATH_SIZE
+  __
+  +int connectWithRetry(String, int, long)
+  +boolean sendDescriptor(int, int)
+  +MemorySegment setupSockAddrUn(Arena, String)
+}
+class "ProfilerTraceListener" as io.mazewall.profiler.internal.ProfilerTraceListener {
+  + {static}Companion Companion
+  __
+  +TraceListenerState getState()
+  +Thread start()
+}
+class "ProfilerTraceListener$Companion" as io.mazewall.profiler.internal.ProfilerTraceListener$Companion {
+}
+interface "TraceListenerState" as io.mazewall.profiler.internal.TraceListenerState {
+}
+class "TraceListenerState$AwaitingEvent" as io.mazewall.profiler.internal.TraceListenerState$AwaitingEvent {
+  + {static}AwaitingEvent INSTANCE
+}
+class "TraceListenerState$Disconnected" as io.mazewall.profiler.internal.TraceListenerState$Disconnected {
+  + {static}Disconnected INSTANCE
+}
+class "TraceListenerState$ProcessingEvent" as io.mazewall.profiler.internal.TraceListenerState$ProcessingEvent {
+  __
+  +TraceEvent getEvent()
+  +TraceEvent component1()
+  +ProcessingEvent copy(TraceEvent)
+}
+class "TraceListenerState$ReadingArguments" as io.mazewall.profiler.internal.TraceListenerState$ReadingArguments {
+  +int getPid()
+  +String getName()
+  +int getArgsCount()
+  +int component1()
+  +String component2()
+  +int component3()
+  +ReadingArguments copy(int, String, int)
+}
+class "TraceListenerState$ReadingHeader" as io.mazewall.profiler.internal.TraceListenerState$ReadingHeader {
+  +int getPid()
+  +int component1()
+  +ReadingHeader copy(int)
+}
+class "TraceListenerState$ReadingSyscall" as io.mazewall.profiler.internal.TraceListenerState$ReadingSyscall {
+  +int getPid()
+  +int getNameLen()
+  +int component1()
+  +int component2()
+  +ReadingSyscall copy(int, int)
+}
+class "IterativeProfiler" as io.mazewall.profiler.iterative.IterativeProfiler {
+  + {static}IterativeProfiler INSTANCE
+  __
+  +Policy<?> profile(Policy<?>, Runnable)
+}
+interface "IterativeProfilerState" as io.mazewall.profiler.iterative.IterativeProfilerState {
+}
+class "IterativeProfilerState$Analyzing" as io.mazewall.profiler.iterative.IterativeProfilerState$Analyzing {
+  +Policy<?> getPolicy()
+  +Throwable getError()
+  +int getIteration()
+  +Policy<?> component1()
+  +Throwable component2()
+  +int component3()
+  +Analyzing copy(Policy<?>, Throwable, int)
+}
+class "IterativeProfilerState$Converged" as io.mazewall.profiler.iterative.IterativeProfilerState$Converged {
+  +Policy<?> getPolicy()
+  +Policy<?> component1()
+  +Converged copy(Policy<?>)
+}
+class "IterativeProfilerState$Exceeded" as io.mazewall.profiler.iterative.IterativeProfilerState$Exceeded {
+  +Policy<?> getPolicy()
+  +Policy<?> component1()
+  +Exceeded copy(Policy<?>)
+}
+class "IterativeProfilerState$Failed" as io.mazewall.profiler.iterative.IterativeProfilerState$Failed {
+  +Policy<?> getPolicy()
+  +Throwable getError()
+  +Policy<?> component1()
+  +Throwable component2()
+  +Failed copy(Policy<?>, Throwable)
+}
+class "IterativeProfilerState$Running" as io.mazewall.profiler.iterative.IterativeProfilerState$Running {
+  +Policy<?> getPolicy()
+  +int getIteration()
+  +Policy<?> component1()
+  +int component2()
+  +Running copy(Policy<?>, int)
+}
+class "IterativeProfilerState$Updating" as io.mazewall.profiler.iterative.IterativeProfilerState$Updating {
+  +Policy<?> getPolicy()
+  +String getPath()
+  +int getIteration()
+  +Policy<?> component1()
+  +String component2()
+  +int component3()
+  +Updating copy(Policy<?>, String, int)
+}
+class "StraceProfiler" as io.mazewall.profiler.strace.StraceProfiler {
+  + {static}StraceProfiler INSTANCE
+  __
+  +BillOfBehavior profile(Class<T>)
+}
+class "StraceWorkloadRunner" as io.mazewall.profiler.strace.StraceWorkloadRunner {
+  + {static}StraceWorkloadRunner INSTANCE
+  __
+  + {static}void main(String[])
+}
+io.mazewall.profiler.BillOfBehavior --> io.mazewall.profiler.BillOfBehavior$Companion
+io.mazewall.profiler.BillOfBehavior --> io.mazewall.profiler.engine.TraceEvent
+io.mazewall.profiler.BillOfBehaviorDto --> io.mazewall.profiler.StackProfileEntryDto
+io.mazewall.profiler.JvmBaselineProfiles --> io.mazewall.profiler.JvmBaselineProfiles
+io.mazewall.profiler.Profiler --> io.mazewall.profiler.Profiler
+io.mazewall.profiler.Profiler$ProfilerExecutorWrapper --> io.mazewall.profiler.engine.TraceEvent
+io.mazewall.profiler.Profiler$ProfilerExecutorWrapper --> io.mazewall.profiler.internal.DaemonContext
+io.mazewall.profiler.ProfilingResult --> io.mazewall.profiler.BillOfBehavior
+io.mazewall.profiler.compiler.BobCompiler --> io.mazewall.profiler.compiler.BobCompiler
+io.mazewall.profiler.engine.DescriptorPassing --> io.mazewall.profiler.engine.DescriptorPassing
+io.mazewall.profiler.engine.LoopAction$Break -u-|> io.mazewall.profiler.engine.LoopAction
+io.mazewall.profiler.engine.LoopAction$Break --> io.mazewall.profiler.engine.LoopAction$Break
+io.mazewall.profiler.engine.LoopAction$Continue -u-|> io.mazewall.profiler.engine.LoopAction
+io.mazewall.profiler.engine.LoopAction$Continue --> io.mazewall.profiler.engine.LoopAction$Continue
+io.mazewall.profiler.engine.LoopAction$Shutdown -u-|> io.mazewall.profiler.engine.LoopAction
+io.mazewall.profiler.engine.LoopAction$Shutdown --> io.mazewall.profiler.engine.LoopAction$Shutdown
+io.mazewall.profiler.engine.ProfilerDaemon --> io.mazewall.profiler.engine.ProfilerDaemon
+io.mazewall.profiler.engine.ProfilerDaemonEngine --> io.mazewall.profiler.engine.ProfilerDaemonState
+io.mazewall.profiler.engine.ProfilerDaemonEngine --> io.mazewall.profiler.engine.ProfilerTransport
+io.mazewall.profiler.engine.ProfilerDaemonEngine --> io.mazewall.profiler.engine.ProfilerMemoryReader
+io.mazewall.profiler.engine.ProfilerDaemonState$Active .u.|> io.mazewall.profiler.engine.ProfilerDaemonState
+io.mazewall.profiler.engine.ProfilerDaemonState$Listening .u.|> io.mazewall.profiler.engine.ProfilerDaemonState
+io.mazewall.profiler.engine.ProfilerDaemonState$ShuttingDown .u.|> io.mazewall.profiler.engine.ProfilerDaemonState
+io.mazewall.profiler.engine.ProfilerDaemonState$ShuttingDown --> io.mazewall.profiler.engine.ProfilerDaemonState$ShuttingDown
+io.mazewall.profiler.engine.ProfilerDaemonState$Terminated .u.|> io.mazewall.profiler.engine.ProfilerDaemonState
+io.mazewall.profiler.engine.ProfilerDaemonState$Terminated --> io.mazewall.profiler.engine.ProfilerDaemonState$Terminated
+io.mazewall.profiler.engine.ProfilerDaemonState$Uninitialized .u.|> io.mazewall.profiler.engine.ProfilerDaemonState
+io.mazewall.profiler.engine.ProfilerDaemonState$Uninitialized --> io.mazewall.profiler.engine.ProfilerDaemonState$Uninitialized
+io.mazewall.profiler.engine.ProfilerInstaller --> io.mazewall.profiler.engine.ProfilerInstaller
+io.mazewall.profiler.engine.ProfilerInstallerSession --> io.mazewall.profiler.engine.TraceEvent
+io.mazewall.profiler.engine.ProfilerInstallerSession --> io.mazewall.profiler.engine.ProfilerInstallerState
+io.mazewall.profiler.engine.ProfilerInstallerState$Active .u.|> io.mazewall.profiler.engine.ProfilerInstallerState
+io.mazewall.profiler.engine.ProfilerInstallerState$Connecting .u.|> io.mazewall.profiler.engine.ProfilerInstallerState
+io.mazewall.profiler.engine.ProfilerInstallerState$Failed .u.|> io.mazewall.profiler.engine.ProfilerInstallerState
+io.mazewall.profiler.engine.ProfilerInstallerState$InstallingBpf .u.|> io.mazewall.profiler.engine.ProfilerInstallerState
+io.mazewall.profiler.engine.ProfilerInstallerState$InstallingBpf --> io.mazewall.profiler.engine.ProfilerInstallerState$InstallingBpf
+io.mazewall.profiler.engine.ProfilerInstallerState$SendingDescriptor .u.|> io.mazewall.profiler.engine.ProfilerInstallerState
+io.mazewall.profiler.engine.ProfilerInstallerState$Uninitialized .u.|> io.mazewall.profiler.engine.ProfilerInstallerState
+io.mazewall.profiler.engine.ProfilerInstallerState$Uninitialized --> io.mazewall.profiler.engine.ProfilerInstallerState$Uninitialized
+io.mazewall.profiler.engine.ProfilerInstallerState$VerifyingAck .u.|> io.mazewall.profiler.engine.ProfilerInstallerState
+io.mazewall.profiler.engine.ProfilerSessionHandler --> io.mazewall.profiler.engine.ProfilerTransport
+io.mazewall.profiler.engine.ProfilerSessionHandler --> io.mazewall.profiler.engine.ProfilerState
+io.mazewall.profiler.engine.ProfilerSessionHandler --> io.mazewall.profiler.engine.ProfilerMemoryReader
+io.mazewall.profiler.engine.ProfilerState$ActiveSession .u.|> io.mazewall.profiler.engine.ProfilerState
+io.mazewall.profiler.engine.ProfilerState$Connected .u.|> io.mazewall.profiler.engine.ProfilerState
+io.mazewall.profiler.engine.ProfilerState$HandshakeAck .u.|> io.mazewall.profiler.engine.ProfilerState
+io.mazewall.profiler.engine.ProfilerState$Notified .u.|> io.mazewall.profiler.engine.ProfilerState
+io.mazewall.profiler.engine.ProfilerState$Notified --> io.mazewall.profiler.engine.TraceEvent
+io.mazewall.profiler.engine.ProfilerState$Terminated .u.|> io.mazewall.profiler.engine.ProfilerState
+io.mazewall.profiler.engine.ProfilerState$Terminated --> io.mazewall.profiler.engine.ProfilerState$Terminated
+io.mazewall.profiler.engine.ProfilerState$WaitingForAck .u.|> io.mazewall.profiler.engine.ProfilerState
+io.mazewall.profiler.engine.RealMemoryReader .u.|> io.mazewall.profiler.engine.ProfilerMemoryReader
+io.mazewall.profiler.engine.RealMemoryReader --> io.mazewall.profiler.engine.RealMemoryReader
+io.mazewall.profiler.engine.RealProfilerTransport .u.|> io.mazewall.profiler.engine.ProfilerTransport
+io.mazewall.profiler.engine.RealProfilerTransport --> io.mazewall.profiler.engine.RealProfilerTransport
+io.mazewall.profiler.engine.SyscallPathResolver --> io.mazewall.profiler.engine.ProfilerMemoryReader
+io.mazewall.profiler.internal.NativeSocketInputStream --> io.mazewall.profiler.internal.NativeSocketInputStream$Companion
+io.mazewall.profiler.internal.ProfilerDaemonManager --> io.mazewall.profiler.internal.ProfilerDaemonManager
+io.mazewall.profiler.internal.ProfilerDaemonManager --> io.mazewall.profiler.internal.DaemonContext
+io.mazewall.profiler.internal.ProfilerSocket --> io.mazewall.profiler.internal.ProfilerSocket
+io.mazewall.profiler.internal.ProfilerTraceListener --> io.mazewall.profiler.internal.ProfilerTraceListener$Companion
+io.mazewall.profiler.internal.ProfilerTraceListener --> io.mazewall.profiler.engine.TraceEvent
+io.mazewall.profiler.internal.ProfilerTraceListener --> io.mazewall.profiler.internal.TraceListenerState
+io.mazewall.profiler.internal.TraceListenerState$AwaitingEvent .u.|> io.mazewall.profiler.internal.TraceListenerState
+io.mazewall.profiler.internal.TraceListenerState$AwaitingEvent --> io.mazewall.profiler.internal.TraceListenerState$AwaitingEvent
+io.mazewall.profiler.internal.TraceListenerState$Disconnected .u.|> io.mazewall.profiler.internal.TraceListenerState
+io.mazewall.profiler.internal.TraceListenerState$Disconnected --> io.mazewall.profiler.internal.TraceListenerState$Disconnected
+io.mazewall.profiler.internal.TraceListenerState$ProcessingEvent .u.|> io.mazewall.profiler.internal.TraceListenerState
+io.mazewall.profiler.internal.TraceListenerState$ProcessingEvent --> io.mazewall.profiler.engine.TraceEvent
+io.mazewall.profiler.internal.TraceListenerState$ReadingArguments .u.|> io.mazewall.profiler.internal.TraceListenerState
+io.mazewall.profiler.internal.TraceListenerState$ReadingHeader .u.|> io.mazewall.profiler.internal.TraceListenerState
+io.mazewall.profiler.internal.TraceListenerState$ReadingSyscall .u.|> io.mazewall.profiler.internal.TraceListenerState
+io.mazewall.profiler.iterative.IterativeProfiler --> io.mazewall.profiler.iterative.IterativeProfiler
+io.mazewall.profiler.iterative.IterativeProfilerState$Analyzing .u.|> io.mazewall.profiler.iterative.IterativeProfilerState
+io.mazewall.profiler.iterative.IterativeProfilerState$Converged .u.|> io.mazewall.profiler.iterative.IterativeProfilerState
+io.mazewall.profiler.iterative.IterativeProfilerState$Exceeded .u.|> io.mazewall.profiler.iterative.IterativeProfilerState
+io.mazewall.profiler.iterative.IterativeProfilerState$Failed .u.|> io.mazewall.profiler.iterative.IterativeProfilerState
+io.mazewall.profiler.iterative.IterativeProfilerState$Running .u.|> io.mazewall.profiler.iterative.IterativeProfilerState
+io.mazewall.profiler.iterative.IterativeProfilerState$Updating .u.|> io.mazewall.profiler.iterative.IterativeProfilerState
+io.mazewall.profiler.strace.StraceProfiler --> io.mazewall.profiler.strace.StraceProfiler
+io.mazewall.profiler.strace.StraceWorkloadRunner --> io.mazewall.profiler.strace.StraceWorkloadRunner
+@enduml

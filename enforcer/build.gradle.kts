@@ -1,6 +1,7 @@
 plugins {
     kotlin("jvm")
     id("info.solidsoft.pitest")
+    alias(libs.plugins.plantuml)
 }
 
 kotlin {
@@ -133,4 +134,12 @@ pitest {
     jvmArgs.set(listOf("--enable-native-access=ALL-UNNAMED"))
 
     threads.set(System.getProperty("pitest.threads")?.toInt() ?: 4)
+}
+
+classDiagrams {
+    diagram {
+        name("Enforcer Class Diagram")
+        include(packages().withName("io.mazewall"))
+        writeTo(file("$rootDir/docs/diagrams/enforcer_class_diagram.puml"))
+    }
 }
