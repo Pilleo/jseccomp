@@ -1,5 +1,6 @@
 package io.mazewall.profiler.engine
 
+import io.mazewall.LinuxNative
 import io.mazewall.core.Arch
 import io.mazewall.core.Syscall
 import io.mazewall.ffi.Layouts
@@ -22,14 +23,24 @@ internal class ProfilerDaemonEngine(
     private val memoryReader: ProfilerMemoryReader = RealMemoryReader,
 ) {
     private val syscallMap = mutableMapOf<Int, String>()
-    private val clientSockets = CopyOnWriteArrayList<Int>()
-    private val activeListeners = CopyOnWriteArrayList<Int>()
+    private val clientSockets = CopyOnWriteArrayList<LinuxNative.FileDescriptor>()
+    private val activeListeners = CopyOnWriteArrayList<LinuxNative.FileDescriptor>()
     private val stateRef = java.util.concurrent.atomic
         .AtomicReference<ProfilerDaemonState>(ProfilerDaemonState.Uninitialized)
 
     var state: ProfilerDaemonState
         get() = stateRef.get()
         private set(value) = stateRef.set(value)
+
+    companion object {
+        private const val DAEMON_READY_SENTINEL = "MAZEWALL_DAEMON_READY"
+        private const val POLL_TIMEOUT_MS = 1000
+        private const val POLLFD_FD_OFF = 0L
+        private const val POLLFD_EVENTS_OFF = 4L
+        private const val ACK_BUF_SIZE = 1L
+        private const val PROTOCOL_ACK_BYTE = 0xAC.toByte()
+        private const val POLLFD_STRUCT_SIZE = 8L
+    }
 
     init {
         val arch = Arch.current()
@@ -75,31 +86,38 @@ internal class ProfilerDaemonEngine(
         return curr is ProfilerDaemonState.ShuttingDown || curr is ProfilerDaemonState.Terminated
     }
 
+    @Suppress("LoopWithTooManyJumpStatements")
     private fun acceptConnections(
-        serverFd: Int,
+        serverFd: LinuxNative.FileDescriptor,
         arena: Arena,
     ) {
         val pollFd = arena.allocate(Layouts.POLLFD)
-        pollFd.set(ValueLayout.JAVA_INT, POLLFD_FD_OFF, serverFd)
-        pollFd.set(ValueLayout.JAVA_SHORT, POLLFD_EVENTS_OFF, NativeConstants.POLLIN)
+        pollFd.set(ValueLayout.JAVA_INT, POLLFD_FD_OFF, serverFd.value)
+        pollFd.set(ValueLayout.JAVA_SHORT, POLLFD_EVENTS_OFF, NativeConstants.POLLIN.toShort())
 
         while (!isGlobalShutdown()) {
             val pollRes = transport.poll(pollFd, 1L, POLL_TIMEOUT_MS)
-            if (pollRes.returnValue <= 0) {
-                if (pollRes.returnValue < 0L && pollRes.errno != EINTR) break
-                continue
+            when (pollRes) {
+                is LinuxNative.SyscallResult.Success -> {
+                    if (pollRes.value <= 0) continue
+                }
+
+                is LinuxNative.SyscallResult.Error -> {
+                    if (pollRes.errno != EINTR) break // Not EINTR
+                    continue
+                }
             }
             handleNewConnection(serverFd)
         }
     }
 
     @Suppress("TooGenericExceptionCaught", "SwallowedException")
-    private fun handleNewConnection(serverFd: Int) {
+    private fun handleNewConnection(serverFd: LinuxNative.FileDescriptor) {
         try {
             val clientFd = transport.accept(serverFd)
             clientSockets.add(clientFd)
             Thread { handleConnection(clientFd) }.apply {
-                name = "conn-handler-$clientFd"
+                name = "conn-handler-${clientFd.value}"
                 start()
             }
         } catch (e: Exception) {
@@ -108,18 +126,24 @@ internal class ProfilerDaemonEngine(
     }
 
     @Suppress("NestedBlockDepth", "LoopWithTooManyJumpStatements")
-    private fun handleConnection(socketFd: Int) {
+    private fun handleConnection(socketFd: LinuxNative.FileDescriptor) {
         try {
             Arena.ofConfined().use { arena ->
                 val pollFd = arena.allocate(Layouts.POLLFD)
-                pollFd.set(ValueLayout.JAVA_INT, POLLFD_FD_OFF, socketFd)
-                pollFd.set(ValueLayout.JAVA_SHORT, POLLFD_EVENTS_OFF, NativeConstants.POLLIN)
+                pollFd.set(ValueLayout.JAVA_INT, POLLFD_FD_OFF, socketFd.value)
+                pollFd.set(ValueLayout.JAVA_SHORT, POLLFD_EVENTS_OFF, NativeConstants.POLLIN.toShort())
 
                 while (!isGlobalShutdown()) {
                     val pollRes = transport.poll(pollFd, 1L, POLL_TIMEOUT_MS)
-                    if (pollRes.returnValue <= 0) {
-                        if (pollRes.returnValue < 0L && pollRes.errno != EINTR) break
-                        continue
+                    when (pollRes) {
+                        is LinuxNative.SyscallResult.Success -> {
+                            if (pollRes.value <= 0) continue
+                        }
+
+                        is LinuxNative.SyscallResult.Error -> {
+                            if (pollRes.errno != EINTR) break // Not EINTR
+                            continue
+                        }
                     }
                     if (!receiveAndHandleListener(socketFd)) break
                 }
@@ -130,7 +154,7 @@ internal class ProfilerDaemonEngine(
         }
     }
 
-    private fun receiveAndHandleListener(socketFd: Int): Boolean {
+    private fun receiveAndHandleListener(socketFd: LinuxNative.FileDescriptor): Boolean {
         val listenerFd = transport.recvDescriptor(socketFd) ?: return false
         activeListeners.add(listenerFd)
 
@@ -143,7 +167,7 @@ internal class ProfilerDaemonEngine(
 
         Thread { handleSession(socketFd, listenerFd) }
             .apply {
-                name = "listener-handler-$listenerFd"
+                name = "listener-handler-${listenerFd.value}"
                 start()
             }.join() // Process one session per connection sequentially for simplicity
         return true
@@ -151,8 +175,8 @@ internal class ProfilerDaemonEngine(
 
     @Suppress("NestedBlockDepth", "LoopWithTooManyJumpStatements")
     private fun handleSession(
-        socketFd: Int,
-        listenerFd: Int,
+        socketFd: LinuxNative.FileDescriptor,
+        listenerFd: LinuxNative.FileDescriptor,
     ) {
         val sessionHandler = ProfilerSessionHandler(
             socketFd,
@@ -172,9 +196,15 @@ internal class ProfilerDaemonEngine(
 
                 while (!isGlobalShutdown()) {
                     val pollRes = transport.poll(pollFds, 2L, POLL_TIMEOUT_MS)
-                    if (pollRes.returnValue <= 0) {
-                        if (pollRes.returnValue < 0L && pollRes.errno != EINTR) break
-                        continue
+                    when (pollRes) {
+                        is LinuxNative.SyscallResult.Success -> {
+                            if (pollRes.value <= 0) continue
+                        }
+
+                        is LinuxNative.SyscallResult.Error -> {
+                            if (pollRes.errno != EINTR) break // Not EINTR
+                            continue
+                        }
                     }
 
                     val action = sessionHandler.handleActiveListener(pollFds, ackBuf, notif, resp, socketPollFd)
@@ -189,16 +219,16 @@ internal class ProfilerDaemonEngine(
 
     private fun setupSessionPoll(
         arena: Arena,
-        socketFd: Int,
-        listenerFd: Int,
+        socketFd: LinuxNative.FileDescriptor,
+        listenerFd: LinuxNative.FileDescriptor,
     ): MemorySegment {
         val pollFds = arena.allocate(MemoryLayout.sequenceLayout(2, Layouts.POLLFD))
         // [0]: Seccomp listener FD
-        pollFds.set(ValueLayout.JAVA_INT, POLLFD_FD_OFF, listenerFd)
-        pollFds.set(ValueLayout.JAVA_SHORT, POLLFD_EVENTS_OFF, NativeConstants.POLLIN)
+        pollFds.set(ValueLayout.JAVA_INT, 0L, listenerFd.value)
+        pollFds.set(ValueLayout.JAVA_SHORT, POLLFD_EVENTS_OFF, NativeConstants.POLLIN.toShort())
         // [1]: UNIX socket FD (for parent shutdown/ACK)
-        pollFds.set(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG.byteSize(), socketFd)
-        pollFds.set(ValueLayout.JAVA_SHORT, ValueLayout.JAVA_LONG.byteSize() + POLLFD_EVENTS_OFF, NativeConstants.POLLIN)
+        pollFds.set(ValueLayout.JAVA_INT, POLLFD_STRUCT_SIZE, socketFd.value)
+        pollFds.set(ValueLayout.JAVA_SHORT, POLLFD_STRUCT_SIZE + POLLFD_EVENTS_OFF, NativeConstants.POLLIN.toShort())
         return pollFds
     }
 }

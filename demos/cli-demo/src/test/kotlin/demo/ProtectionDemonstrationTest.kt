@@ -11,6 +11,7 @@ import java.io.File
 import java.lang.foreign.*
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -61,8 +62,8 @@ class ProtectionDemonstrationTest {
                                 name.address(),
                                 0L,
                             )
-                        assertTrue(res.returnValue < 0, "memfd_create should be blocked by NO_EXEC")
-                        assertTrue(res.errno == NativeConstants.EPERM, "Expected EPERM, got ${res.errno}")
+                        assertTrue(res is LinuxNative.SyscallResult.Error, "memfd_create should be blocked by NO_EXEC")
+                        assertEquals(NativeConstants.EPERM, (res as LinuxNative.SyscallResult.Error).errno)
                     }
                 }.get()
         } finally {
@@ -191,10 +192,11 @@ class ProtectionDemonstrationTest {
                                 0, // O_RDONLY
                             )
                         // If Landlock restricts the path, open returns -1 and errno is EACCES (13)
-                        assertTrue(openResult.returnValue < 0, "open of /etc/hosts should fail under Landlock")
+                        assertTrue(openResult is LinuxNative.SyscallResult.Error, "open of /etc/hosts should fail under Landlock")
+                        val errno = (openResult as LinuxNative.SyscallResult.Error).errno
                         assertTrue(
-                            openResult.errno == 1 || openResult.errno == 13,
-                            "Expected EPERM (1) or EACCES (13), got: ${openResult.errno}",
+                            errno == 1 || errno == 13,
+                            "Expected EPERM (1) or EACCES (13), got: $errno",
                         )
                     }
                 }.get()

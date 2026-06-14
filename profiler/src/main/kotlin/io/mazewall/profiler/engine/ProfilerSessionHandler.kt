@@ -1,5 +1,6 @@
 package io.mazewall.profiler.engine
 
+import io.mazewall.LinuxNative
 import io.mazewall.ffi.NativeConstants
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout
@@ -19,8 +20,8 @@ internal sealed class LoopAction {
  * Internal logic for handling active seccomp listeners and shutdown requests.
  */
 internal class ProfilerSessionHandler(
-    private val socketFd: Int,
-    private val listenerFd: Int,
+    private val socketFd: LinuxNative.FileDescriptor,
+    private val listenerFd: LinuxNative.FileDescriptor,
     private val transport: ProfilerTransport,
     private val memoryReader: ProfilerMemoryReader,
     private val syscallMap: Map<Int, String>,
@@ -56,7 +57,7 @@ internal class ProfilerSessionHandler(
         if ((listenerRevents.toInt() and NativeConstants.POLLIN.toInt()) != 0) {
             notif.fill(0)
             val recvRes = transport.ioctl(listenerFd, SECCOMP_IOCTL_NOTIF_RECV, notif)
-            if (recvRes.returnValue == 0L) {
+            if (recvRes is LinuxNative.SyscallResult.Success) {
                 if (!processNotification(notif, resp, ackBuf, socketPollFd)) {
                     state = ProfilerState.Terminated
                     return LoopAction.Break
@@ -69,18 +70,23 @@ internal class ProfilerSessionHandler(
     @Suppress("ReturnCount")
     private fun handleShutdownRequest(ackBuf: MemorySegment): Boolean {
         val res = transport.recv(socketFd, ackBuf, 1L, 0)
-        if (res.returnValue > 0) {
-            val command = ackBuf.get(ValueLayout.JAVA_BYTE, 0L)
-            if (command == SHUTDOWN_COMMAND_BYTE) {
-                onShutdown("Parent Command")
-                return true
+        return when (res) {
+            is LinuxNative.SyscallResult.Success -> {
+                if (res.value > 0) {
+                    val command = ackBuf.get(ValueLayout.JAVA_BYTE, 0L)
+                    if (command == SHUTDOWN_COMMAND_BYTE) {
+                        onShutdown("Parent Command")
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    true // parent socket closed
+                }
             }
-            // Discard any other byte (e.g. delayed PROTOCOL_ACK_BYTE) to prevent infinite poll spin
-            return false
-        } else if (res.returnValue == 0L) {
-            return true // parent socket closed
+
+            is LinuxNative.SyscallResult.Error -> false
         }
-        return false
     }
 
     internal fun processNotification(
@@ -106,8 +112,8 @@ internal class ProfilerSessionHandler(
         // Transition to Notified state
         state = ProfilerState.Notified(socketFd, listenerFd, id, event)
 
-        socketPollFd.set(ValueLayout.JAVA_INT, POLLFD_FD_OFF, socketFd)
-        socketPollFd.set(ValueLayout.JAVA_SHORT, POLLFD_EVENTS_OFF, NativeConstants.POLLIN)
+        socketPollFd.set(ValueLayout.JAVA_INT, POLLFD_FD_OFF, socketFd.value)
+        socketPollFd.set(ValueLayout.JAVA_SHORT, POLLFD_EVENTS_OFF, NativeConstants.POLLIN.toShort())
 
         // Transition to WaitingForAck state
         state = ProfilerState.WaitingForAck(socketFd, listenerFd, id)
@@ -139,7 +145,7 @@ internal class ProfilerSessionHandler(
         }
     }
 
-    @Suppress("ReturnCount", "NestedBlockDepth")
+    @Suppress("ReturnCount", "NestedBlockDepth", "CyclomaticComplexMethod")
     private fun waitForParentAck(
         pollFd: MemorySegment,
         ackBuf: MemorySegment,
@@ -148,31 +154,54 @@ internal class ProfilerSessionHandler(
 
         while (true) {
             val pollRes = transport.poll(pollFd, 1L, POLL_ACK_TIMEOUT_MS)
-            if (pollRes.returnValue <= 0) {
-                if (pollRes.returnValue == 0L) return false
-                if (pollRes.errno != EINTR) return false
-                continue
+            when (pollRes) {
+                is LinuxNative.SyscallResult.Success -> {
+                    if (pollRes.value == 0L) return false
+                }
+
+                is LinuxNative.SyscallResult.Error -> {
+                    if (pollRes.errno == EINTR) continue
+                    return false
+                }
             }
             val revents = pollFd.get(ValueLayout.JAVA_SHORT, POLLFD_REVENTS_OFF)
             if ((revents.toInt() and NativeConstants.POLLIN.toInt()) != 0) {
-                while (true) {
-                    val readRes = transport.read(socketFd, ackBuf, ACK_BUF_SIZE)
-                    if (readRes.returnValue > 0) {
-                        val command = ackBuf.get(ValueLayout.JAVA_BYTE, 0L)
-                        if (command == SHUTDOWN_COMMAND_BYTE) {
-                            onShutdown("Shutdown Command (inline)")
-                        }
-                        return true
-                    }
-                    if (readRes.returnValue < 0 && readRes.errno == EINTR) {
-                        continue
-                    }
-                    return false
-                }
+                if (readAndProcessAck(ackBuf)) return true
             }
             return false
         }
     }
+
+    @Suppress("ReturnCount", "LoopWithTooManyJumpStatements")
+    private fun readAndProcessAck(ackBuf: MemorySegment): Boolean {
+        while (true) {
+            val readRes = transport.read(socketFd, ackBuf, ACK_BUF_SIZE)
+            when (readRes) {
+                is LinuxNative.SyscallResult.Success -> {
+                    if (readRes.value <= 0) {
+                        if (readRes.value == 0L) return false
+                        continue
+                    }
+                    for (i in 0 until readRes.value.toInt()) {
+                        val byte = ackBuf.get(ValueLayout.JAVA_BYTE, i.toLong())
+                        if (byte == PROTOCOL_ACK_BYTE) return true
+                        if (byte == SHUTDOWN_COMMAND_BYTE) {
+                            onShutdown("Parent Command during notification")
+                            return false
+                        }
+                    }
+                    break
+                }
+
+                is LinuxNative.SyscallResult.Error -> {
+                    if (readRes.errno == EINTR) continue
+                    return false
+                }
+            }
+        }
+        return false
+    }
+
 
     private fun sendContinueResponse(
         id: Long,

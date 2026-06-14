@@ -11,15 +11,16 @@ Determine the severity based on the following impact criteria:
 - **MEDIUM:** Information leak, bypass requiring complex prerequisites, significant usability flaw.
 - **LOW:** Documentation drift, minor performance degradation, nitpicks.
 
-### 2. Documentation Phase
+### 2. Documentation Phase (Debuggability & Precision)
 Add a new entry to **`docs/internals/code_issues_backlog.md`** using the following structured template:
 
 ```markdown
 ### 🔴 [Severity]: [Descriptive Title]
 **Target:** [File paths and symbols involved]
+**Dimension:** [Vulnerability Chaining / FFM ABI / Kernel Invariants / Performance / Misconfiguration / Documentation]
 **Context:** [Detailed description of the vulnerability, including why it exists and why current checks fail.]
-**Failure Hypothesis:** [Optional: Steps to reproduce or the logical flow of the bypass.]
-**Needed:** [Concrete technical recommendation for the fix.]
+**Failure Hypothesis:** [The precise memory state, kernel state, or JVM state that causes the failure.]
+**Needed:** [Concrete technical recommendation for the fix, ensuring it improves debuggability and trace-friendliness.]
 ```
 
 ### 3. Safety Invariants

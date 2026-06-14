@@ -68,6 +68,7 @@ object PureJavaBpfEngine : SeccompEngine {
                     val match = Regex("errno\\s*=?\\s*(-?\\d+)").find(e.message ?: "")
                     match?.groupValues?.get(1)?.toIntOrNull() ?: -1
                 }
+
                 else -> -1
             }
             threadState.set(SeccompInstallationState.Failed(stepName, errno, e))
@@ -78,9 +79,7 @@ object PureJavaBpfEngine : SeccompEngine {
     private fun setNoNewPrivs() {
         // Step 1: Set no_new_privs (mandatory for non-root seccomp)
         val r1 = LinuxNative.getProcess().prctl(NativeConstants.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
-        if (r1.returnValue != 0L) {
-            throw IllegalStateException("prctl(PR_SET_NO_NEW_PRIVS) failed with errno ${r1.errno}")
-        }
+        r1.getOrThrow("prctl(PR_SET_NO_NEW_PRIVS)")
     }
 
     private fun installFilter(
@@ -98,7 +97,7 @@ object PureJavaBpfEngine : SeccompEngine {
                 prog,
             )
 
-        if (r3.returnValue != 0L) {
+        if (r3 is LinuxNative.SyscallResult.Error) {
             // Fall back to prctl for older kernels
             val errno1 = r3.errno
 
@@ -120,7 +119,7 @@ object PureJavaBpfEngine : SeccompEngine {
                     0,
                 )
 
-            if (r4.returnValue != 0L) {
+            if (r4 is LinuxNative.SyscallResult.Error) {
                 throw IllegalStateException(
                     "seccomp installation failed: seccomp(2) errno=$errno1, prctl errno=${r4.errno}",
                 )
@@ -143,9 +142,10 @@ object PureJavaBpfEngine : SeccompEngine {
 
         // Verify filter is actually installed
         val r5 = LinuxNative.getProcess().prctl(NativeConstants.PR_GET_SECCOMP, 0, 0, 0, 0)
-        if (r5.returnValue != 2L) {
+        val mode = r5.getOrThrow("prctl(PR_GET_SECCOMP)")
+        if (mode != 2L) {
             throw IllegalStateException(
-                "Seccomp filter verification failed: expected mode 2, got ${r5.returnValue}",
+                "Seccomp filter verification failed: expected mode 2, got $mode",
             )
         }
         threadState.set(SeccompInstallationState.Verified)

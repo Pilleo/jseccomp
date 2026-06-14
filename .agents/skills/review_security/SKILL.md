@@ -12,9 +12,9 @@ This is a **continuous, hypothesis-driven execution loop**. You are authorized t
 
 Security depends on extreme rigor. Leave no assumption unchecked.
 
-## 🧭 The Six Balanced Analysis Dimensions
+## 🧭 The Seven Balanced Analysis Dimensions
 
-To prevent hyperfocus on low-level mechanics at the expense of developer usage and performance-induced risks, you must evaluate the project across these six equal dimensions:
+To prevent hyperfocus on low-level mechanics at the expense of developer usage and performance-induced risks, you must evaluate the project across these seven equal dimensions:
 
 1. **Vulnerability Chaining (The Threat Model View):**
    - **Compound Failures:** How could a theoretical attacker chain a low-severity logic bug with a concurrent race condition to achieve a containment bypass or Memory Corruption?
@@ -43,6 +43,13 @@ To prevent hyperfocus on low-level mechanics at the expense of developer usage a
 6. **Documentation Strictness (The "Reality" Check):**
    - Treat every comment and documentation claim as requiring empirical proof.
    - If a doc says "X is blocked", manually trace the `Policy` builder to ensure X is *actually* blocked under all conditions. Flag any drift.
+
+7. **Code Maintainability & Engineering Standards (The "Craftsmanship" View):**
+   - **Compile-Time Safety:** Maximize the Kotlin type system (e.g., sealed classes, strict null-safety, explicit generics) to prevent bugs from reaching runtime. Avoid bypassing the type system with unsafe casts or reflection.
+   - **Debuggability:** Ensure the system's state is easily inspectable during failures. Error messages and logs must be context-rich, trace-friendly, and avoid swallowing underlying exceptions.
+   - **Future-Proofness:** Evaluate architectural adaptability. Can the codebase easily accommodate upcoming JVM evolutions (like Project Valhalla) or new Linux kernel subsystems?
+   - **Readability:** Guarantee that the code is idiomatic Kotlin, self-documenting, and free of overly "clever" obscurity. Complex logic must be clearly explained via comments.
+   - **Logical Modularity:** Enforce strict separation of concerns. Ensure components are loosely coupled, prioritize composition over inheritance, and rely on established trait interfaces (e.g., `NativeEngine`).
 
 ## 🔄 The Continuous Execution Loop
 

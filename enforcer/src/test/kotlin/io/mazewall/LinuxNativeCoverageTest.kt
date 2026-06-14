@@ -16,16 +16,31 @@ class LinuxNativeCoverageTest {
 
     @Test
     fun `test data class methods for SyscallResult`() {
-        val res1 = LinuxNative.SyscallResult(100, 0)
-        val res2 = LinuxNative.SyscallResult(100, 0)
-        val res3 = LinuxNative.SyscallResult(200, 1)
+        val res1 = LinuxNative.SyscallResult.Success(100)
+        val res2 = LinuxNative.SyscallResult.Success(100)
+        val res3 = LinuxNative.SyscallResult.Error(1, 200)
 
         assertEquals(res1, res2)
-        assertNotEquals(res1, res3)
+        assertNotEquals<LinuxNative.SyscallResult>(res1, res3)
         assertEquals(res1.hashCode(), res2.hashCode())
         assertNotNull(res1.toString())
-        assertEquals(100L, res1.returnValue)
-        assertEquals(0, res1.errno)
+        assertEquals(100L, res1.value)
+        assertEquals(1, (res3 as LinuxNative.SyscallResult.Error).errno)
+        assertEquals(200L, res3.rawValue)
+    }
+
+    @Test
+    fun `test FileDescriptor methods`() {
+        val fd1 = LinuxNative.FileDescriptor(10)
+        val fd2 = LinuxNative.FileDescriptor(10)
+        val fd3 = LinuxNative.FileDescriptor(-1)
+
+        assertEquals(fd1, fd2)
+        assertNotEquals(fd1, fd3)
+        assertTrue(fd1.isValid)
+        assertTrue(fd3.isInvalid)
+        assertEquals("fd(10)", fd1.toString())
+        assertEquals("fd(INVALID)", fd3.toString())
     }
 
     @Test
@@ -61,11 +76,11 @@ class LinuxNativeCoverageTest {
     @Test
     fun `test LinuxNative syscall4 delegate`() {
         val mock = MockNativeEngine()
-        mock.syscallResult = LinuxNative.SyscallResult(444, 0)
+        mock.syscallResult = LinuxNative.SyscallResult.Success(444)
         LinuxNative.setEngine(mock)
 
         val res = LinuxNative.syscall4(1, 2, 3, 4, 5)
-        assertEquals(444L, res.returnValue)
+        assertEquals(444L, res.getOrThrow("test"))
     }
 
     @Test
@@ -120,22 +135,23 @@ class LinuxNativeCoverageTest {
 
         Arena.ofConfined().use { arena ->
             val seg = arena.allocate(8)
+            val fd = LinuxNative.FileDescriptor(1)
 
-            mock.acceptResult = LinuxNative.SyscallResult(10, 0)
-            assertEquals(10L, LinuxNative.accept(1, seg, seg).returnValue)
+            mock.acceptResult = LinuxNative.SyscallResult.Success(10)
+            assertEquals(10L, LinuxNative.accept(fd, seg, seg).getOrThrow("test"))
 
-            mock.sendmsgResult = LinuxNative.SyscallResult(20, 0)
-            assertEquals(20L, LinuxNative.sendmsg(1, seg, 0).returnValue)
+            mock.sendmsgResult = LinuxNative.SyscallResult.Success(20)
+            assertEquals(20L, LinuxNative.sendmsg(fd, seg, 0).getOrThrow("test"))
 
-            mock.recvmsgResult = LinuxNative.SyscallResult(30, 0)
-            assertEquals(30L, LinuxNative.recvmsg(1, seg, 0).returnValue)
+            mock.recvmsgResult = LinuxNative.SyscallResult.Success(30)
+            assertEquals(30L, LinuxNative.recvmsg(fd, seg, 0).getOrThrow("test"))
 
-            mock.ioctlResult = LinuxNative.SyscallResult(40, 0)
-            assertEquals(40L, LinuxNative.ioctl(1, 2L, seg).returnValue)
-            assertEquals(40L, LinuxNative.ioctl(1, 2L, 3L).returnValue)
+            mock.ioctlResult = LinuxNative.SyscallResult.Success(40)
+            assertEquals(40L, LinuxNative.ioctl(fd, 2L, seg).getOrThrow("test"))
+            assertEquals(40L, LinuxNative.ioctl(fd, 2L, 3L).getOrThrow("test"))
 
-            mock.recvResult = LinuxNative.SyscallResult(50, 0)
-            assertEquals(50L, LinuxNative.recv(1, seg, 8L, 0).returnValue)
+            mock.recvResult = LinuxNative.SyscallResult.Success(50)
+            assertEquals(50L, LinuxNative.recv(fd, seg, 8L, 0).getOrThrow("test"))
 
             assertEquals(1234, LinuxNative.gettid())
         }

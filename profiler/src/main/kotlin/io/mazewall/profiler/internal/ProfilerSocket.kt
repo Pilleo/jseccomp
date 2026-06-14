@@ -31,15 +31,12 @@ internal object ProfilerSocket {
             var lastErrno = 0
             for (retry in 0 until maxRetries) {
                 val fdRes = LinuxNative.socket(AF_UNIX, SOCK_STREAM, 0)
-                if (fdRes.returnValue < 0) {
-                    throw IllegalStateException("Failed to create socket: errno=${fdRes.errno}")
-                }
-                val fd = fdRes.returnValue.toInt()
+                val fd = fdRes.getFdOrThrow("socket(AF_UNIX)")
                 val connRes = LinuxNative.connect(fd, addr, ADDR_UN_SIZE)
-                if (connRes.returnValue == 0L) {
-                    return fd
+                if (connRes is LinuxNative.SyscallResult.Success) {
+                    return fd.value
                 }
-                lastErrno = connRes.errno
+                lastErrno = (connRes as LinuxNative.SyscallResult.Error).errno
                 LinuxNative.close(fd)
 
                 Thread.sleep(delayMs)
@@ -67,8 +64,8 @@ internal object ProfilerSocket {
 
             val msg = DescriptorPassing.setupScmRightsMsgHdr(arena, dummyByte, controlBuf)
 
-            val res = LinuxNative.sendmsg(socketFd, msg, 0)
-            return res.returnValue >= 0
+            val res = LinuxNative.sendmsg(LinuxNative.FileDescriptor(socketFd), msg, 0)
+            return res is LinuxNative.SyscallResult.Success
         }
     }
 

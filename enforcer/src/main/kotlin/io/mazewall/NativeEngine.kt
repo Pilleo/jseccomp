@@ -32,19 +32,19 @@ interface NativeEngine :
     ): LinuxNative.SyscallResult
 
     fun ioctl(
-        fd: Int,
+        fd: LinuxNative.FileDescriptor,
         request: Long,
         arg: MemorySegment,
     ): LinuxNative.SyscallResult
 
     fun ioctl(
-        fd: Int,
+        fd: LinuxNative.FileDescriptor,
         request: Long,
         arg: Long,
     ): LinuxNative.SyscallResult
 
     fun fcntl(
-        fd: Int,
+        fd: LinuxNative.FileDescriptor,
         cmd: Int,
         arg: Long,
     ): LinuxNative.SyscallResult
@@ -68,7 +68,7 @@ interface NativeFileSystem {
         bufsiz: Long,
     ): LinuxNative.SyscallResult
 
-    fun close(fd: Int): LinuxNative.SyscallResult
+    fun close(fd: LinuxNative.FileDescriptor): LinuxNative.SyscallResult
 }
 
 interface NativeNetworking {
@@ -86,42 +86,42 @@ interface NativeNetworking {
     ): LinuxNative.SyscallResult
 
     fun bind(
-        sockfd: Int,
+        sockfd: LinuxNative.FileDescriptor,
         addr: MemorySegment,
         addrlen: Int,
     ): LinuxNative.SyscallResult
 
     fun listen(
-        sockfd: Int,
+        sockfd: LinuxNative.FileDescriptor,
         backlog: Int,
     ): LinuxNative.SyscallResult
 
     fun accept(
-        sockfd: Int,
+        sockfd: LinuxNative.FileDescriptor,
         addr: MemorySegment,
         addrlen: MemorySegment,
     ): LinuxNative.SyscallResult
 
     fun connect(
-        sockfd: Int,
+        sockfd: LinuxNative.FileDescriptor,
         addr: MemorySegment,
         addrlen: Int,
     ): LinuxNative.SyscallResult
 
     fun sendmsg(
-        sockfd: Int,
+        sockfd: LinuxNative.FileDescriptor,
         msg: MemorySegment,
         flags: Int,
     ): LinuxNative.SyscallResult
 
     fun recvmsg(
-        sockfd: Int,
+        sockfd: LinuxNative.FileDescriptor,
         msg: MemorySegment,
         flags: Int,
     ): LinuxNative.SyscallResult
 
     fun recv(
-        sockfd: Int,
+        sockfd: LinuxNative.FileDescriptor,
         buf: MemorySegment,
         len: Long,
         flags: Int,
@@ -142,8 +142,7 @@ interface NativeProcess {
 
 interface NativeMemory {
     fun processVmReadv(
-        pid: Int,
-        localIov: MemorySegment,
+        pid: Int, localIov: MemorySegment,
         liovcnt: Long,
         remoteIov: MemorySegment,
         riovcnt: Long,
@@ -151,13 +150,13 @@ interface NativeMemory {
     ): LinuxNative.SyscallResult
 
     fun read(
-        fd: Int,
+        fd: LinuxNative.FileDescriptor,
         buf: MemorySegment,
         count: Long,
     ): LinuxNative.SyscallResult
 
     fun write(
-        fd: Int,
+        fd: LinuxNative.FileDescriptor,
         buf: MemorySegment,
         count: Long,
     ): LinuxNative.SyscallResult

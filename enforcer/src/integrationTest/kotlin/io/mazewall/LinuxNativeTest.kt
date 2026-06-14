@@ -15,7 +15,7 @@ class LinuxNativeTest : BaseIntegrationTest() {
     fun testPrctlGetSeccomp() {
         val result = LinuxNative.prctl(NativeConstants.PR_GET_SECCOMP, 0, 0, 0, 0)
         // Usually returns 0 or 2, unless error
-        assertTrue(result.returnValue >= 0)
+        assertTrue(result is LinuxNative.SyscallResult.Success && result.value >= 0)
     }
 
     @Test
@@ -51,15 +51,14 @@ class LinuxNativeTest : BaseIntegrationTest() {
             val path = arena.allocateFrom(tempFile.toString())
 
             val openResult = LinuxNative.open(path, 0) // O_RDONLY
-            assertTrue(openResult.returnValue >= 0, "open failed with errno ${openResult.errno}")
-            val fd = openResult.returnValue.toInt()
+            val fd = openResult.getFdOrThrow("open")
 
             val buffer = arena.allocate(1024)
             val readResult = LinuxNative.read(fd, buffer, 1024)
-            assertTrue(readResult.returnValue >= 0)
+            assertTrue(readResult is LinuxNative.SyscallResult.Success)
 
             val closeResult = LinuxNative.close(fd)
-            assertEquals(0, closeResult.returnValue)
+            assertTrue(closeResult is LinuxNative.SyscallResult.Success)
 
             tempFile.toFile().delete()
         }
@@ -85,8 +84,8 @@ class LinuxNativeTest : BaseIntegrationTest() {
     fun testSocketSyscalls() {
         // test socket()
         val socketResult = LinuxNative.socket(2, 1, 0) // AF_INET, SOCK_STREAM
-        if (socketResult.returnValue >= 0) {
-            val fd = socketResult.returnValue.toInt()
+        if (socketResult is LinuxNative.SyscallResult.Success) {
+            val fd = socketResult.asFd()
 
             // test bind (to a random port)
             Arena.ofConfined().use { arena ->
@@ -104,9 +103,9 @@ class LinuxNativeTest : BaseIntegrationTest() {
         Arena.ofConfined().use { arena ->
             val fds = arena.allocate(ValueLayout.JAVA_INT, 2)
             val result = LinuxNative.socketpair(1, 1, 0, fds) // AF_UNIX, SOCK_STREAM
-            if (result.returnValue == 0L) {
-                LinuxNative.close(fds.get(ValueLayout.JAVA_INT, 0))
-                LinuxNative.close(fds.get(ValueLayout.JAVA_INT, 4))
+            if (result is LinuxNative.SyscallResult.Success) {
+                LinuxNative.close(LinuxNative.FileDescriptor(fds.get(ValueLayout.JAVA_INT, 0)))
+                LinuxNative.close(LinuxNative.FileDescriptor(fds.get(ValueLayout.JAVA_INT, 4)))
             }
         }
     }
@@ -147,10 +146,10 @@ class LinuxNativeTest : BaseIntegrationTest() {
                     .createTempFile("fcntl-test", ".txt")
             val path = arena.allocateFrom(tempFile.toString())
             val openResult = LinuxNative.open(path, 0)
-            val fd = openResult.returnValue.toInt()
+            val fd = openResult.getFdOrThrow("open")
 
             val flags = LinuxNative.fcntl(fd, 3, 0) // F_GETFL
-            assertTrue(flags.returnValue >= 0)
+            assertTrue(flags is LinuxNative.SyscallResult.Success)
 
             LinuxNative.close(fd)
             tempFile.toFile().delete()
@@ -163,7 +162,7 @@ class LinuxNativeTest : BaseIntegrationTest() {
             val path = arena.allocateFrom("/proc/self/exe")
             val buffer = arena.allocate(1024)
             val result = LinuxNative.readlink(path, buffer, 1024)
-            assertTrue(result.returnValue >= 0)
+            assertTrue(result is LinuxNative.SyscallResult.Success)
         }
     }
 
@@ -172,11 +171,11 @@ class LinuxNativeTest : BaseIntegrationTest() {
         Arena.ofConfined().use { arena ->
             val pollFd = arena.allocate(Layouts.POLLFD)
             pollFd.set(ValueLayout.JAVA_INT, 0L, -1) // Invalid FD
-            pollFd.set(ValueLayout.JAVA_SHORT, 4L, NativeConstants.POLLIN)
+            pollFd.set(ValueLayout.JAVA_SHORT, 4L, NativeConstants.POLLIN.toShort())
             pollFd.set(ValueLayout.JAVA_SHORT, 6L, 0.toShort())
 
             val result = LinuxNative.poll(pollFd, 1L, 0) // 0 timeout
-            assertTrue(result.returnValue >= 0)
+            assertTrue(result is LinuxNative.SyscallResult.Success)
         }
     }
 }

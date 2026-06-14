@@ -160,7 +160,10 @@ object Landlock {
                 0L,
                 NativeConstants.LANDLOCK_CREATE_RULESET_VERSION,
             )
-        return if (abiResult.returnValue < 0) 0 else abiResult.returnValue.toInt()
+        return when (abiResult) {
+            is LinuxNative.SyscallResult.Success -> abiResult.value.toInt()
+            is LinuxNative.SyscallResult.Error -> 0
+        }
     }
 
     /**
@@ -175,12 +178,12 @@ object Landlock {
 
     internal fun getFullAccessMask(abi: Int): Long {
         var mask = LANDLOCK_ACCESS_FS_READ_FILE or LANDLOCK_ACCESS_FS_READ_DIR or
-                LANDLOCK_ACCESS_FS_EXECUTE or LANDLOCK_ACCESS_FS_WRITE_FILE or
-                LANDLOCK_ACCESS_FS_REMOVE_DIR or LANDLOCK_ACCESS_FS_REMOVE_FILE or
-                LANDLOCK_ACCESS_FS_MAKE_CHAR or LANDLOCK_ACCESS_FS_MAKE_DIR or
-                LANDLOCK_ACCESS_FS_MAKE_REG or LANDLOCK_ACCESS_FS_MAKE_SOCK or
-                LANDLOCK_ACCESS_FS_MAKE_FIFO or LANDLOCK_ACCESS_FS_MAKE_BLOCK or
-                LANDLOCK_ACCESS_FS_MAKE_SYM
+            LANDLOCK_ACCESS_FS_EXECUTE or LANDLOCK_ACCESS_FS_WRITE_FILE or
+            LANDLOCK_ACCESS_FS_REMOVE_DIR or LANDLOCK_ACCESS_FS_REMOVE_FILE or
+            LANDLOCK_ACCESS_FS_MAKE_CHAR or LANDLOCK_ACCESS_FS_MAKE_DIR or
+            LANDLOCK_ACCESS_FS_MAKE_REG or LANDLOCK_ACCESS_FS_MAKE_SOCK or
+            LANDLOCK_ACCESS_FS_MAKE_FIFO or LANDLOCK_ACCESS_FS_MAKE_BLOCK or
+            LANDLOCK_ACCESS_FS_MAKE_SYM
         if (abi >= 2) mask = mask or LANDLOCK_ACCESS_FS_REFER
         if (abi >= ABI_V3) mask = mask or LANDLOCK_ACCESS_FS_TRUNCATE
         if (abi >= ABI_V5) mask = mask or LANDLOCK_ACCESS_FS_IOCTL_DEV
@@ -189,10 +192,10 @@ object Landlock {
 
     private fun shouldApplyLandlock(policy: Policy<*, *>) =
         policy.enforceLandlock ||
-                policy.allowedFsReadPaths.isNotEmpty() ||
-                policy.allowedFsWritePaths.isNotEmpty() ||
-                policy.isSyscallAllowed(Syscall.IO_URING_SETUP) ||
-                policy.isSyscallAllowed(Syscall.IO_URING_ENTER)
+            policy.allowedFsReadPaths.isNotEmpty() ||
+            policy.allowedFsWritePaths.isNotEmpty() ||
+            policy.isSyscallAllowed(Syscall.IO_URING_SETUP) ||
+            policy.isSyscallAllowed(Syscall.IO_URING_ENTER)
 
     internal fun handleUnsupportedLandlock() {
         val fallback = Platform.configuredFallback()
@@ -207,16 +210,13 @@ object Landlock {
         arena: Arena,
         mask: Long,
         abi: Int,
-    ): Int {
+    ): LinuxNative.FileDescriptor {
         val res = createRuleset(arena, mask, abi)
-        if (res.returnValue < 0) {
-            throw IllegalStateException("landlock_create_ruleset failed with errno ${res.errno}")
-        }
-        return res.returnValue.toInt()
+        return res.getFdOrThrow("landlock_create_ruleset")
     }
 
     internal fun addJvmClasspathRules(
-        rulesetFd: Int,
+        rulesetFd: LinuxNative.FileDescriptor,
         accessFlags: Long,
         arena: Arena,
     ) {
@@ -236,21 +236,25 @@ object Landlock {
     }
 
     private fun addRuleFollowSymlinks(
-        rulesetFd: Int,
+        rulesetFd: LinuxNative.FileDescriptor,
         path: String,
         allowedAccess: Long,
         arena: Arena,
     ) {
         val pathSegment = arena.allocateFrom(path)
         val fdResult = LinuxNative.getFileSystem().open(pathSegment, NativeConstants.O_PATH or NativeConstants.O_CLOEXEC)
-        if (fdResult.returnValue < 0) {
-            logger.warning("Could not open JVM classpath $path for landlock rule: errno ${fdResult.errno}")
-            return
-        }
-        val pathFd = fdResult.returnValue.toInt()
+        val pathFd =
+            when (fdResult) {
+                is LinuxNative.SyscallResult.Success -> fdResult.asFd()
+                is LinuxNative.SyscallResult.Error -> {
+                    logger.warning("Could not open JVM classpath $path for landlock rule: errno ${fdResult.errno}")
+                    return
+                }
+            }
+
         try {
             val addResult = addRuleToRuleset(arena, rulesetFd, pathFd, allowedAccess)
-            if (addResult.returnValue < 0) {
+            if (addResult is LinuxNative.SyscallResult.Error) {
                 logger.warning("landlock_add_rule failed for JVM classpath $path with errno ${addResult.errno}")
             }
         } finally {
@@ -259,7 +263,7 @@ object Landlock {
     }
 
     private fun addRule(
-        rulesetFd: Int,
+        rulesetFd: LinuxNative.FileDescriptor,
         path: String,
         allowedAccess: Long,
         arena: Arena,
@@ -270,12 +274,15 @@ object Landlock {
 
         val (fdResult, isFallback) = handleInitialOpenFailure(initialResult, resolvedPath, openFlags, arena)
 
-        if (fdResult.returnValue < 0) {
-            logOpenFailure(path, fdResult.errno)
-            return
-        }
+        val pathFd =
+            when (fdResult) {
+                is LinuxNative.SyscallResult.Success -> fdResult.asFd()
+                is LinuxNative.SyscallResult.Error -> {
+                    logOpenFailure(path, fdResult.errno)
+                    return
+                }
+            }
 
-        val pathFd = fdResult.returnValue.toInt()
         try {
             val finalAccess = calculateFinalAccess(allowedAccess, isFallback, resolvedPath)
             addRuleToRulesetAndVerify(arena, rulesetFd, pathFd, finalAccess, path)
@@ -298,7 +305,7 @@ object Landlock {
         flags: Int,
         arena: Arena,
     ): Pair<LinuxNative.SyscallResult, Boolean> {
-        if (res.returnValue < 0 && res.errno == 2) { // ENOENT
+        if (res is LinuxNative.SyscallResult.Error && res.errno == 2) { // ENOENT
             val parentPath = File(resolvedPath).parent ?: "/"
             logger.info("Path $resolvedPath does not exist, falling back to parent directory: $parentPath")
             return LinuxNative.getFileSystem().open(arena.allocateFrom(parentPath), flags) to true
@@ -331,13 +338,13 @@ object Landlock {
 
     private fun addRuleToRulesetAndVerify(
         arena: Arena,
-        rulesetFd: Int,
-        pathFd: Int,
+        rulesetFd: LinuxNative.FileDescriptor,
+        pathFd: LinuxNative.FileDescriptor,
         access: Long,
         path: String,
     ) {
         val res = addRuleToRuleset(arena, rulesetFd, pathFd, access)
-        if (res.returnValue < 0) {
+        if (res is LinuxNative.SyscallResult.Error) {
             if (res.errno == ERRNO_EINVAL) {
                 logger.warning("landlock_add_rule rejected $path (EINVAL) — path may be a symlink or unsupported inode type.")
             } else {
@@ -346,19 +353,16 @@ object Landlock {
         }
     }
 
-    internal fun enforceRuleset(rulesetFd: Int) {
+    internal fun enforceRuleset(rulesetFd: LinuxNative.FileDescriptor) {
         val prctlResult = LinuxNative.getProcess().prctl(NativeConstants.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
-        if (prctlResult.returnValue < 0) {
-            throw IllegalStateException("prctl(PR_SET_NO_NEW_PRIVS) failed with errno ${prctlResult.errno}")
-        }
-        val restrictResult = LinuxNative.syscall(NativeConstants.LANDLOCK_RESTRICT_SELF_NR, rulesetFd.toLong(), 0, MemorySegment.NULL, 0)
-        if (restrictResult.returnValue < 0) {
-            throw IllegalStateException("landlock_restrict_self failed with errno ${restrictResult.errno}")
-        }
+        prctlResult.getOrThrow("prctl(PR_SET_NO_NEW_PRIVS)")
+
+        val restrictResult = LinuxNative.syscall(NativeConstants.LANDLOCK_RESTRICT_SELF_NR, rulesetFd.value.toLong(), 0, MemorySegment.NULL, 0)
+        restrictResult.getOrThrow("landlock_restrict_self")
     }
 
     internal fun applyUserRules(
-        rulesetFd: Int,
+        rulesetFd: LinuxNative.FileDescriptor,
         policy: Policy<*, *>,
         abi: Int,
         arena: Arena,
@@ -366,8 +370,8 @@ object Landlock {
     ) {
         policy.allowedFsReadPaths.forEach { addRule(rulesetFd, it, allFsRead, arena) }
         val writeFlags = LANDLOCK_ACCESS_FS_WRITE_FILE or LANDLOCK_ACCESS_FS_MAKE_REG or
-                LANDLOCK_ACCESS_FS_MAKE_DIR or LANDLOCK_ACCESS_FS_REMOVE_FILE or
-                LANDLOCK_ACCESS_FS_REMOVE_DIR or (if (abi >= ABI_V3) LANDLOCK_ACCESS_FS_TRUNCATE else 0)
+            LANDLOCK_ACCESS_FS_MAKE_DIR or LANDLOCK_ACCESS_FS_REMOVE_FILE or
+            LANDLOCK_ACCESS_FS_REMOVE_DIR or (if (abi >= ABI_V3) LANDLOCK_ACCESS_FS_TRUNCATE else 0)
         policy.allowedFsWritePaths.forEach { addRule(rulesetFd, it, writeFlags, arena) }
     }
 
@@ -417,14 +421,14 @@ object Landlock {
 
     private fun addRuleToRuleset(
         arena: Arena,
-        rulesetFd: Int,
-        pathFd: Int,
+        rulesetFd: LinuxNative.FileDescriptor,
+        pathFd: LinuxNative.FileDescriptor,
         accessMask: Long,
     ): LinuxNative.SyscallResult {
         val pathAttr = arena.allocate(Layouts.LANDLOCK_PATH_BENEATH_ATTR)
         pathAttr.set(ValueLayout.JAVA_LONG, Layouts.LANDLOCK_PATH_BENEATH_ATTR_ACCESS_OFFSET, accessMask)
-        pathAttr.set(ValueLayout.JAVA_INT, Layouts.LANDLOCK_PATH_BENEATH_ATTR_FD_OFFSET, pathFd)
-        return LinuxNative.syscall(NativeConstants.LANDLOCK_ADD_RULE_NR, rulesetFd.toLong(), NativeConstants.LANDLOCK_RULE_PATH_BENEATH.toLong(), pathAttr, 0)
+        pathAttr.set(ValueLayout.JAVA_INT, Layouts.LANDLOCK_PATH_BENEATH_ATTR_FD_OFFSET, pathFd.value)
+        return LinuxNative.syscall(NativeConstants.LANDLOCK_ADD_RULE_NR, rulesetFd.value.toLong(), NativeConstants.LANDLOCK_RULE_PATH_BENEATH.toLong(), pathAttr, 0)
     }
 }
 
@@ -457,13 +461,16 @@ internal class LandlockSession(
         state = LandlockState.CreatingRuleset(abi)
         Arena.ofConfined().use { arena ->
             val rulesetFdResult = Landlock.createRuleset(arena, accessMaskFs, abi)
-            if (rulesetFdResult.returnValue < 0) {
-                val err = IllegalStateException("landlock_create_ruleset failed with errno ${rulesetFdResult.errno}")
-                state = LandlockState.Failed(err)
-                throw err
-            }
+            val rulesetFd =
+                when (rulesetFdResult) {
+                    is LinuxNative.SyscallResult.Success -> rulesetFdResult.asFd()
+                    is LinuxNative.SyscallResult.Error -> {
+                        val err = IllegalStateException("landlock_create_ruleset failed with errno ${rulesetFdResult.errno}")
+                        state = LandlockState.Failed(err)
+                        throw err
+                    }
+                }
 
-            val rulesetFd = rulesetFdResult.returnValue.toInt()
             state = LandlockState.ConfiguringRuleset(rulesetFd, abi)
             try {
                 Landlock.addJvmClasspathRules(rulesetFd, classpathFlags, arena)

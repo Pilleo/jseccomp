@@ -15,7 +15,7 @@ class ProfilerInstallerTest {
     @BeforeEach
     fun setUp() {
         val mock = MockNativeEngine()
-        mock.syscallResult = LinuxNative.SyscallResult(100, 0)
+        mock.syscallResult = LinuxNative.SyscallResult.Success(100)
         LinuxNative.setEngine(mock)
     }
 
@@ -101,8 +101,8 @@ class ProfilerInstallerTest {
     @Test
     fun `test coordinator thread handles send descriptor failure`() {
         val mock = MockNativeEngine()
-        mock.syscallResult = LinuxNative.SyscallResult(100, 0)
-        mock.sendmsgResult = LinuxNative.SyscallResult(-1, 9) // EBADF
+        mock.syscallResult = LinuxNative.SyscallResult.Success(100)
+        mock.sendmsgResult = LinuxNative.SyscallResult.Error(9, -1) // EBADF
         LinuxNative.setEngine(mock)
 
         val accumulatedLogs = CopyOnWriteArrayList<TraceEvent>()

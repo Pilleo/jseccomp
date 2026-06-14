@@ -1,4 +1,5 @@
 package io.mazewall.seccomp
+
 import io.mazewall.BaseIntegrationTest
 import io.mazewall.LinuxNative
 import io.mazewall.Policy
@@ -8,6 +9,7 @@ import io.mazewall.enforcer.ContainedExecutors
 import org.junit.jupiter.api.Test
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class BpfHardeningTest : BaseIntegrationTest() {
     @Test
@@ -39,8 +41,7 @@ class BpfHardeningTest : BaseIntegrationTest() {
         if (error.get() != null) throw error.get()
 
         val res = result.get()
-        assertEquals(-1L, res.returnValue, "PRCTL should have been blocked")
-        assertEquals(1, res.errno, "Errno should be 1 (EPERM)")
+        assertTrue(res is LinuxNative.SyscallResult.Error && res.errno == 1, "PRCTL should have been blocked with EPERM, got $res")
     }
 
     @Test
@@ -75,7 +76,6 @@ class BpfHardeningTest : BaseIntegrationTest() {
         if (error.get() != null) throw error.get()
 
         val res = result.get()
-        assertEquals(-1L, res.returnValue, "MMAP should have been blocked")
-        assertEquals(1, res.errno, "Errno should be 1 (EPERM)")
+        assertTrue(res is LinuxNative.SyscallResult.Error && res.errno == 1, "MMAP should have been blocked with EPERM, got $res")
     }
 }

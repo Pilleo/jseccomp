@@ -1,4 +1,5 @@
 package io.mazewall
+
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
@@ -13,23 +14,22 @@ class NativeEngineTest {
     @Test
     fun `LinuxNative delegates to injected engine`() {
         val mock = MockNativeEngine()
-        mock.prctlResult = LinuxNative.SyscallResult(42, 0)
+        mock.prctlResult = LinuxNative.SyscallResult.Success(42)
 
         LinuxNative.setEngine(mock)
 
         val result = LinuxNative.prctl(0)
-        assertEquals(42L, result.returnValue)
+        assertEquals(42L, result.getOrThrow("test"))
     }
 
     @Test
     fun `fault injection works for errno`() {
         val mock = MockNativeEngine()
-        mock.syscallResult = LinuxNative.SyscallResult(-1, 13) // EACCES
+        mock.syscallResult = LinuxNative.SyscallResult.Error(13, -1) // EACCES
 
         LinuxNative.setEngine(mock)
 
         val result = LinuxNative.syscall(1L)
-        assertEquals(-1L, result.returnValue)
-        assertEquals(13, result.errno)
+        assertEquals(13, (result as LinuxNative.SyscallResult.Error).errno)
     }
 }

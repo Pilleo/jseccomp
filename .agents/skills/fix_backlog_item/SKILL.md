@@ -14,10 +14,13 @@ This skill provides a structured, TDD-focused protocol for resolving an entry in
 - **Write Failing Test:** Create a minimal, self-contained test case that triggers the documented failure or behavior.
 - **Verify Failure:** Run the test to confirm it fails as expected. **Do not proceed until the failure is empirically reproduced.**
 
-### 3. Implementation
+### 3. Implementation (Craftsmanship & Safety)
 - **Surgical Fix:** Apply the minimal code change required to resolve the issue while adhering to all project safety invariants (see root `AGENTS.md`).
+- **Readability:** Ensure the fix is idiomatic Kotlin and self-documenting. If the fix is non-trivial, add comments explaining the "why".
+- **Future-Proofness:** Consider if the fix will remain valid under upcoming JVM or kernel changes.
 - **Verify Success:** Run the reproduction test again; it must now pass.
 - **Regression Check:** Run the full module check (e.g., `./scripts/run_tests.sh`) to ensure no regressions were introduced.
+
 
 ### 4. Finalization & Logging
 - **Update Backlog:** Mark the entry as `[RESOLVED]` in `docs/internals/code_issues_backlog.md`.

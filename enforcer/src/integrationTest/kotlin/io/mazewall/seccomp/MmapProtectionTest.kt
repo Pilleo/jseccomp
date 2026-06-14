@@ -1,4 +1,5 @@
 package io.mazewall.seccomp
+
 import io.mazewall.BaseIntegrationTest
 import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.Policy
@@ -221,58 +222,64 @@ class MmapProtectionTest : BaseIntegrationTest() {
             assertFailsWith<ExecutionException> {
                 safeExecutor
                     .submit {
-                    val linker = Linker.nativeLinker()
-                    val mmap =
-                        linker.downcallHandle(
-                            linker.defaultLookup().find("mmap").get(),
-                            FunctionDescriptor.of(
-                                ValueLayout.ADDRESS,
-                                ValueLayout.ADDRESS,
-                                ValueLayout.JAVA_LONG,
-                                ValueLayout.JAVA_INT,
-                                ValueLayout.JAVA_INT,
-                                ValueLayout.JAVA_INT,
-                                ValueLayout.JAVA_LONG,
-                            ),
-                        )
+                        val linker = Linker.nativeLinker()
+                        val mmap =
+                            linker.downcallHandle(
+                                linker.defaultLookup().find("mmap").get(),
+                                FunctionDescriptor.of(
+                                    ValueLayout.ADDRESS,
+                                    ValueLayout.ADDRESS,
+                                    ValueLayout.JAVA_LONG,
+                                    ValueLayout.JAVA_INT,
+                                    ValueLayout.JAVA_INT,
+                                    ValueLayout.JAVA_INT,
+                                    ValueLayout.JAVA_LONG,
+                                ),
+                            )
 
-                    val PROT_READ = 0x1
-                    val PROT_WRITE = 0x2
-                    val PROT_EXEC = 0x4
-                    val MAP_PRIVATE = 0x02
-                    val MAP_ANONYMOUS = 0x20
+                        val PROT_READ = 0x1
+                        val PROT_WRITE = 0x2
+                        val PROT_EXEC = 0x4
+                        val MAP_PRIVATE = 0x02
+                        val MAP_ANONYMOUS = 0x20
 
-                    // 1. Allocate some RW memory
-                    val addr =
-                        mmap.invoke(
-                            java.lang.foreign.MemorySegment.NULL,
-                            4096L,
-                            PROT_READ or PROT_WRITE,
-                            MAP_PRIVATE or MAP_ANONYMOUS,
-                            -1,
-                            0L,
-                        ) as java.lang.foreign.MemorySegment
-                    if (addr.address() == -1L) throw java.io.IOException("mmap failed")
+                        // 1. Allocate some RW memory
+                        val addr =
+                            mmap.invoke(
+                                java.lang.foreign.MemorySegment.NULL,
+                                4096L,
+                                PROT_READ or PROT_WRITE,
+                                MAP_PRIVATE or MAP_ANONYMOUS,
+                                -1,
+                                0L,
+                            ) as java.lang.foreign.MemorySegment
+                        if (addr.address() == -1L) throw java.io.IOException("mmap failed")
 
-                    // 2. Try to make it executable using pkey_mprotect
-                    // pkey_mprotect syscall takes (addr, len, prot, pkey)
-                    // We map it manually since it's not in libc yet
-                    val arch = io.mazewall.core.Arch
-                        .current()
-                    val nr = arch.pkeyMprotect
-                    val res = io.mazewall.LinuxNative.syscall(nr.toLong(), addr.address(), 4096L, (PROT_READ or PROT_EXEC).toLong(), 0L)
+                        // 2. Try to make it executable using pkey_mprotect
+                        // pkey_mprotect syscall takes (addr, len, prot, pkey)
+                        // We map it manually since it's not in libc yet
+                        val arch = io.mazewall.core.Arch
+                            .current()
+                        val nr = arch.pkeyMprotect
+                        val res = io.mazewall.LinuxNative.syscall(nr.toLong(), addr.address(), 4096L, (PROT_READ or PROT_EXEC).toLong(), 0L)
 
-                    if (res.errno == 1) { // 1 is EPERM (seccomp block)
-                        // This proves seccomp blocked it.
-                        // To trigger ContainmentViolationException mapping, we throw an IOException
-                        throw java.io.IOException("Operation not permitted")
-                    } else if (res.returnValue == 0L) {
-                        throw IllegalStateException("CRITICAL SECURITY BYPASS: pkey_mprotect reached kernel and succeeded!")
-                    } else {
-                        // Reached kernel but failed for other reason (e.g., EINVAL)
-                        throw IllegalStateException("SECURITY BYPASS: pkey_mprotect reached kernel with errno ${res.errno}")
-                    }
-                }.get()
+                        when (res) {
+                            is io.mazewall.LinuxNative.SyscallResult.Error -> {
+                                if (res.errno == 1) { // 1 is EPERM (seccomp block)
+                                    // This proves seccomp blocked it.
+                                    // To trigger ContainmentViolationException mapping, we throw an IOException
+                                    throw java.io.IOException("Operation not permitted")
+                                } else {
+                                    // Reached kernel but failed for other reason (e.g., EINVAL)
+                                    throw IllegalStateException("SECURITY BYPASS: pkey_mprotect reached kernel with errno ${res.errno}")
+                                }
+                            }
+
+                            is io.mazewall.LinuxNative.SyscallResult.Success -> {
+                                throw IllegalStateException("CRITICAL SECURITY BYPASS: pkey_mprotect reached kernel and succeeded!")
+                            }
+                        }
+                    }.get()
             }.let { e ->
                 assertTrue(
                     e.cause is ContainmentViolationException,

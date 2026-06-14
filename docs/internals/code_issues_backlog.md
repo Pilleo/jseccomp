@@ -306,7 +306,7 @@ For full architectural details, see `supervisor_proxy_design.md`.
 **Needed:** Propose an optional process-wide `CLONE_NEWNET` initialization to create a private network namespace. This physically removes the host's routing tables and network interfaces (leaving only loopback), ensuring that even if a process possesses an open socket FD, it has no route to the external network, providing a stronger architectural guarantee than syscall blocking alone.
 
 
-### 🔵 [Severity: ENHANCEMENT]: Leverage Value Classes for Primitive Safety (Internal)
+### ✅ [DONE] [Severity: ENHANCEMENT]: Leverage Value Classes for Primitive Safety (Internal)
 **Target:** `io.mazewall.LinuxNative.kt`, `io.mazewall.ffi.Layouts.kt`
 **Context:** We currently use raw `Int` for File Descriptors and `Errno`, and `Long` for masks and addresses. This is prone to "parameter swapping" bugs.
 **Needed:** Introduce `@JvmInline value class` for internal types like `FileDescriptor`, `Errno`, and `MemoryAddress`. Use these internally to enforce compile-time safety. To maintain Java compatibility, keep the public API surface (e.g., `ContainedExecutors`) using primitives, but use value classes for all internal FFM and logic layers.
@@ -316,7 +316,7 @@ For full architectural details, see `supervisor_proxy_design.md`.
 **Context:** Many methods pass `Arena` or `NativeEngine` as explicit parameters, leading to verbose method signatures and "parameter drilling."
 **Needed:** Refactor internal kernel-interface methods to use Kotlin 2.0+ `context(Arena)` or `context(NativeFileSystem)`. This ensures that operations like path allocation or syscall execution are only possible within an active, valid context, reducing boilerplate and improving clarity.
 
-### 🔵 [Severity: ENHANCEMENT]: Result-Oriented Functional Error Handling
+### ✅ [DONE] [Severity: ENHANCEMENT]: Result-Oriented Functional Error Handling
 **Target:** `io.mazewall.NativeEngine.kt` and callers
 **Context:** We currently rely on manual `returnValue < 0` checks and `LinuxNative.errno()` calls. This is a common source of missed error handling.
 **Needed:** Wrap internal syscall returns in a monadic `Result<T>` or a custom `SyscallResult` type. This forces developers to explicitly handle the `Failure` branch before accessing the result, aligning with modern functional programming safety standards.

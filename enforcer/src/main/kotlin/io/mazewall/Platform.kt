@@ -30,7 +30,7 @@ object Platform {
             isSeccompSanityCheckPassing() &&
             isArchitectureSupported()
 
-    private fun hasKernelSeccompSupport(): Boolean = LinuxNative.prctl(NativeConstants.PR_GET_SECCOMP, 0, 0, 0, 0).returnValue >= 0
+    private fun hasKernelSeccompSupport(): Boolean = LinuxNative.prctl(NativeConstants.PR_GET_SECCOMP, 0, 0, 0, 0) is LinuxNative.SyscallResult.Success
 
     private fun isSeccompSanityCheckPassing(): Boolean {
         // Bogus Sanity Check: Ensure the kernel actively enforces seccomp.
@@ -38,10 +38,15 @@ object Platform {
         // A healthy kernel should return -1 and set errno to EINVAL (22).
         // Some container environments or broken kernels might silently return 0 or a different error.
         val bogusCheck = LinuxNative.prctl(NativeConstants.PR_SET_SECCOMP, -1L, 0L, 0, 0)
-        val passed = bogusCheck.returnValue != 0L && bogusCheck.errno == ERRNO_EINVAL
+        val passed = bogusCheck is LinuxNative.SyscallResult.Error && bogusCheck.errno == ERRNO_EINVAL
         if (!passed) {
+            val (ret, errno) =
+                when (bogusCheck) {
+                    is LinuxNative.SyscallResult.Success -> bogusCheck.value to 0
+                    is LinuxNative.SyscallResult.Error -> bogusCheck.rawValue to bogusCheck.errno
+                }
             logger.warning(
-                "Seccomp sanity check failed. The kernel returned unexpected results (ret=${bogusCheck.returnValue}, errno=${bogusCheck.errno}). Seccomp may be stubbed or broken in this environment.",
+                "Seccomp sanity check failed. The kernel returned unexpected results (ret=$ret, errno=$errno). Seccomp may be stubbed or broken in this environment.",
             )
         }
         return passed
@@ -96,20 +101,24 @@ object Platform {
                 Architecture: $osArch (Supported: $isArchitectureSupported)
                 Is Linux: $isLinux
                 no_new_privs Enabled: $isNoNewPrivsEnabled
-                Seccomp Mode: ${when (seccompMode) {
+                Seccomp Mode: ${
+                when (seccompMode) {
                     is SeccompMode.Disabled -> "Disabled (0)"
                     is SeccompMode.Strict -> "Strict Mode (1)"
                     is SeccompMode.Filter -> "Filter Mode (2)"
                     is SeccompMode.Error -> "Error (${seccompMode.errno})"
-                }}
-                Yama ptrace_scope: ${when (yamaPtraceScope) {
+                }
+            }
+                Yama ptrace_scope: ${
+                when (yamaPtraceScope) {
                     is YamaPtraceScope.Classic -> "Classic (0)"
                     is YamaPtraceScope.Restricted -> "Restricted (1)"
                     is YamaPtraceScope.AdminOnly -> "AdminOnly (2)"
                     is YamaPtraceScope.Disabled -> "Disabled (3)"
                     is YamaPtraceScope.Unknown -> "Unknown (${yamaPtraceScope.rawValue})"
                     is YamaPtraceScope.Unavailable -> "Unavailable"
-                }}
+                }
+            }
                 Landlock ABI Version: ${if (landlockAbiVersion > 0) "$landlockAbiVersion" else "Unsupported ($landlockAbiVersion)"}
                 Container Detected: $isContainer
                 =====================================
@@ -155,22 +164,23 @@ object Platform {
         if (isLinux) {
             try {
                 val nnpVal = LinuxNative.prctl(NativeConstants.PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0)
-                if (nnpVal.returnValue >= 0) {
-                    isNoNewPrivsEnabled = nnpVal.returnValue == 1L
+                if (nnpVal is LinuxNative.SyscallResult.Success) {
+                    isNoNewPrivsEnabled = nnpVal.value == 1L
                 }
             } catch (ignored: Exception) {
             }
 
             try {
                 val seccompVal = LinuxNative.prctl(NativeConstants.PR_GET_SECCOMP, 0, 0, 0, 0)
-                seccompMode = if (seccompVal.returnValue < 0) {
-                    SeccompMode.Error(seccompVal.errno)
-                } else {
-                    when (seccompVal.returnValue) {
-                        0L -> SeccompMode.Disabled
-                        1L -> SeccompMode.Strict
-                        2L -> SeccompMode.Filter
-                        else -> SeccompMode.Error(-1)
+                seccompMode = when (seccompVal) {
+                    is LinuxNative.SyscallResult.Error -> SeccompMode.Error(seccompVal.errno)
+                    is LinuxNative.SyscallResult.Success -> {
+                        when (seccompVal.value) {
+                            0L -> SeccompMode.Disabled
+                            1L -> SeccompMode.Strict
+                            2L -> SeccompMode.Filter
+                            else -> SeccompMode.Error(-1)
+                        }
                     }
                 }
             } catch (ignored: Exception) {

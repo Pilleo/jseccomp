@@ -62,8 +62,8 @@ val workload = {
     val setupNr = Syscall.IO_URING_SETUP.numberFor(Arch.current()).toLong()
     val setupResult = LinuxNative.syscall(setupNr, 32L, 0L)
     
-    if (setupResult.returnValue >= 0) {
-        val ringFd = setupResult.returnValue.toInt()
+    if (setupResult is LinuxNative.SyscallResult.Success) {
+        val ringFd = setupResult.asFd()
         LinuxNative.close(ringFd)
     }
     

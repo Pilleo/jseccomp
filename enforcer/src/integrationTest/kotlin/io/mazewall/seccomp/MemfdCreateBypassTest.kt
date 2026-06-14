@@ -1,4 +1,5 @@
 package io.mazewall.seccomp
+
 import io.mazewall.BaseIntegrationTest
 import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.LinuxNative
@@ -33,8 +34,7 @@ class MemfdCreateBypassTest : BaseIntegrationTest() {
                                 java.lang.foreign.MemorySegment.NULL,
                             )
                         }
-                    assertTrue(res.returnValue < 0, "memfd_create should be blocked by NO_EXEC")
-                    assertTrue(res.errno == NativeConstants.EPERM, "Expected EPERM, got ${res.errno}")
+                    assertTrue(res is LinuxNative.SyscallResult.Error && res.errno == NativeConstants.EPERM, "Expected EPERM, got $res")
                 }.get()
         } finally {
             executor.shutdown()
@@ -67,8 +67,7 @@ class MemfdCreateBypassTest : BaseIntegrationTest() {
                                 java.lang.foreign.MemorySegment.NULL,
                             )
                         }
-                    assertTrue(res.returnValue < 0, "memfd_create should be blocked")
-                    assertTrue(res.errno == NativeConstants.EPERM, "Expected EPERM, got ${res.errno}")
+                    assertTrue(res is LinuxNative.SyscallResult.Error && res.errno == NativeConstants.EPERM, "Expected EPERM, got $res")
                 }.get()
         } finally {
             executor.shutdown()

@@ -12,11 +12,11 @@ import java.nio.charset.StandardCharsets
  */
 interface ProfilerTransport {
     fun sendTraceEvent(
-        socketFd: Int,
+        socketFd: LinuxNative.FileDescriptor,
         event: TraceEvent,
     )
 
-    fun recvDescriptor(socketFd: Int): Int?
+    fun recvDescriptor(socketFd: LinuxNative.FileDescriptor): LinuxNative.FileDescriptor?
 
     fun poll(
         fds: MemorySegment,
@@ -25,35 +25,35 @@ interface ProfilerTransport {
     ): LinuxNative.SyscallResult
 
     fun read(
-        fd: Int,
+        fd: LinuxNative.FileDescriptor,
         buf: MemorySegment,
         count: Long,
     ): LinuxNative.SyscallResult
 
     fun write(
-        fd: Int,
+        fd: LinuxNative.FileDescriptor,
         buf: MemorySegment,
         count: Long,
     ): LinuxNative.SyscallResult
 
     fun recv(
-        sockfd: Int,
+        sockfd: LinuxNative.FileDescriptor,
         buf: MemorySegment,
         len: Long,
         flags: Int,
     ): LinuxNative.SyscallResult
 
     fun ioctl(
-        fd: Int,
+        fd: LinuxNative.FileDescriptor,
         request: Long,
         arg: MemorySegment,
     ): LinuxNative.SyscallResult
 
-    fun createServer(socketPath: String): Int
+    fun createServer(socketPath: String): LinuxNative.FileDescriptor
 
-    fun accept(serverFd: Int): Int
+    fun accept(serverFd: LinuxNative.FileDescriptor): LinuxNative.FileDescriptor
 
-    fun close(fd: Int)
+    fun close(fd: LinuxNative.FileDescriptor)
 }
 
 /**
@@ -73,7 +73,7 @@ object RealProfilerTransport : ProfilerTransport {
     private val JAVA_LONG_BE_UNALIGNED = ValueLayout.JAVA_LONG.withOrder(java.nio.ByteOrder.BIG_ENDIAN).withByteAlignment(1)
 
     override fun sendTraceEvent(
-        socketFd: Int,
+        socketFd: LinuxNative.FileDescriptor,
         event: TraceEvent,
     ) {
         Arena.ofConfined().use { arena ->
@@ -111,13 +111,11 @@ object RealProfilerTransport : ProfilerTransport {
             }
 
             val res = LinuxNative.write(socketFd, buf, totalSize.toLong())
-            if (res.returnValue < 0) {
-                throw java.io.IOException("Failed to send TraceEvent: errno=${res.errno}")
-            }
+            res.getOrThrow("sendTraceEvent")
         }
     }
 
-    override fun recvDescriptor(socketFd: Int): Int? {
+    override fun recvDescriptor(socketFd: LinuxNative.FileDescriptor): LinuxNative.FileDescriptor? {
         Arena.ofConfined().use { arena ->
             val dummyByte = arena.allocate(ValueLayout.JAVA_BYTE)
             val controlBuf = arena.allocate(24)
@@ -127,23 +125,24 @@ object RealProfilerTransport : ProfilerTransport {
 
             while (true) {
                 val res = LinuxNative.recvmsg(socketFd, msg, 0)
-                if (res.returnValue < 0) {
-                    if (res.errno == 4) { // EINTR
-                        continue
-                    }
-                    return null
-                }
-                if (res.returnValue == 0L) {
-                    return null // EOF
-                }
+                when (res) {
+                    is LinuxNative.SyscallResult.Success -> {
+                        if (res.value == 0L) return null // EOF
 
-                val cmsgLen = controlBuf.get(ValueLayout.JAVA_LONG, CMSG_LEN_OFF)
-                val cmsgLevel = controlBuf.get(ValueLayout.JAVA_INT, CMSG_LEVEL_OFF)
-                val cmsgType = controlBuf.get(ValueLayout.JAVA_INT, CMSG_TYPE_OFF)
-                if (cmsgLen >= CMSG_LEN_VAL && cmsgLevel == SOL_SOCKET_VAL && cmsgType == SCM_RIGHTS_VAL) {
-                    return controlBuf.get(ValueLayout.JAVA_INT, CMSG_DATA_OFF)
+                        val cmsgLen = controlBuf.get(ValueLayout.JAVA_LONG, CMSG_LEN_OFF)
+                        val cmsgLevel = controlBuf.get(ValueLayout.JAVA_INT, CMSG_LEVEL_OFF)
+                        val cmsgType = controlBuf.get(ValueLayout.JAVA_INT, CMSG_TYPE_OFF)
+                        if (cmsgLen >= CMSG_LEN_VAL && cmsgLevel == SOL_SOCKET_VAL && cmsgType == SCM_RIGHTS_VAL) {
+                            return LinuxNative.FileDescriptor(controlBuf.get(ValueLayout.JAVA_INT, CMSG_DATA_OFF))
+                        }
+                        return null
+                    }
+
+                    is LinuxNative.SyscallResult.Error -> {
+                        if (res.errno == 4) continue // EINTR
+                        return null
+                    }
                 }
-                return null
             }
         }
     }
@@ -155,36 +154,33 @@ object RealProfilerTransport : ProfilerTransport {
     ): LinuxNative.SyscallResult = LinuxNative.poll(fds, nfds, timeout)
 
     override fun read(
-        fd: Int,
+        fd: LinuxNative.FileDescriptor,
         buf: MemorySegment,
         count: Long,
     ): LinuxNative.SyscallResult = LinuxNative.read(fd, buf, count)
 
     override fun write(
-        fd: Int,
+        fd: LinuxNative.FileDescriptor,
         buf: MemorySegment,
         count: Long,
     ): LinuxNative.SyscallResult = LinuxNative.write(fd, buf, count)
 
     override fun recv(
-        sockfd: Int,
+        sockfd: LinuxNative.FileDescriptor,
         buf: MemorySegment,
         len: Long,
         flags: Int,
     ): LinuxNative.SyscallResult = LinuxNative.recv(sockfd, buf, len, flags)
 
     override fun ioctl(
-        fd: Int,
+        fd: LinuxNative.FileDescriptor,
         request: Long,
         arg: MemorySegment,
     ): LinuxNative.SyscallResult = LinuxNative.ioctl(fd, request, arg)
 
-    override fun createServer(socketPath: String): Int {
+    override fun createServer(socketPath: String): LinuxNative.FileDescriptor {
         val res = LinuxNative.socket(AF_UNIX, SOCK_STREAM, 0)
-        if (res.returnValue < 0) {
-            throw IllegalStateException("Failed to create daemon socket: errno=${res.errno}")
-        }
-        val fd = res.returnValue.toInt()
+        val fd = res.getFdOrThrow("socket(AF_UNIX)")
 
         Arena.ofConfined().use { arena ->
             val addr = arena.allocate(Layouts.SOCKADDR_UN)
@@ -195,29 +191,26 @@ object RealProfilerTransport : ProfilerTransport {
             MemorySegment.copy(pathBytes, 0, pathSeg, ValueLayout.JAVA_BYTE, 0L, pathBytes.size)
 
             val bindRes = LinuxNative.bind(fd, addr, ADDR_UN_SIZE)
-            if (bindRes.returnValue < 0) {
+            if (bindRes is LinuxNative.SyscallResult.Error) {
                 LinuxNative.close(fd)
-                throw IllegalStateException("Failed to bind daemon socket: errno=${bindRes.errno}")
+                bindRes.throwErrno("bind(AF_UNIX)")
             }
         }
 
         val listenRes = LinuxNative.listen(fd, BACKLOG_SIZE)
-        if (listenRes.returnValue < 0) {
+        if (listenRes is LinuxNative.SyscallResult.Error) {
             LinuxNative.close(fd)
-            throw IllegalStateException("Failed to listen on daemon socket: errno=${listenRes.errno}")
+            listenRes.throwErrno("listen")
         }
         return fd
     }
 
-    override fun accept(serverFd: Int): Int {
+    override fun accept(serverFd: LinuxNative.FileDescriptor): LinuxNative.FileDescriptor {
         val res = LinuxNative.accept(serverFd, MemorySegment.NULL, MemorySegment.NULL)
-        if (res.returnValue < 0) {
-            throw IllegalStateException("Failed to accept client connection: errno=${res.errno}")
-        }
-        return res.returnValue.toInt()
+        return res.getFdOrThrow("accept")
     }
 
-    override fun close(fd: Int) {
+    override fun close(fd: LinuxNative.FileDescriptor) {
         LinuxNative.close(fd)
     }
 }

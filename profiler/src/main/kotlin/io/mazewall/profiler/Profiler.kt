@@ -114,7 +114,7 @@ object Profiler {
             // type erasure requires an unchecked cast when retrieving it. This cast is statically safe.
             val finalResult = blockResult.get()
             if (finalResult == null) {
-                 logger.warning("Profiler.profile: blockResult is null! localLogs size: ${localLogs.size}")
+                logger.warning("Profiler.profile: blockResult is null! localLogs size: ${localLogs.size}")
             }
             @Suppress("UNCHECKED_CAST")
             return ProfilingResult(finalResult as T, behavior)
@@ -153,7 +153,7 @@ object Profiler {
             workerThreadProvider,
             { path -> ProfilerSocket.connectWithRetry(path) },
             { fd, logs, traces, cache, provider ->
-                ProfilerTraceListener(fd, logs, traces, cache, provider).start()
+                ProfilerTraceListener(LinuxNative.FileDescriptor(fd), logs, traces, cache, provider).start()
             },
         )
     }

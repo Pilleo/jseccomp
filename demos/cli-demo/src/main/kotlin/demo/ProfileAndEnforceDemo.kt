@@ -82,15 +82,19 @@ fun runProfileAndEnforce() {
             val setupResult = LinuxNative.syscall(setupNr, 32L, 0L)
             val ioUringStatus: String
 
-            if (setupResult.returnValue >= 0) {
-                val ringFd = setupResult.returnValue.toInt()
-                ioUringStatus = "io_uring ring initialized successfully (ringFd=$ringFd)"
-                LinuxNative.close(ringFd)
-            } else {
-                // Real-world high-performance frameworks gracefully fallback to epoll/NIO
-                // if io_uring_setup is blocked by container runtimes or unsupported by the kernel.
-                // By gracefully falling back instead of crashing, we ensure the app survives in strict environments!
-                ioUringStatus = "io_uring_setup returned errno ${setupResult.errno} (gracefully falling back to standard I/O)"
+            when (setupResult) {
+                is LinuxNative.SyscallResult.Success -> {
+                    val ringFd = setupResult.asFd()
+                    ioUringStatus = "io_uring ring initialized successfully (ringFd=${ringFd.value})"
+                    LinuxNative.close(ringFd)
+                }
+
+                is LinuxNative.SyscallResult.Error -> {
+                    // Real-world high-performance frameworks gracefully fallback to epoll/NIO
+                    // if io_uring_setup is blocked by container runtimes or unsupported by the kernel.
+                    // By gracefully falling back instead of crashing, we ensure the app survives in strict environments!
+                    ioUringStatus = "io_uring_setup returned errno ${setupResult.errno} (gracefully falling back to standard I/O)"
+                }
             }
 
             "Workload completed.\n" +
@@ -232,13 +236,13 @@ fun runProfileAndEnforce() {
 
                 // EPERM = Seccomp blocked the syscall entirely
                 // EACCES = Landlock denied the path access at the VFS layer
-                if (openResult.returnValue < 0 && (openResult.errno == 1 || openResult.errno == 13)) {
+                if (openResult is LinuxNative.SyscallResult.Error && (openResult.errno == 1 || openResult.errno == 13)) {
                     println("  [Kernel io-wq Worker] Landlock LSM hook intercepted '/etc/hosts' access inside kernel workqueue!")
                     throw java.io.IOException("Permission denied (io_uring async worker blocked by Landlock)")
                 }
 
-                if (openResult.returnValue >= 0) {
-                    LinuxNative.close(openResult.returnValue.toInt())
+                if (openResult is LinuxNative.SyscallResult.Success) {
+                    LinuxNative.close(openResult.asFd())
                 }
             }
             "Evasion succeeded (Is Landlock supported on this kernel?)"
@@ -276,10 +280,10 @@ fun runProfileAndEnforce() {
             // (like ForkJoinPool.commonPool()) that lack the Seccomp/Landlock filters.
             java.util.concurrent.CompletableFuture
                 .supplyAsync {
-                println("  [Attacker] Executing on uncontained thread: ${Thread.currentThread().name}")
-                println("  [Attacker] Reading sensitive file: ${sensitiveFile.canonicalPath}...")
-                sensitiveFile.readText()
-            }.get()
+                    println("  [Attacker] Executing on uncontained thread: ${Thread.currentThread().name}")
+                    println("  [Attacker] Reading sensitive file: ${sensitiveFile.canonicalPath}...")
+                    sensitiveFile.readText()
+                }.get()
         }
 
         try {

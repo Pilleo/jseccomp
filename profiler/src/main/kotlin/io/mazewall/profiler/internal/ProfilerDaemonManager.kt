@@ -132,7 +132,7 @@ internal object ProfilerDaemonManager {
         }
 
         val prctlRes = LinuxNative.prctl(NativeConstants.PR_SET_PTRACER, daemonPid, 0, 0, 0)
-        if (prctlRes.returnValue < 0) {
+        if (prctlRes is LinuxNative.SyscallResult.Error) {
             logger.warning("prctl(PR_SET_PTRACER) failed with errno ${prctlRes.errno}. The daemon may not be able to read process memory if Yama ptrace_scope is restrictive.")
         }
 
@@ -148,12 +148,12 @@ internal object ProfilerDaemonManager {
         try {
             Arena.ofConfined().use { arena ->
                 val fdRes = LinuxNative.socket(ProfilerSocket.AF_UNIX, ProfilerSocket.SOCK_STREAM, 0)
-                if (fdRes.returnValue < 0) return
-                val fd = fdRes.returnValue.toInt()
+                if (fdRes is LinuxNative.SyscallResult.Error) return
+                val fd = fdRes.getFdOrThrow("socket(AF_UNIX)")
                 try {
                     val addr = ProfilerSocket.setupSockAddrUn(arena, socketPath)
 
-                    if (LinuxNative.connect(fd, addr, ProfilerSocket.ADDR_UN_SIZE).returnValue == 0L) {
+                    if (LinuxNative.connect(fd, addr, ProfilerSocket.ADDR_UN_SIZE) is LinuxNative.SyscallResult.Success) {
                         val cmd = arena.allocate(1)
                         cmd.set(ValueLayout.JAVA_BYTE, 0L, SHUTDOWN_COMMAND_BYTE)
                         LinuxNative.write(fd, cmd, 1)

@@ -1,4 +1,5 @@
 package io.mazewall.profiler
+
 import io.mazewall.BaseIntegrationTest
 import io.mazewall.LinuxNative
 import io.mazewall.Policy
@@ -160,8 +161,8 @@ class ProfilerIntegrationTest : BaseIntegrationTest() {
                         java.lang.foreign.Arena.ofConfined().use { arena ->
                             val pathSeg = arena.allocateFrom(absolutePath)
                             val openRes = LinuxNative.open(pathSeg, 0)
-                            if (openRes.returnValue >= 0) {
-                                val fd = openRes.returnValue.toInt()
+                            if (openRes is LinuxNative.SyscallResult.Success) {
+                                val fd = openRes.asFd()
                                 val fchmodNr = Syscall.FCHMOD.numberFor(Arch.current()).toLong()
                                 if (fchmodNr >= 0) {
                                     LinuxNative.syscall(fchmodNr, fd, 0x1FF) // 0777
@@ -175,9 +176,11 @@ class ProfilerIntegrationTest : BaseIntegrationTest() {
             val eventsWithPath = wrapped.recentLogs.filter { it.paths.contains(absolutePath) }
             assertTrue(
                 eventsWithPath.any { it.syscallName == "FCHMOD" || it.syscallName == "OPENAT" || it.syscallName == "OPEN" },
-                "Should resolve fd-based syscall paths to absolute path $absolutePath. Observed events: ${wrapped.recentLogs.map {
-                    it.syscallName to it.paths
-                }}",
+                "Should resolve fd-based syscall paths to absolute path $absolutePath. Observed events: ${
+                    wrapped.recentLogs.map {
+                        it.syscallName to it.paths
+                    }
+                }",
             )
         } finally {
             wrapped.shutdownNow()

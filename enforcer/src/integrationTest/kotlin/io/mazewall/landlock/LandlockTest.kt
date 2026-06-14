@@ -1,4 +1,5 @@
 package io.mazewall.landlock
+
 import io.mazewall.BaseIntegrationTest
 import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.IsolatedProcessTester
@@ -265,17 +266,17 @@ class LandlockTest : BaseIntegrationTest() {
         val safeExecutor = ContainedExecutors.wrap(executor, policy)
         val res = safeExecutor
             .submit(
-            java.util.concurrent.Callable {
-            try {
-                Files.readString(Path.of(linkA))
-                "success"
-            } catch (
-                @Suppress("SwallowedException") _: java.io.IOException,
-            ) {
-                "eloop"
-            }
-        },
-        ).get()
+                java.util.concurrent.Callable {
+                    try {
+                        Files.readString(Path.of(linkA))
+                        "success"
+                    } catch (
+                        @Suppress("SwallowedException") _: java.io.IOException,
+                    ) {
+                        "eloop"
+                    }
+                },
+            ).get()
         if (res != "eloop") throw IllegalStateException("Expected eloop, got $res")
         executor.shutdown()
     }
@@ -500,11 +501,11 @@ class LandlockTest : BaseIntegrationTest() {
                 return if (nr == io.mazewall.ffi.NativeConstants.LANDLOCK_CREATE_RULESET_NR &&
                     a3 == io.mazewall.ffi.NativeConstants.LANDLOCK_CREATE_RULESET_VERSION
                 ) {
-                    LinuxNative.SyscallResult(5, 0) // ABI version 5
+                    LinuxNative.SyscallResult.Success(5) // ABI version 5
                 } else if (nr == io.mazewall.ffi.NativeConstants.LANDLOCK_CREATE_RULESET_NR) {
-                    LinuxNative.SyscallResult(42, 0) // Fake ruleset FD
+                    LinuxNative.SyscallResult.Success(42) // Fake ruleset FD
                 } else {
-                    LinuxNative.SyscallResult(0, 0) // Success for other syscalls
+                    LinuxNative.SyscallResult.Success(0) // Success for other syscalls
                 }
             }
         }
@@ -534,9 +535,9 @@ class LandlockTest : BaseIntegrationTest() {
                 return if (nr == io.mazewall.ffi.NativeConstants.LANDLOCK_CREATE_RULESET_NR &&
                     a3 == io.mazewall.ffi.NativeConstants.LANDLOCK_CREATE_RULESET_VERSION
                 ) {
-                    LinuxNative.SyscallResult(5, 0) // ABI version 5
+                    LinuxNative.SyscallResult.Success(5) // ABI version 5
                 } else {
-                    LinuxNative.SyscallResult(-1, 22) // EINVAL for ruleset creation
+                    LinuxNative.SyscallResult.Error(22, -1) // EINVAL for ruleset creation
                 }
             }
         }
@@ -554,17 +555,17 @@ class LandlockTest : BaseIntegrationTest() {
 
     @Test
     fun `testLandlockStateDataClassCoverage`() {
-        val s1 = LandlockState.ConfiguringRuleset(10, 5)
-        val s2 = LandlockState.ConfiguringRuleset(10, 5)
-        val s3 = LandlockState.ConfiguringRuleset(11, 5)
+        val s1 = LandlockState.ConfiguringRuleset(LinuxNative.FileDescriptor(10), 5)
+        val s2 = LandlockState.ConfiguringRuleset(LinuxNative.FileDescriptor(10), 5)
+        val s3 = LandlockState.ConfiguringRuleset(LinuxNative.FileDescriptor(11), 5)
         assertEquals(s1, s2)
-        assertNotEquals(s1, s3)
+        assertNotEquals<LandlockState>(s1, s3)
         assertEquals(s1.hashCode(), s2.hashCode())
         assertNotNull(s1.toString())
-        assertEquals(10, s1.rulesetFd)
+        assertEquals(10, s1.rulesetFd.value)
         assertEquals(5, s1.abi)
-        val copied = s1.copy(rulesetFd = 12)
-        assertEquals(12, copied.rulesetFd)
+        val copied = s1.copy(rulesetFd = LinuxNative.FileDescriptor(12))
+        assertEquals(12, copied.rulesetFd.value)
 
         val q1 = LandlockState.QueryingAbi(3)
         val q2 = LandlockState.QueryingAbi(3)
@@ -582,13 +583,14 @@ class LandlockTest : BaseIntegrationTest() {
         val cCopied = c1.copy(abi = 4)
         assertEquals(4, cCopied.abi)
 
-        val e1 = LandlockState.Enforcing(10)
-        val e2 = LandlockState.Enforcing(10)
+        val e1 = LandlockState.Enforcing(LinuxNative.FileDescriptor(10))
+        val e2 = LandlockState.Enforcing(LinuxNative.FileDescriptor(10))
         assertEquals(e1, e2)
+        assertNotEquals<LandlockState>(e1, LandlockState.Applied)
         assertEquals(e1.hashCode(), e2.hashCode())
         assertNotNull(e1.toString())
-        val eCopied = e1.copy(rulesetFd = 11)
-        assertEquals(11, eCopied.rulesetFd)
+        val eCopied = e1.copy(rulesetFd = LinuxNative.FileDescriptor(11))
+        assertEquals(11, eCopied.rulesetFd.value)
 
         val err = RuntimeException("test")
         val f1 = LandlockState.Failed(err)

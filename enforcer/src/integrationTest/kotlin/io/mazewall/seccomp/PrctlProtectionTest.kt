@@ -1,4 +1,5 @@
 package io.mazewall.seccomp
+
 import io.mazewall.BaseIntegrationTest
 import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.LinuxNative
@@ -37,8 +38,8 @@ class PrctlProtectionTest : BaseIntegrationTest() {
                 .submit {
                     Arena.ofConfined().use { arena ->
                         val nameSeg = arena.allocateFrom("test-thread-name")
-                        val res = LinuxNative.prctl(15, nameSeg.address(), 0, 0, 0)
-                        assertEquals(0, res.returnValue, "prctl(PR_SET_NAME) failed with errno ${res.errno}")
+                        val res = LinuxNative.prctl(15, nameSeg.address(), 0, 0, 0).getOrThrow("prctl(PR_SET_NAME)")
+                        assertEquals(0, res)
                     }
                 }.get()
         } finally {
@@ -57,8 +58,8 @@ class PrctlProtectionTest : BaseIntegrationTest() {
                 .submit {
                     Arena.ofConfined().use { arena ->
                         val nameBuffer = arena.allocate(16)
-                        val res = LinuxNative.prctl(16, nameBuffer.address(), 0, 0, 0)
-                        assertEquals(0, res.returnValue, "prctl(PR_GET_NAME) failed with errno ${res.errno}")
+                        val res = LinuxNative.prctl(16, nameBuffer.address(), 0, 0, 0).getOrThrow("prctl(PR_GET_NAME)")
+                        assertEquals(0, res)
 
                         val name = nameBuffer.getString(0)
                         assertTrue(name.isNotEmpty(), "Expected non-empty thread name")
@@ -80,10 +81,7 @@ class PrctlProtectionTest : BaseIntegrationTest() {
                 safeExecutor
                     .submit {
                         // Option 25 is PR_SET_MM (hazardous process memory manipulation), which is blocked
-                        val res = LinuxNative.prctl(25, 0, 0, 0, 0)
-                        if (res.returnValue != 0L) {
-                            throw java.io.IOException("Operation not permitted")
-                        }
+                        LinuxNative.prctl(25, 0, 0, 0, 0).getOrThrow("prctl(PR_SET_MM)")
                     }.get()
             }.let { e ->
                 assertTrue(
@@ -109,11 +107,11 @@ class PrctlProtectionTest : BaseIntegrationTest() {
                     // (though the kernel might return EINVAL/EPERM based on standard kernel capabilities,
                     // it won't be blocked by seccomp BPF with EPERM, so it won't trigger ContainmentViolationException).
                     val res = LinuxNative.prctl(25, 0, 0, 0, 0)
-                    // If seccomp BPF had blocked it, res.returnValue would have been -1 and res.errno would be EPERM (1).
-                    // When seccomp does not block it, it usually returns -1 with EINVAL (22) because the arguments are invalid.
+                    // If seccomp BPF had blocked it, res would be Error(errno=1).
+                    // When seccomp does not block it, it usually returns Error(errno=22) (EINVAL) because the arguments are invalid.
                     assertTrue(
-                        res.errno != 1,
-                        "Expected prctl(25) to not be blocked by seccomp (errno != EPERM, got ${res.errno})",
+                        res is LinuxNative.SyscallResult.Error && res.errno != 1,
+                        "Expected prctl(25) to not be blocked by seccomp (errno != EPERM, got $res)",
                     )
                 }.get()
         } finally {

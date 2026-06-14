@@ -1,4 +1,5 @@
 package io.mazewall.seccomp
+
 import io.mazewall.BaseIntegrationTest
 import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.LinuxNative
@@ -22,26 +23,34 @@ class NetworkBypassReproductionTest : BaseIntegrationTest() {
         try {
             safeExecutor
                 .submit {
-                // Determine arch-specific syscall numbers for sendmmsg and recvmmsg
-                val osArch = System.getProperty("os.arch")
-                val isAarch64 = osArch == "aarch64" || osArch == "arm64"
-                val sendmmsgNr = if (isAarch64) 269L else 307L
-                val recvmmsgNr = if (isAarch64) 268L else 299L
+                    // Determine arch-specific syscall numbers for sendmmsg and recvmmsg
+                    val osArch = System.getProperty("os.arch")
+                    val isAarch64 = osArch == "aarch64" || osArch == "arm64"
+                    val sendmmsgNr = if (isAarch64) 269L else 307L
+                    val recvmmsgNr = if (isAarch64) 268L else 299L
 
-                // Attempt sendmmsg (even with invalid args, seccomp EPERM should trigger first before kernel EINVAL/EBADF)
-                // If it bypasses seccomp, the kernel will return EBADF (9) or EFAULT (14) because fd=0 is not a socket or args are null
-                val sendRes = LinuxNative.syscall(sendmmsgNr, 0, 0, 0, 0)
+                    // Attempt sendmmsg (even with invalid args, seccomp EPERM should trigger first before kernel EINVAL/EBADF)
+                    // If it bypasses seccomp, the kernel will return EBADF (9) or EFAULT (14) because fd=0 is not a socket or args are null
+                    val sendRes = LinuxNative.syscall(sendmmsgNr, 0, 0, 0, 0)
 
-                if (sendRes.errno != 1) { // 1 is EPERM (seccomp block)
-                    throw IllegalStateException("SECURITY BYPASS: sendmmsg reached the kernel! Errno was ${sendRes.errno} instead of EPERM(1)")
-                }
+                    if (sendRes is LinuxNative.SyscallResult.Error) {
+                        if (sendRes.errno != 1) { // 1 is EPERM (seccomp block)
+                            throw IllegalStateException("SECURITY BYPASS: sendmmsg reached the kernel! Errno was ${sendRes.errno} instead of EPERM(1)")
+                        }
+                    } else {
+                        throw IllegalStateException("SECURITY BYPASS: sendmmsg reached the kernel and succeeded (unexpected)!")
+                    }
 
-                // Attempt recvmmsg
-                val recvRes = LinuxNative.syscall(recvmmsgNr, 0, 0, 0, 0, 0)
-                if (recvRes.errno != 1) { // 1 is EPERM (seccomp block)
-                    throw IllegalStateException("SECURITY BYPASS: recvmmsg reached the kernel! Errno was ${recvRes.errno} instead of EPERM(1)")
-                }
-            }.get()
+                    // Attempt recvmmsg
+                    val recvRes = LinuxNative.syscall(recvmmsgNr, 0, 0, 0, 0, 0)
+                    if (recvRes is LinuxNative.SyscallResult.Error) {
+                        if (recvRes.errno != 1) { // 1 is EPERM (seccomp block)
+                            throw IllegalStateException("SECURITY BYPASS: recvmmsg reached the kernel! Errno was ${recvRes.errno} instead of EPERM(1)")
+                        }
+                    } else {
+                        throw IllegalStateException("SECURITY BYPASS: recvmmsg reached the kernel and succeeded (unexpected)!")
+                    }
+                }.get()
         } catch (e: ExecutionException) {
             val cause = e.cause
             if (cause is ContainmentViolationException) {

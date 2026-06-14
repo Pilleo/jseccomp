@@ -13,7 +13,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.logging.Logger
 
 internal class ProfilerTraceListener(
-    private val socketFd: Int,
+    private val socketFd: LinuxNative.FileDescriptor,
     private val accumulatedLogs: MutableList<TraceEvent>,
     private val stackTracesMap: MutableMap<TraceEvent, MutableList<Array<StackTraceElement>>>?,
     private val pathCache: MutableMap<String, Long>,
@@ -45,7 +45,7 @@ internal class ProfilerTraceListener(
             }
         }.apply {
             isDaemon = true
-            name = "trace-listener-$socketFd"
+            name = "trace-listener-${socketFd.value}"
         }.also {
             it.start()
         }

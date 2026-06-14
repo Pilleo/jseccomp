@@ -72,7 +72,7 @@ object LinuxNative : NativeEngine {
         flags: Int,
     ) = engine.open(path, flags)
 
-    override fun close(fd: Int) = engine.close(fd)
+    override fun close(fd: FileDescriptor) = engine.close(fd)
 
     override fun socketpair(
         domain: Int,
@@ -88,48 +88,48 @@ object LinuxNative : NativeEngine {
     ) = engine.socket(domain, type, protocol)
 
     override fun bind(
-        sockfd: Int,
+        sockfd: FileDescriptor,
         addr: MemorySegment,
         addrlen: Int,
     ) = engine.bind(sockfd, addr, addrlen)
 
     override fun listen(
-        sockfd: Int,
+        sockfd: FileDescriptor,
         backlog: Int,
     ) = engine.listen(sockfd, backlog)
 
     override fun accept(
-        sockfd: Int,
+        sockfd: FileDescriptor,
         addr: MemorySegment,
         addrlen: MemorySegment,
     ) = engine.accept(sockfd, addr, addrlen)
 
     override fun connect(
-        sockfd: Int,
+        sockfd: FileDescriptor,
         addr: MemorySegment,
         addrlen: Int,
     ) = engine.connect(sockfd, addr, addrlen)
 
     override fun sendmsg(
-        sockfd: Int,
+        sockfd: FileDescriptor,
         msg: MemorySegment,
         flags: Int,
     ) = engine.sendmsg(sockfd, msg, flags)
 
     override fun recvmsg(
-        sockfd: Int,
+        sockfd: FileDescriptor,
         msg: MemorySegment,
         flags: Int,
     ) = engine.recvmsg(sockfd, msg, flags)
 
     override fun ioctl(
-        fd: Int,
+        fd: FileDescriptor,
         request: Long,
         arg: MemorySegment,
     ) = engine.ioctl(fd, request, arg)
 
     override fun ioctl(
-        fd: Int,
+        fd: FileDescriptor,
         request: Long,
         arg: Long,
     ) = engine.ioctl(fd, request, arg)
@@ -150,26 +150,26 @@ object LinuxNative : NativeEngine {
     ) = engine.readlink(path, buf, bufsiz)
 
     override fun read(
-        fd: Int,
+        fd: FileDescriptor,
         buf: MemorySegment,
         count: Long,
     ) = engine.read(fd, buf, count)
 
     override fun write(
-        fd: Int,
+        fd: FileDescriptor,
         buf: MemorySegment,
         count: Long,
     ) = engine.write(fd, buf, count)
 
     override fun recv(
-        sockfd: Int,
+        sockfd: FileDescriptor,
         buf: MemorySegment,
         len: Long,
         flags: Int,
     ) = engine.recv(sockfd, buf, len, flags)
 
     override fun fcntl(
-        fd: Int,
+        fd: FileDescriptor,
         cmd: Int,
         arg: Long,
     ) = engine.fcntl(fd, cmd, arg)
@@ -187,10 +187,69 @@ object LinuxNative : NativeEngine {
         filters: List<BpfInstruction>,
     ) = with(arena) { engine.newSockFProg(filters) }
 
-    data class SyscallResult(
-        val returnValue: Long,
-        val errno: Int,
-    )
+    /**
+     * A type-safe wrapper for a Linux file descriptor.
+     * Uses a value class to ensure zero runtime overhead.
+     */
+    @JvmInline
+    public value class FileDescriptor(public val value: Int) {
+        public val isValid: Boolean get() = value >= 0
+        public val isInvalid: Boolean get() = value < 0
+
+        public companion object {
+            /** Represents an invalid or uninitialized file descriptor. */
+            public val INVALID: FileDescriptor = FileDescriptor(-1)
+        }
+
+        override fun toString(): String = if (isValid) "fd($value)" else "fd(INVALID)"
+    }
+
+    /**
+     * Represents the result of a native Linux system call.
+     */
+    public sealed interface SyscallResult {
+        /** The call succeeded. */
+        public data class Success(val value: Long) : SyscallResult {
+            /** Returns the value as an [Int], commonly used for file descriptors. */
+            public fun asInt(): Int = value.toInt()
+
+            /** Returns the value as a [FileDescriptor]. */
+            public fun asFd(): FileDescriptor = FileDescriptor(value.toInt())
+        }
+
+        /** The call failed with a specific Linux [errno]. */
+        public data class Error(val errno: Int, val rawValue: Long) : SyscallResult {
+            /** Throws an [IllegalStateException] with the given [context]. */
+            public fun throwErrno(context: String): Nothing {
+                throw IllegalStateException("$context failed with errno=$errno (raw return=$rawValue)")
+            }
+        }
+
+        /**
+         * Unwraps the success value or throws an exception with the given [context].
+         */
+        public fun getOrThrow(context: String): Long =
+            when (this) {
+                is Success -> value
+                is Error -> throwErrno(context)
+            }
+
+        /**
+         * Unwraps the success value as a [FileDescriptor] or throws an exception with the given [context].
+         */
+        public fun getFdOrThrow(context: String): FileDescriptor =
+            when (this) {
+                is Success -> asFd()
+                is Error -> throwErrno(context)
+            }
+
+        /** Returns the success value or null if the call failed. */
+        public fun getOrNull(): Long? =
+            when (this) {
+                is Success -> value
+                is Error -> null
+            }
+    }
 }
 
 /**
@@ -459,9 +518,14 @@ internal object RealNativeEngine : NativeEngine {
         when (this) {
             is Number -> this.toLong()
             is MemorySegment -> this.address()
+            is LinuxNative.FileDescriptor -> this.value.toLong()
             null -> 0L
             else -> throw IllegalArgumentException("Unsupported native call argument type: ${this.javaClass.name}")
         }
+
+    private fun result(ret: Long, errno: Int): LinuxNative.SyscallResult =
+        if (ret < 0) LinuxNative.SyscallResult.Error(errno, ret)
+        else LinuxNative.SyscallResult.Success(ret)
 
     override fun prctl(
         option: Int,
@@ -482,7 +546,7 @@ internal object RealNativeEngine : NativeEngine {
                     arg5.toLong(),
                 ) as Int
             val errno = capturedState.get(ValueLayout.JAVA_INT, Layouts.ERRNO_OFFSET)
-            return LinuxNative.SyscallResult(ret.toLong(), errno)
+            return result(ret.toLong(), errno)
         }
     }
 
@@ -509,7 +573,7 @@ internal object RealNativeEngine : NativeEngine {
                     a6.toLong(),
                 ) as Long
             val errno = capturedState.get(ValueLayout.JAVA_INT, Layouts.ERRNO_OFFSET)
-            return LinuxNative.SyscallResult(ret, errno)
+            return result(ret, errno)
         }
     }
 
@@ -529,16 +593,16 @@ internal object RealNativeEngine : NativeEngine {
             val capturedState = arena.allocate(Layouts.ERRNO)
             val ret = OPEN.invokeExact(capturedState, path, flags) as Int
             val errno = capturedState.get(ValueLayout.JAVA_INT, Layouts.ERRNO_OFFSET)
-            return LinuxNative.SyscallResult(ret.toLong(), errno)
+            return result(ret.toLong(), errno)
         }
     }
 
-    override fun close(fd: Int): LinuxNative.SyscallResult {
+    override fun close(fd: LinuxNative.FileDescriptor): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
             val capturedState = arena.allocate(Layouts.ERRNO)
-            val ret = CLOSE.invokeExact(capturedState, fd) as Int
+            val ret = CLOSE.invokeExact(capturedState, fd.value) as Int
             val errno = capturedState.get(ValueLayout.JAVA_INT, Layouts.ERRNO_OFFSET)
-            return LinuxNative.SyscallResult(ret.toLong(), errno)
+            return result(ret.toLong(), errno)
         }
     }
 
@@ -552,7 +616,7 @@ internal object RealNativeEngine : NativeEngine {
             val capturedState = arena.allocate(Layouts.ERRNO)
             val ret = SOCKETPAIR.invokeExact(capturedState, domain, type, protocol, sv) as Int
             val errno = capturedState.get(ValueLayout.JAVA_INT, Layouts.ERRNO_OFFSET)
-            return LinuxNative.SyscallResult(ret.toLong(), errno)
+            return result(ret.toLong(), errno)
         }
     }
 
@@ -565,110 +629,110 @@ internal object RealNativeEngine : NativeEngine {
             val capturedState = arena.allocate(Layouts.ERRNO)
             val ret = SOCKET.invokeExact(capturedState, domain, type, protocol) as Int
             val errno = capturedState.get(ValueLayout.JAVA_INT, Layouts.ERRNO_OFFSET)
-            return LinuxNative.SyscallResult(ret.toLong(), errno)
+            return result(ret.toLong(), errno)
         }
     }
 
     override fun bind(
-        sockfd: Int,
+        sockfd: LinuxNative.FileDescriptor,
         addr: MemorySegment,
         addrlen: Int,
     ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
             val capturedState = arena.allocate(Layouts.ERRNO)
-            val ret = BIND.invokeExact(capturedState, sockfd, addr, addrlen) as Int
+            val ret = BIND.invokeExact(capturedState, sockfd.value, addr, addrlen) as Int
             val errno = capturedState.get(ValueLayout.JAVA_INT, Layouts.ERRNO_OFFSET)
-            return LinuxNative.SyscallResult(ret.toLong(), errno)
+            return result(ret.toLong(), errno)
         }
     }
 
     override fun listen(
-        sockfd: Int,
+        sockfd: LinuxNative.FileDescriptor,
         backlog: Int,
     ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
             val capturedState = arena.allocate(Layouts.ERRNO)
-            val ret = LISTEN.invokeExact(capturedState, sockfd, backlog) as Int
+            val ret = LISTEN.invokeExact(capturedState, sockfd.value, backlog) as Int
             val errno = capturedState.get(ValueLayout.JAVA_INT, Layouts.ERRNO_OFFSET)
-            return LinuxNative.SyscallResult(ret.toLong(), errno)
+            return result(ret.toLong(), errno)
         }
     }
 
     override fun accept(
-        sockfd: Int,
+        sockfd: LinuxNative.FileDescriptor,
         addr: MemorySegment,
         addrlen: MemorySegment,
     ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
             val capturedState = arena.allocate(Layouts.ERRNO)
-            val ret = ACCEPT.invokeExact(capturedState, sockfd, addr, addrlen) as Int
+            val ret = ACCEPT.invokeExact(capturedState, sockfd.value, addr, addrlen) as Int
             val errno = capturedState.get(ValueLayout.JAVA_INT, Layouts.ERRNO_OFFSET)
-            return LinuxNative.SyscallResult(ret.toLong(), errno)
+            return result(ret.toLong(), errno)
         }
     }
 
     override fun connect(
-        sockfd: Int,
+        sockfd: LinuxNative.FileDescriptor,
         addr: MemorySegment,
         addrlen: Int,
     ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
             val capturedState = arena.allocate(Layouts.ERRNO)
-            val ret = CONNECT.invokeExact(capturedState, sockfd, addr, addrlen) as Int
+            val ret = CONNECT.invokeExact(capturedState, sockfd.value, addr, addrlen) as Int
             val errno = capturedState.get(ValueLayout.JAVA_INT, Layouts.ERRNO_OFFSET)
-            return LinuxNative.SyscallResult(ret.toLong(), errno)
+            return result(ret.toLong(), errno)
         }
     }
 
     override fun sendmsg(
-        sockfd: Int,
+        sockfd: LinuxNative.FileDescriptor,
         msg: MemorySegment,
         flags: Int,
     ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
             val capturedState = arena.allocate(Layouts.ERRNO)
-            val ret = SENDMSG.invokeExact(capturedState, sockfd, msg, flags) as Long
+            val ret = SENDMSG.invokeExact(capturedState, sockfd.value, msg, flags) as Long
             val errno = capturedState.get(ValueLayout.JAVA_INT, Layouts.ERRNO_OFFSET)
-            return LinuxNative.SyscallResult(ret, errno)
+            return result(ret, errno)
         }
     }
 
     override fun recvmsg(
-        sockfd: Int,
+        sockfd: LinuxNative.FileDescriptor,
         msg: MemorySegment,
         flags: Int,
     ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
             val capturedState = arena.allocate(Layouts.ERRNO)
-            val ret = RECVMSG.invokeExact(capturedState, sockfd, msg, flags) as Long
+            val ret = RECVMSG.invokeExact(capturedState, sockfd.value, msg, flags) as Long
             val errno = capturedState.get(ValueLayout.JAVA_INT, Layouts.ERRNO_OFFSET)
-            return LinuxNative.SyscallResult(ret, errno)
+            return result(ret, errno)
         }
     }
 
     override fun ioctl(
-        fd: Int,
+        fd: LinuxNative.FileDescriptor,
         request: Long,
         arg: MemorySegment,
     ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
             val capturedState = arena.allocate(Layouts.ERRNO)
-            val ret = IOCTL_ADDR.invokeExact(capturedState, fd, request, arg) as Int
+            val ret = IOCTL_ADDR.invokeExact(capturedState, fd.value, request, arg) as Int
             val errno = capturedState.get(ValueLayout.JAVA_INT, Layouts.ERRNO_OFFSET)
-            return LinuxNative.SyscallResult(ret.toLong(), errno)
+            return result(ret.toLong(), errno)
         }
     }
 
     override fun ioctl(
-        fd: Int,
+        fd: LinuxNative.FileDescriptor,
         request: Long,
         arg: Long,
     ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
             val capturedState = arena.allocate(Layouts.ERRNO)
-            val ret = IOCTL_LONG.invokeExact(capturedState, fd, request, arg) as Int
+            val ret = IOCTL_LONG.invokeExact(capturedState, fd.value, request, arg) as Int
             val errno = capturedState.get(ValueLayout.JAVA_INT, Layouts.ERRNO_OFFSET)
-            return LinuxNative.SyscallResult(ret.toLong(), errno)
+            return result(ret.toLong(), errno)
         }
     }
 
@@ -683,9 +747,17 @@ internal object RealNativeEngine : NativeEngine {
         Arena.ofConfined().use { arena ->
             val capturedState = arena.allocate(Layouts.ERRNO)
             val ret =
-                PROCESS_VM_READV.invokeExact(capturedState, pid, localIov, liovcnt, remoteIov, riovcnt, flags) as Long
+                PROCESS_VM_READV.invokeExact(
+                    capturedState,
+                    pid,
+                    localIov,
+                    liovcnt,
+                    remoteIov,
+                    riovcnt,
+                    flags,
+                ) as Long
             val errno = capturedState.get(ValueLayout.JAVA_INT, Layouts.ERRNO_OFFSET)
-            return LinuxNative.SyscallResult(ret, errno)
+            return result(ret, errno)
         }
     }
 
@@ -698,68 +770,67 @@ internal object RealNativeEngine : NativeEngine {
             val capturedState = arena.allocate(Layouts.ERRNO)
             val ret = READLINK.invokeExact(capturedState, path, buf, bufsiz) as Long
             val errno = capturedState.get(ValueLayout.JAVA_INT, Layouts.ERRNO_OFFSET)
-            return LinuxNative.SyscallResult(ret, errno)
+            return result(ret, errno)
         }
     }
 
     override fun read(
-        fd: Int,
+        fd: LinuxNative.FileDescriptor,
         buf: MemorySegment,
         count: Long,
     ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
             val capturedState = arena.allocate(Layouts.ERRNO)
-            val ret = READ.invokeExact(capturedState, fd, buf, count) as Long
+            val ret = READ.invokeExact(capturedState, fd.value, buf, count) as Long
             val errno = capturedState.get(ValueLayout.JAVA_INT, Layouts.ERRNO_OFFSET)
-            return LinuxNative.SyscallResult(ret, errno)
+            return result(ret, errno)
         }
     }
 
     override fun write(
-        fd: Int,
+        fd: LinuxNative.FileDescriptor,
         buf: MemorySegment,
         count: Long,
     ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
             val capturedState = arena.allocate(Layouts.ERRNO)
-            val ret = WRITE.invokeExact(capturedState, fd, buf, count) as Long
+            val ret = WRITE.invokeExact(capturedState, fd.value, buf, count) as Long
             val errno = capturedState.get(ValueLayout.JAVA_INT, Layouts.ERRNO_OFFSET)
-            return LinuxNative.SyscallResult(ret, errno)
+            return result(ret, errno)
         }
     }
 
     override fun recv(
-        sockfd: Int,
+        sockfd: LinuxNative.FileDescriptor,
         buf: MemorySegment,
         len: Long,
         flags: Int,
     ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
             val capturedState = arena.allocate(Layouts.ERRNO)
-            val ret = RECV.invokeExact(capturedState, sockfd, buf, len, flags) as Long
+            val ret = RECV.invokeExact(capturedState, sockfd.value, buf, len, flags) as Long
             val errno = capturedState.get(ValueLayout.JAVA_INT, Layouts.ERRNO_OFFSET)
-            return LinuxNative.SyscallResult(ret, errno)
+            return result(ret, errno)
         }
     }
 
     override fun fcntl(
-        fd: Int,
+        fd: LinuxNative.FileDescriptor,
         cmd: Int,
         arg: Long,
     ): LinuxNative.SyscallResult {
         Arena.ofConfined().use { arena ->
             val capturedState = arena.allocate(Layouts.ERRNO)
-            val ret = FCNTL.invokeExact(capturedState, fd, cmd, arg) as Int
+            val ret = FCNTL.invokeExact(capturedState, fd.value, cmd, arg) as Int
             val errno = capturedState.get(ValueLayout.JAVA_INT, Layouts.ERRNO_OFFSET)
-            return LinuxNative.SyscallResult(ret.toLong(), errno)
+            return result(ret.toLong(), errno)
         }
     }
 
     override fun gettid(): Int {
         Arena.ofConfined().use { arena ->
             val capturedState = arena.allocate(Layouts.ERRNO)
-            val ret = GETTID.invokeExact(capturedState) as Int
-            return ret
+            return GETTID.invokeExact(capturedState) as Int
         }
     }
 
@@ -772,7 +843,7 @@ internal object RealNativeEngine : NativeEngine {
             val capturedState = arena.allocate(Layouts.ERRNO)
             val ret = POLL.invokeExact(capturedState, fds, nfds, timeout) as Int
             val errno = capturedState.get(ValueLayout.JAVA_INT, Layouts.ERRNO_OFFSET)
-            return LinuxNative.SyscallResult(ret.toLong(), errno)
+            return result(ret.toLong(), errno)
         }
     }
 

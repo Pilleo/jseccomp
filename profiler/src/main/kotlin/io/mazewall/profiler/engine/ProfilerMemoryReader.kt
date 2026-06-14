@@ -46,16 +46,22 @@ object RealMemoryReader : ProfilerMemoryReader {
             remoteIov.set(ValueLayout.JAVA_LONG, IOV_LEN_OFF, maxLen.toLong())
             val res = LinuxNative.processVmReadv(pid, localIov, 1, remoteIov, 1, 0)
             var result: String? = null
-            if (res.returnValue >= 0) {
-                val bytesRead = res.returnValue.toInt()
-                var len = 0
-                while (len < bytesRead && localBuf.get(ValueLayout.JAVA_BYTE, len.toLong()) != 0.toByte()) len++
+            when (res) {
+                is LinuxNative.SyscallResult.Success -> {
+                    val bytesRead = res.value.toInt()
+                    var len = 0
+                    while (len < bytesRead && localBuf.get(ValueLayout.JAVA_BYTE, len.toLong()) != 0.toByte()) len++
 
-                if (len < bytesRead) {
-                    result = localBuf.copyToString(len)
+                    if (len < bytesRead) {
+                        result = localBuf.copyToString(len)
+                    }
                 }
-            } else if (res.errno == 1) { // EPERM
-                System.err.println("[DAEMON] WARN: Permission denied reading memory from PID $pid. (Yama ptrace_scope?)")
+
+                is LinuxNative.SyscallResult.Error -> {
+                    if (res.errno == 1) { // EPERM
+                        System.err.println("[DAEMON] WARN: Permission denied reading memory from PID $pid. (Yama ptrace_scope?)")
+                    }
+                }
             }
             return result
         }
@@ -70,8 +76,10 @@ object RealMemoryReader : ProfilerMemoryReader {
             val pathSeg = arena.allocateFrom(procPath)
             val buf = arena.allocate(PATH_MAX_VAL)
             val res = LinuxNative.readlink(pathSeg, buf, PATH_MAX_VAL)
-            if (res.returnValue < 0) return null
-            return buf.copyToString(res.returnValue.toInt())
+            return when (res) {
+                is LinuxNative.SyscallResult.Success -> buf.copyToString(res.value.toInt())
+                is LinuxNative.SyscallResult.Error -> null
+            }
         }
     }
 

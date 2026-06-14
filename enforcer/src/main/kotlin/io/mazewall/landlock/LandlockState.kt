@@ -1,5 +1,7 @@
 package io.mazewall.landlock
 
+import io.mazewall.LinuxNative
+
 /**
  * States representing the configuration and application of a Landlock ruleset.
  */
@@ -19,13 +21,13 @@ internal sealed interface LandlockState {
 
     /** Ruleset FD created, adding classpath and user-defined path rules. */
     data class ConfiguringRuleset(
-        val rulesetFd: Int,
+        val rulesetFd: LinuxNative.FileDescriptor,
         val abi: Int,
     ) : LandlockState
 
     /** Enabling no_new_privs and restricting the thread. */
     data class Enforcing(
-        val rulesetFd: Int,
+        val rulesetFd: LinuxNative.FileDescriptor,
     ) : LandlockState
 
     /** Ruleset applied successfully to the thread. */

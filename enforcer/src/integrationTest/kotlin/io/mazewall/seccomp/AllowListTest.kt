@@ -1,4 +1,5 @@
 package io.mazewall.seccomp
+
 import io.mazewall.BaseIntegrationTest
 import io.mazewall.LinuxNative
 import io.mazewall.Policy
@@ -85,8 +86,8 @@ class AllowListTest : BaseIntegrationTest() {
 
                     // socket() is NOT allowed, should fail with EPERM
                     val result = LinuxNative.socket(2, 1, 0)
-                    if (result.returnValue != -1L || result.errno != 1) {
-                        throw IllegalStateException("Expected EPERM (1), got returnValue=${result.returnValue}, errno=${result.errno}")
+                    if (result !is LinuxNative.SyscallResult.Error || result.errno != 1) {
+                        throw IllegalStateException("Expected EPERM (1), got $result")
                     }
                 }.get()
         } finally {
@@ -115,10 +116,8 @@ class AllowListTest : BaseIntegrationTest() {
                     val mmap = Arch.current().mmap.toLong()
                     if (mmap >= 0) {
                         val result = LinuxNative.syscall(mmap, 0, 4096, 0x04 /* PROT_EXEC */, 0x22, -1, 0)
-                        if (result.returnValue != -1L || result.errno != 1) {
-                            throw IllegalStateException(
-                                "Expected EPERM (1) for mmap(PROT_EXEC), got returnValue=${result.returnValue}, errno=${result.errno}",
-                            )
+                        if (result !is LinuxNative.SyscallResult.Error || result.errno != 1) {
+                            throw IllegalStateException("Expected EPERM (1) for mmap(PROT_EXEC), got $result")
                         }
                     }
                 }.get()
