@@ -1,5 +1,6 @@
 package io.mazewall
 
+import io.mazewall.seccomp.BpfInstruction
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 
@@ -12,15 +13,15 @@ interface NativeEngine :
     NativeNetworking,
     NativeProcess,
     NativeMemory {
-        fun syscall(
-            nr: Long,
-            a1: Any? = 0L,
-            a2: Any? = 0L,
-            a3: Any? = 0L,
-            a4: Any? = 0L,
-            a5: Any? = 0L,
-            a6: Any? = 0L,
-        ): LinuxNative.SyscallResult
+    fun syscall(
+        nr: Long,
+        a1: Any? = 0L,
+        a2: Any? = 0L,
+        a3: Any? = 0L,
+        a4: Any? = 0L,
+        a5: Any? = 0L,
+        a6: Any? = 0L,
+    ): LinuxNative.SyscallResult
 
     fun syscall4(
         nr: Long,
@@ -163,6 +164,6 @@ interface NativeMemory {
 
     context(arena: Arena)
     fun newSockFProg(
-        filters: Array<SockFilter>,
+        filters: List<BpfInstruction>,
     ): MemorySegment
 }

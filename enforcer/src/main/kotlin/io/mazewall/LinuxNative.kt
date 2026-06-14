@@ -2,6 +2,7 @@ package io.mazewall
 
 import io.mazewall.ffi.LayoutValidator
 import io.mazewall.ffi.Layouts
+import io.mazewall.seccomp.BpfInstruction
 import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.Linker
@@ -11,19 +12,6 @@ import java.lang.foreign.SymbolLookup
 import java.lang.foreign.ValueLayout
 import java.lang.invoke.MethodHandle
 import java.lang.invoke.MethodHandles
-
-// Corresponds to struct sock_filter
-data class SockFilter(
-    val code: Short,
-    val jt: Short,
-    val jf: Short,
-    val k: Int,
-) {
-    init {
-        require(jt in 0..255) { "jt offset must be an unsigned 8-bit value (0-255), got $jt" }
-        require(jf in 0..255) { "jf offset must be an unsigned 8-bit value (0-255), got $jf" }
-    }
-}
 
 object LinuxNative : NativeEngine {
     @Volatile
@@ -196,7 +184,7 @@ object LinuxNative : NativeEngine {
 
     context(arena: Arena)
     override fun newSockFProg(
-        filters: Array<SockFilter>,
+        filters: List<BpfInstruction>,
     ) = with(arena) { engine.newSockFProg(filters) }
 
     data class SyscallResult(
@@ -790,7 +778,7 @@ internal object RealNativeEngine : NativeEngine {
 
     context(arena: Arena)
     override fun newSockFProg(
-        filters: Array<SockFilter>,
+        filters: List<BpfInstruction>,
     ): MemorySegment {
         val filterArraySeg = arena.allocate(MemoryLayout.sequenceLayout(filters.size.toLong(), Layouts.SOCK_FILTER))
         for (i in filters.indices) {

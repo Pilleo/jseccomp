@@ -5,6 +5,7 @@ import io.mazewall.core.SeccompAction
 import io.mazewall.core.Syscall
 import io.mazewall.ffi.Layouts
 import io.mazewall.ffi.NativeConstants
+import io.mazewall.seccomp.BpfInstruction
 import io.mazewall.seccomp.BpfProgram
 import java.lang.foreign.MemoryLayout
 import java.util.logging.Logger
@@ -33,7 +34,7 @@ object BpfFilter {
         arch: Arch,
         policy: Policy<*, *>,
         profilingMode: Boolean = false,
-    ): Array<SockFilter> =
+    ): List<BpfInstruction> =
         buildFromActions(
             arch,
             policy.syscallActionNumbers(arch),
@@ -57,6 +58,7 @@ object BpfFilter {
             } else {
                 (NativeConstants.SECCOMP_RET_ERRNO or NativeConstants.EPERM)
             }
+
             SeccompAction.ACT_NOTIFY -> NativeConstants.SECCOMP_RET_USER_NOTIF
             SeccompAction.ACT_LOG -> NativeConstants.SECCOMP_RET_LOG
             SeccompAction.ACT_ALLOW -> NativeConstants.SECCOMP_RET_ALLOW
@@ -74,7 +76,7 @@ object BpfFilter {
         allowNonThreadClone: Boolean = false,
         allowUnsafePrctl: Boolean = false,
         profilingMode: Boolean = false,
-    ): Array<SockFilter> {
+    ): List<BpfInstruction> {
         val builder = BpfProgram.builder()
         val defaultNativeAction = resolveNativeAction(defaultAction, profilingMode)
 
@@ -129,7 +131,7 @@ object BpfFilter {
             Syscall.MADVISE.numberFor(arch),
             Syscall.GETTID.numberFor(arch),
             Syscall.CLOSE.numberFor(arch),
-                        Syscall.RT_SIGPROCMASK.numberFor(arch),
+            Syscall.RT_SIGPROCMASK.numberFor(arch),
         ).filter { it >= 0 }.toSet()
 
     private fun emitArchCheck(
@@ -236,6 +238,7 @@ object BpfFilter {
                     builder.label("${labelPrefix}_allow")
                     builder.ret(ifMatchedNative)
                 }
+
                 is io.mazewall.seccomp.ArgCheck.MaskEquals -> {
                     builder.and(check.mask.toInt())
                     builder.jumpIfEqual(check.expected.toInt(), jt = "${labelPrefix}_allow", jf = "${labelPrefix}_deny")

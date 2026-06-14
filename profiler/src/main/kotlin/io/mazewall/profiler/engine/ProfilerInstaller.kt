@@ -5,6 +5,7 @@ import io.mazewall.LinuxNative
 import io.mazewall.Policy
 import io.mazewall.core.Arch
 import io.mazewall.ffi.NativeConstants
+import io.mazewall.seccomp.BpfInstruction
 import io.mazewall.profiler.Profiler
 import java.io.IOException
 import java.lang.foreign.Arena
@@ -169,7 +170,7 @@ internal class ProfilerInstallerSession(
     }
 
     private fun installProfilingBpf(
-        filters: Array<io.mazewall.SockFilter>,
+        filters: List<BpfInstruction>,
         listenerFd: AtomicInteger,
     ) {
         val arch = Arch.current()

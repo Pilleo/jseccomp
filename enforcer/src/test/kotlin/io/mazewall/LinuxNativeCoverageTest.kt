@@ -1,6 +1,7 @@
 package io.mazewall
 
 import io.mazewall.ffi.Layouts
+import io.mazewall.seccomp.BpfInstruction
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import java.lang.foreign.Arena
@@ -28,10 +29,10 @@ class LinuxNativeCoverageTest {
     }
 
     @Test
-    fun `test data class methods for SockFilter`() {
-        val f1 = SockFilter(1, 2, 3, 4)
-        val f2 = SockFilter(1, 2, 3, 4)
-        val f3 = SockFilter(1, 0, 0, 0)
+    fun `test data class methods for BpfInstruction`() {
+        val f1 = BpfInstruction.Jmp(1, 2, 3, 4)
+        val f2 = BpfInstruction.Jmp(1, 2, 3, 4)
+        val f3 = BpfInstruction.Jmp(1, 0, 0, 0)
 
         assertEquals(f1, f2)
         assertNotEquals(f1, f3)
@@ -41,6 +42,12 @@ class LinuxNativeCoverageTest {
         assertEquals(2, f1.jt.toInt())
         assertEquals(3, f1.jf.toInt())
         assertEquals(4, f1.k)
+
+        val l1 = BpfInstruction.Ld(0x20, 0x1234)
+        assertEquals(0x20.toShort(), l1.code)
+        assertEquals(0, l1.jt.toInt())
+        assertEquals(0, l1.jf.toInt())
+        assertEquals(0x1234, l1.k)
     }
 
     @Test
@@ -86,9 +93,9 @@ class LinuxNativeCoverageTest {
     @EnabledIfLinuxAndSupported
     fun `test newSockFProg manual packing`() {
         Arena.ofConfined().use { arena ->
-            val filters = arrayOf(
-                SockFilter(0x01, 2, 3, 0x12345678),
-                SockFilter(0x05, 0, 0, 0x00000001),
+            val filters = listOf(
+                BpfInstruction.Jmp(0x01, 2, 3, 0x12345678),
+                BpfInstruction.Ld(0x05, 0x00000001),
             )
             val prog = with(arena) { LinuxNative.newSockFProg(filters) }
             assertNotNull(prog)
@@ -99,11 +106,12 @@ class LinuxNativeCoverageTest {
 
             // Verify first filter
             assertEquals(0x01.toShort(), filterArray.get(ValueLayout.JAVA_SHORT, 0))
-            assertEquals(2.toByte(), filterArray.get(ValueLayout.JAVA_BYTE, 2))
-            assertEquals(3.toByte(), filterArray.get(ValueLayout.JAVA_BYTE, 3))
+            assertEquals(2, filterArray.get(ValueLayout.JAVA_BYTE, 2).toInt())
+            assertEquals(3, filterArray.get(ValueLayout.JAVA_BYTE, 3).toInt())
             assertEquals(0x12345678, filterArray.get(ValueLayout.JAVA_INT, 4))
         }
     }
+
 
     @Test
     fun `test missing syscall wrappers in LinuxNative`() {

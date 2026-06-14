@@ -1,6 +1,8 @@
 package io.mazewall
+
 import io.mazewall.ffi.Layouts
 import io.mazewall.ffi.NativeConstants
+import io.mazewall.seccomp.BpfInstruction
 import org.junit.jupiter.api.Test
 import java.lang.foreign.Arena
 import java.lang.foreign.ValueLayout
@@ -25,18 +27,18 @@ class LinuxNativeTest : BaseIntegrationTest() {
     }
 
     @Test
-    fun testSockFilterBoundsValidation() {
+    fun testBpfInstructionJmpBoundsValidation() {
         assertFailsWith<IllegalArgumentException> {
-            SockFilter(0, 256.toShort(), 0.toShort(), 0)
+            BpfInstruction.Jmp(0, 256.toShort(), 0.toShort(), 0)
         }
         assertFailsWith<IllegalArgumentException> {
-            SockFilter(0, (-1).toShort(), 0.toShort(), 0)
+            BpfInstruction.Jmp(0, (-1).toShort(), 0.toShort(), 0)
         }
         assertFailsWith<IllegalArgumentException> {
-            SockFilter(0, 0.toShort(), 256.toShort(), 0)
+            BpfInstruction.Jmp(0, 0.toShort(), 256.toShort(), 0)
         }
         // Valid bounds should not throw
-        SockFilter(0, 0.toShort(), 255.toShort(), 0)
+        BpfInstruction.Jmp(0, 0.toShort(), 255.toShort(), 0)
     }
 
     @Test

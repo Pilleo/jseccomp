@@ -1,7 +1,9 @@
 package io.mazewall
+
 import io.mazewall.core.Arch
 import io.mazewall.core.SeccompAction
 import io.mazewall.core.Syscall
+import io.mazewall.seccomp.BpfInstruction
 
 /**
  * Marker interfaces for policy scopes.
@@ -67,9 +69,9 @@ class Policy<out S : PolicyScope, out State : PolicyState> private constructor(
     val allowedFsReadPaths: Set<String> = emptySet(),
     val allowedFsWritePaths: Set<String> = emptySet(),
     internal val enforceLandlock: Boolean = false,
-    private val compiledFiltersField: Array<SockFilter>? = null,
+    private val compiledFiltersField: List<BpfInstruction>? = null,
 ) {
-    val compiledFilters: Array<SockFilter>
+    val compiledFilters: List<BpfInstruction>
         get() = compiledFiltersField ?: throw IllegalStateException("Policy is not compiled yet")
 
     /**
@@ -323,16 +325,16 @@ class Policy<out S : PolicyScope, out State : PolicyState> private constructor(
             if (enforceLandlock && fsReads.isEmpty() && allReadSets.isNotEmpty()) {
                 logger.warning(
                     "Policy.combine(): Landlock is enforced but the read-path intersection is empty. " +
-                    "The combined policy will DENY ALL filesystem reads. " +
-                    "${allReadSets.size} input policies had non-empty read-path sets with no common ancestor. " +
-                    "Ensure at least one path is a common parent of all allowed paths.",
+                        "The combined policy will DENY ALL filesystem reads. " +
+                        "${allReadSets.size} input policies had non-empty read-path sets with no common ancestor. " +
+                        "Ensure at least one path is a common parent of all allowed paths.",
                 )
             }
             if (enforceLandlock && fsWrites.isEmpty() && allWriteSets.isNotEmpty()) {
                 logger.warning(
                     "Policy.combine(): Landlock is enforced but the write-path intersection is empty. " +
-                    "The combined policy will DENY ALL filesystem writes. " +
-                    "${allWriteSets.size} input policies had non-empty write-path sets with no common ancestor.",
+                        "The combined policy will DENY ALL filesystem writes. " +
+                        "${allWriteSets.size} input policies had non-empty write-path sets with no common ancestor.",
                 )
             }
 
@@ -345,10 +347,10 @@ class Policy<out S : PolicyScope, out State : PolicyState> private constructor(
 
             logger.fine {
                 "Policy.combine(${policies.size} policies): " +
-                "defaultAction=$combinedDefaultAction, " +
-                "blockedSyscalls=${combinedSyscalls.count { it.value != SeccompAction.ACT_ALLOW }}, " +
-                "readPaths=${fsReads.size}, writePaths=${fsWrites.size}, " +
-                "enforceLandlock=$enforceLandlock"
+                    "defaultAction=$combinedDefaultAction, " +
+                    "blockedSyscalls=${combinedSyscalls.count { it.value != SeccompAction.ACT_ALLOW }}, " +
+                    "readPaths=${fsReads.size}, writePaths=${fsWrites.size}, " +
+                    "enforceLandlock=$enforceLandlock"
             }
 
             return Policy<PolicyScope, Uncompiled>(

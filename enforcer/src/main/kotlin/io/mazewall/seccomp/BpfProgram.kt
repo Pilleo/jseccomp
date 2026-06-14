@@ -1,45 +1,43 @@
 package io.mazewall.seccomp
 
-import io.mazewall.SockFilter
-
 /**
- * High-level BPF instructions that use symbolic labels instead of raw offsets.
+ * High-level BPF macro instructions that use symbolic labels instead of raw offsets.
  */
-internal sealed interface BpfInstruction {
+internal sealed interface BpfMacro {
     data class LoadAbsolute(
         val offset: Int,
-    ) : BpfInstruction
+    ) : BpfMacro
 
     data class JumpIfEqual(
         val k: Int,
         val jt: String? = null,
         val jf: String? = null,
-    ) : BpfInstruction
+    ) : BpfMacro
 
     data class JumpIfSet(
         val k: Int,
         val jt: String? = null,
         val jf: String? = null,
-    ) : BpfInstruction
+    ) : BpfMacro
 
     data class And(
         val k: Int,
-    ) : BpfInstruction
+    ) : BpfMacro
 
     data class Ret(
         val action: Int,
-    ) : BpfInstruction
+    ) : BpfMacro
 
     data class Label(
         val name: String,
-    ) : BpfInstruction
+    ) : BpfMacro
 }
 
 /**
  * A compiled BPF program ready for installation into the kernel.
  */
 public class BpfProgram private constructor(
-    public val instructions: Array<SockFilter>,
+    public val instructions: List<BpfInstruction>,
 ) {
     public companion object {
         private const val MAX_BPF_JUMP_OFFSET = 255
@@ -52,10 +50,10 @@ public class BpfProgram private constructor(
      * DSL for building BPF programs using symbolic labels.
      */
     public class Builder {
-        private val ops = mutableListOf<BpfInstruction>()
+        private val ops = mutableListOf<BpfMacro>()
 
         public fun loadAbsolute(offset: Int): Builder {
-            ops.add(BpfInstruction.LoadAbsolute(offset))
+            ops.add(BpfMacro.LoadAbsolute(offset))
             return this
         }
 
@@ -64,7 +62,7 @@ public class BpfProgram private constructor(
             jt: String? = null,
             jf: String? = null,
         ): Builder {
-            ops.add(BpfInstruction.JumpIfEqual(k, jt, jf))
+            ops.add(BpfMacro.JumpIfEqual(k, jt, jf))
             return this
         }
 
@@ -73,22 +71,22 @@ public class BpfProgram private constructor(
             jt: String? = null,
             jf: String? = null,
         ): Builder {
-            ops.add(BpfInstruction.JumpIfSet(k, jt, jf))
+            ops.add(BpfMacro.JumpIfSet(k, jt, jf))
             return this
         }
 
         public fun and(k: Int): Builder {
-            ops.add(BpfInstruction.And(k))
+            ops.add(BpfMacro.And(k))
             return this
         }
 
         public fun ret(action: Int): Builder {
-            ops.add(BpfInstruction.Ret(action))
+            ops.add(BpfMacro.Ret(action))
             return this
         }
 
         public fun label(name: String): Builder {
-            ops.add(BpfInstruction.Label(name))
+            ops.add(BpfMacro.Label(name))
             return this
         }
 
@@ -98,12 +96,12 @@ public class BpfProgram private constructor(
          */
         public fun build(): BpfProgram {
             val labelPositions = mutableMapOf<String, Int>()
-            val filteredOps = mutableListOf<BpfInstruction>()
+            val filteredOps = mutableListOf<BpfMacro>()
 
             // First pass: locate all labels and strip them from the instruction stream
             var currentPos = 0
             for (op in ops) {
-                if (op is BpfInstruction.Label) {
+                if (op is BpfMacro.Label) {
                     labelPositions[op.name] = currentPos
                 } else {
                     filteredOps.add(op)
@@ -112,18 +110,18 @@ public class BpfProgram private constructor(
             }
 
             // Second pass: compile instructions and resolve labels
-            val sockFilters = filteredOps.mapIndexed { index, op ->
+            val bpfInstructions = filteredOps.mapIndexed { index, op ->
                 when (op) {
-                    is BpfInstruction.LoadAbsolute -> SockFilter(0x20.toShort(), 0, 0, op.offset)
-                    is BpfInstruction.And -> SockFilter(0x54.toShort(), 0, 0, op.k)
-                    is BpfInstruction.Ret -> SockFilter(0x06.toShort(), 0, 0, op.action)
-                    is BpfInstruction.JumpIfEqual -> compileJump(0x15.toShort(), op.k, op.jt, op.jf, index, labelPositions)
-                    is BpfInstruction.JumpIfSet -> compileJump(0x45.toShort(), op.k, op.jt, op.jf, index, labelPositions)
-                    is BpfInstruction.Label -> throw IllegalStateException("Label found in filtered ops")
+                    is BpfMacro.LoadAbsolute -> BpfInstruction.Ld(0x20.toShort(), op.offset)
+                    is BpfMacro.And -> BpfInstruction.Alu(0x54.toShort(), op.k)
+                    is BpfMacro.Ret -> BpfInstruction.Ret(0x06.toShort(), op.action)
+                    is BpfMacro.JumpIfEqual -> compileJump(0x15.toShort(), op.k, op.jt, op.jf, index, labelPositions)
+                    is BpfMacro.JumpIfSet -> compileJump(0x45.toShort(), op.k, op.jt, op.jf, index, labelPositions)
+                    is BpfMacro.Label -> throw IllegalStateException("Label found in filtered ops")
                 }
             }
 
-            return BpfProgram(sockFilters.toTypedArray())
+            return BpfProgram(bpfInstructions)
         }
 
         private fun compileJump(
@@ -133,10 +131,10 @@ public class BpfProgram private constructor(
             jfLabel: String?,
             currentIndex: Int,
             labelPositions: Map<String, Int>,
-        ): SockFilter {
+        ): BpfInstruction.Jmp {
             val jt = resolveLabel(jtLabel, currentIndex, labelPositions)
             val jf = resolveLabel(jfLabel, currentIndex, labelPositions)
-            return SockFilter(code, jt, jf, k)
+            return BpfInstruction.Jmp(code, jt, jf, k)
         }
 
         private fun resolveLabel(

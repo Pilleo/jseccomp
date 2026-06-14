@@ -1,6 +1,7 @@
 package io.mazewall
 
 import io.mazewall.ffi.Layouts
+import io.mazewall.seccomp.BpfInstruction
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 
@@ -169,7 +170,7 @@ open class MockNativeEngine : NativeEngine {
 
     context(arena: Arena)
     override fun newSockFProg(
-        filters: Array<SockFilter>,
+        filters: List<BpfInstruction>,
     ): MemorySegment {
         return arena.allocate(Layouts.SOCK_FPROG)
     }

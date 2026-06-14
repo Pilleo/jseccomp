@@ -1,5 +1,12 @@
 # Code Issues Backlog
 
+### 🟡 [Severity: LOW]: Manual FFM Layout Maintenance and Drift Risk
+**Target:** `io.mazewall.ffi.Layouts` and `io.mazewall.ffi.LayoutValidator`
+**Context:** Currently, FFM `MemoryLayout` definitions for system structs (e.g. `sock_filter`, `sock_fprog`, `seccomp_data`, `msghdr`, etc.) are maintained by hand in `Layouts.kt`. Although `LayoutValidator.kt` asserts structural alignments and offsets at runtime startup to catch ABI drifts, these layouts should ideally be compiled automatically from system headers to avoid human error and simplify updates.
+**Needed:** Set up automated Java binding generation via `jextract`. Since `jextract` is a platform-specific binary that is not bundled with standard JDK installations, we need to choose between:
+1. Integrating a build-time Gradle plugin (like `de.timscho.jextract` or `de.infolektuell.jextract`) to download and cache the tool binaries dynamically.
+2. Pre-generating bindings offline via `jextract` and checking them in, while maintaining a verification script.
+
 ### 🔴 [Severity: HIGH]: Landlock Symlink Rejection Bypass via Canonicalization
 **Target:** `io.mazewall.landlock.Landlock.kt` (specifically `resolveCanonicalPath`)
 **Context:** The Landlock documentation states that rules explicitly use `O_NOFOLLOW` to reject symlinks and prevent attackers from redirecting path rules. However, `addRule` calls `resolveCanonicalPath(path)` (which delegates to `File(path).canonicalPath`) *before* opening the file descriptor. `File.canonicalPath` automatically resolves all symlinks to their real targets. Therefore, `O_NOFOLLOW` operates on the already-resolved real path and will never trigger `ELOOP` for developer-provided symlinks, silently bypassing the rejection mechanism and applying the rule to the symlink's target.

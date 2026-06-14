@@ -20,7 +20,7 @@ BpfFilter.build(arch, policy)
     │  - linear scan over restricted syscall numbers (sorted IntArray)
     │  - default ALLOW (DENY_LIST) or DENY (ALLOW_LIST) at the tail
     │
-    ▼  Array<SockFilter>
+    ▼  List<BpfInstruction>
 PureJavaBpfEngine.install(policy)  /  installOnProcess(policy)
     │  1. prctl(PR_SET_NO_NEW_PRIVS, 1)
     │  2. pack sock_fprog struct via FFM Arena
