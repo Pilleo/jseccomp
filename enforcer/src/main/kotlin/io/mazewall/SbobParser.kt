@@ -20,8 +20,8 @@ object SbobParser {
      */
     fun parseToPolicy(
         path: Path,
-        base: Policy<*> = Policy.PURE_COMPUTE_UNSAFE,
-    ): Policy<*> {
+        base: Policy<*, *> = Policy.PURE_COMPUTE_UNSAFE,
+    ): Policy<*, *> {
         return parseJsonToPolicy(Files.readString(path), base)
     }
 
@@ -30,8 +30,8 @@ object SbobParser {
      */
     fun parseToPolicy(
         stream: InputStream,
-        base: Policy<*> = Policy.PURE_COMPUTE_UNSAFE,
-    ): Policy<*> {
+        base: Policy<*, *> = Policy.PURE_COMPUTE_UNSAFE,
+    ): Policy<*, *> {
         val content = stream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
         return parseJsonToPolicy(content, base)
     }
@@ -41,8 +41,8 @@ object SbobParser {
      */
     fun parseJsonToPolicy(
         json: String,
-        base: Policy<*> = Policy.PURE_COMPUTE_UNSAFE,
-    ): Policy<*> {
+        base: Policy<*, *> = Policy.PURE_COMPUTE_UNSAFE,
+    ): Policy<*, *> {
         val arrays = extractStringArrays(json)
         val opens = arrays["opens"] ?: emptySet()
         val fsWritePaths = arrays["fsWritePaths"] ?: emptySet()

@@ -129,7 +129,7 @@ object Profiler {
 
     fun wrap(
         delegate: ExecutorService,
-        vararg policies: Policy<*>,
+        vararg policies: Policy<*, *>,
     ): ProfilerExecutorWrapper {
         val policy = Policy.combine(*policies)
         val context = getOrSpawnSharedDaemon()
@@ -138,7 +138,7 @@ object Profiler {
 
     private fun installProfilingFilterForThread(
         socketPath: String,
-        policy: Policy<*>,
+        policy: Policy<*, *>,
         accumulatedLogs: MutableList<TraceEvent>,
         stackTracesMap: MutableMap<TraceEvent, MutableList<Array<StackTraceElement>>>?,
         pathCache: MutableMap<String, Long>,
@@ -165,7 +165,7 @@ object Profiler {
 
     class ProfilerExecutorWrapper(
         private val delegate: ExecutorService,
-        private val policy: Policy<*>,
+        private val policy: Policy<*, *>,
         private val context: DaemonContext,
     ) : ExecutorService by delegate {
         private val threadApplied = ThreadLocal.withInitial { false }

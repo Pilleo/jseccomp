@@ -77,6 +77,7 @@ class ProfilerDaemonTest {
                 arg.set(ValueLayout.JAVA_LONG, 0L, 123L) // id
                 arg.set(ValueLayout.JAVA_INT, 8L, 456) // pid
                 arg.set(ValueLayout.JAVA_INT, 16L, 2) // nr (open)
+                arg.set(ValueLayout.JAVA_LONG, 32L, 0x1000L) // args[0] = non-zero pointer
             }
             return LinuxNative.SyscallResult(0, 0)
         }
@@ -130,6 +131,47 @@ class ProfilerDaemonTest {
             assertEquals(456, transport.sentEvents[0].pid)
             // Verify that continue response was sent via ioctl
             assertTrue(transport.ioctlCalls.contains(SECCOMP_IOCTL_NOTIF_SEND), "Should have sent SECCOMP_IOCTL_NOTIF_SEND")
+        }
+    }
+
+    @Test
+    fun `test SessionEventLedger records and dumps events on ACK timeout`() {
+        val transport = MockTransport()
+        // Simulate a timeout by poll returning 0L
+        transport.nextPollResult = LinuxNative.SyscallResult(0L, 0)
+        
+        val reader = MockReader()
+        val syscallMap = mapOf(2 to "OPEN")
+        var shutdownCalled = false
+        val handler = ProfilerSessionHandler(10, 20, transport, reader, syscallMap) {
+            shutdownCalled = true
+        }
+
+        Arena.ofConfined().use { arena ->
+            val notif = arena.allocate(Layouts.SECCOMP_NOTIF)
+            notif.set(ValueLayout.JAVA_LONG, NOTIF_ID_OFF, 123L) // ID
+            notif.set(ValueLayout.JAVA_INT, NOTIF_PID_OFF, 456) // PID
+            notif.set(ValueLayout.JAVA_INT, NOTIF_NR_OFF, 2) // NR (open)
+            notif.set(ValueLayout.JAVA_LONG, NOTIF_ARGS_OFF, 0x1000L) // args[0] = non-zero pointer
+
+            val resp = arena.allocate(Layouts.SECCOMP_NOTIF_RESP)
+            val ackBuf = arena.allocate(1L)
+            val socketPollFd = arena.allocate(Layouts.POLLFD)
+
+            val pollFds = setupMockPoll(arena)
+            val action = handler.handleActiveListener(pollFds, ackBuf, notif, resp, socketPollFd)
+
+            // Since ACK timed out, the handler action is still continue (or break/shutdown depending on implementation), 
+            // but the state becomes Terminated because waitForParentAck returned false.
+            assertTrue(handler.state is ProfilerState.Terminated, "Handler state should be Terminated on ACK timeout")
+            
+            // Check that ledger recorded events
+            val events = handler.ledger.dump()
+            assertTrue(events.isNotEmpty(), "Ledger should have recorded events")
+            assertTrue(events.any { it is SessionEvent.Notified }, "Ledger should contain Notified event")
+            assertTrue(events.any { it is SessionEvent.VmReadvResolved }, "Ledger should contain VmReadvResolved event")
+            assertTrue(events.any { it is SessionEvent.EventSent }, "Ledger should contain EventSent event")
+            assertTrue(events.any { it is SessionEvent.ContinueReplied }, "Ledger should contain ContinueReplied event")
         }
     }
 

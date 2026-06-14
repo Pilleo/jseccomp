@@ -3,6 +3,7 @@ package io.mazewall.seccomp
 import io.mazewall.LinuxNative
 import io.mazewall.Platform
 import io.mazewall.Policy
+import io.mazewall.Compiled
 import io.mazewall.core.Arch
 import io.mazewall.core.SeccompAction
 import io.mazewall.core.Syscall
@@ -22,17 +23,17 @@ object PureJavaBpfEngine : SeccompEngine {
     override val isSupported: Boolean
         get() = Platform.isSupported()
 
-    override fun install(policy: io.mazewall.CompiledPolicy<*>) {
+    override fun install(policy: Policy<*, Compiled>) {
         installInternal(policy, useTsync = false)
     }
 
-    override fun installOnProcess(policy: io.mazewall.CompiledPolicy<*>) {
+    override fun installOnProcess(policy: Policy<*, Compiled>) {
         installInternal(policy, useTsync = true)
     }
 
     @Suppress("TooGenericExceptionCaught")
     private fun installInternal(
-        policy: io.mazewall.CompiledPolicy<*>,
+        policy: Policy<*, Compiled>,
         useTsync: Boolean,
     ) {
         threadState.set(SeccompInstallationState.Uninitialized)
@@ -51,7 +52,7 @@ object PureJavaBpfEngine : SeccompEngine {
                 installFilter(arch, prog, useTsync)
             }
 
-            verifyInstallation(policy.policy)
+            verifyInstallation(policy)
         } catch (e: Throwable) {
             val stepName = when (val current = threadState.get()) {
                 is SeccompInstallationState.FilterBuilt -> "installFilter"
@@ -131,7 +132,7 @@ object PureJavaBpfEngine : SeccompEngine {
         }
     }
 
-    private fun verifyInstallation(policy: Policy<*>) {
+    private fun verifyInstallation(policy: Policy<*, *>) {
         val prctlAction = policy.syscallActions[Syscall.PRCTL] ?: policy.defaultAction
         val canVerify = prctlAction == SeccompAction.ACT_ALLOW
 

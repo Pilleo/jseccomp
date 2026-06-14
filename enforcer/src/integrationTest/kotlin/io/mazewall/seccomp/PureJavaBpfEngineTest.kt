@@ -2,6 +2,7 @@ package io.mazewall.seccomp
 import io.mazewall.BaseIntegrationTest
 import io.mazewall.EnabledIfLinuxAndSupported
 import io.mazewall.Policy
+import io.mazewall.Compiled
 import io.mazewall.core.Arch
 import io.mazewall.core.Syscall
 import io.mazewall.enforcer.ContainmentViolationDetector
@@ -95,7 +96,7 @@ class PureJavaBpfEngineTest : BaseIntegrationTest() {
             object : SeccompEngine {
                 override val isSupported: Boolean = true
 
-                override fun install(policy: io.mazewall.CompiledPolicy<*>) {
+                override fun install(policy: Policy<*, Compiled>) {
                     // No-op for test stub
                 }
             }

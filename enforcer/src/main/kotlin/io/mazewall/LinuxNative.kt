@@ -1,5 +1,6 @@
 package io.mazewall
 
+import io.mazewall.ffi.LayoutValidator
 import io.mazewall.ffi.Layouts
 import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
@@ -463,6 +464,7 @@ internal object RealNativeEngine : NativeEngine {
                 ),
                 Linker.Option.captureCallState("errno"),
             )
+        LayoutValidator.validate()
     }
 
     private fun Any?.toLong(): Long =

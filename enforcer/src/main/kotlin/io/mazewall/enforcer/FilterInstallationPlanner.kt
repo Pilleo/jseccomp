@@ -25,7 +25,7 @@ internal object FilterInstallationPlanner {
 
     data class FilterPlan(
         val needsNewFilter: Boolean,
-        val toInstall: Policy<*>,
+        val toInstall: Policy<*, *>,
         val newBlocks: Map<Syscall, SeccompAction>,
         val newDefaultAction: SeccompAction,
     )
@@ -41,7 +41,7 @@ internal object FilterInstallationPlanner {
      */
     @Suppress("CyclomaticComplexMethod")
     fun calculateNewFilter(
-        policy: Policy<*>,
+        policy: Policy<*, *>,
         state: ContainerState,
     ): FilterPlan {
         val effectiveNewDefaultAction = if (policy.defaultAction.priority > state.currentDefaultAction.priority) {

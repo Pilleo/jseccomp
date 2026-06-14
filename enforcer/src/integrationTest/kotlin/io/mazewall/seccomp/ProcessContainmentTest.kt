@@ -183,7 +183,7 @@ class ProcessContainmentTest : BaseIntegrationTest() {
         val policyWithFs = Policy.builder().allowFsRead("/etc").build()
         org.junit.jupiter.api.assertThrows<UnsupportedOperationException> {
             @Suppress("UNCHECKED_CAST")
-            ContainedExecutors.installOnProcess(policyWithFs as Policy<PolicyScope.ProcessWideSafe>)
+            ContainedExecutors.installOnProcess(policyWithFs.compile(io.mazewall.core.Arch.current()) as Policy<PolicyScope.ProcessWideSafe, io.mazewall.Compiled>)
         }
     }
 }

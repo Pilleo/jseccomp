@@ -26,6 +26,8 @@ internal class ProfilerSessionHandler(
     private val syscallMap: Map<Int, String>,
     private val onShutdown: (String) -> Unit,
 ) {
+    val ledger = SessionEventLedger()
+
     var state: ProfilerState = ProfilerState.ActiveSession(socketFd, listenerFd)
         private set
 
@@ -90,13 +92,15 @@ internal class ProfilerSessionHandler(
         val id = notif.get(ValueLayout.JAVA_LONG, NOTIF_ID_OFF)
         val pid = notif.get(ValueLayout.JAVA_INT, NOTIF_PID_OFF)
         val nr = notif.get(ValueLayout.JAVA_INT, NOTIF_NR_OFF)
+        ledger.record(SessionEvent.Notified(System.nanoTime(), pid.toLong(), nr.toLong()))
+
         val args = LongArray(MAX_SYSCALL_ARGS)
         for (i in 0 until MAX_SYSCALL_ARGS) {
             args[i] = notif.get(ValueLayout.JAVA_LONG, NOTIF_ARGS_OFF + i * ValueLayout.JAVA_LONG.byteSize())
         }
 
         val syscallName = syscallMap[nr] ?: "SYSCALL_$nr"
-        val paths = SyscallPathResolver(memoryReader, pid).getPathArgs(syscallName, args)
+        val paths = SyscallPathResolver(memoryReader, pid, ledger).getPathArgs(syscallName, args)
         val event = TraceEvent(pid, syscallName, args, paths)
 
         // Transition to Notified state
@@ -108,17 +112,30 @@ internal class ProfilerSessionHandler(
         // Transition to WaitingForAck state
         state = ProfilerState.WaitingForAck(socketFd, listenerFd, id)
 
+        @Suppress("TooGenericExceptionCaught")
         return try {
             transport.sendTraceEvent(socketFd, event)
+            ledger.record(SessionEvent.EventSent(System.nanoTime(), pid.toLong()))
             val success = waitForParentAck(socketPollFd, ackBuf)
             if (success) {
+                ledger.record(SessionEvent.AckReceived(System.nanoTime(), pid.toLong()))
                 state = ProfilerState.ActiveSession(socketFd, listenerFd)
             } else {
+                logger.warning {
+                    "ACK wait failed (timeout or error). Dumping SessionEventLedger:\n" +
+                        ledger.dump().joinToString("\n")
+                }
                 state = ProfilerState.Terminated
             }
             success
+        } catch (e: Throwable) {
+            logger.severe {
+                "Exception in processNotification: ${e.message}. Dumping SessionEventLedger:\n" +
+                    ledger.dump().joinToString("\n")
+            }
+            throw e
         } finally {
-            sendContinueResponse(id, resp)
+            sendContinueResponse(id, resp, pid.toLong())
         }
     }
 
@@ -160,6 +177,7 @@ internal class ProfilerSessionHandler(
     private fun sendContinueResponse(
         id: Long,
         resp: MemorySegment,
+        pid: Long,
     ) {
         resp.fill(0)
         resp.set(ValueLayout.JAVA_LONG, RESP_ID_OFF, id)
@@ -167,12 +185,18 @@ internal class ProfilerSessionHandler(
         resp.set(ValueLayout.JAVA_INT, RESP_ERR_OFF, 0)
         resp.set(ValueLayout.JAVA_INT, RESP_FLAGS_OFF, NativeConstants.SECCOMP_USER_NOTIF_FLAG_CONTINUE.toInt())
         transport.ioctl(listenerFd, SECCOMP_IOCTL_NOTIF_SEND, resp)
+        ledger.record(SessionEvent.ContinueReplied(System.nanoTime(), pid, 0L))
+    }
+
+    companion object {
+        private val logger = java.util.logging.Logger.getLogger(ProfilerSessionHandler::class.java.name)
     }
 }
 
 private class SyscallPathResolver(
     private val memoryReader: ProfilerMemoryReader,
     private val pid: Int,
+    private val ledger: SessionEventLedger,
 ) {
     fun getPathArgs(
         syscallName: String,
@@ -211,7 +235,9 @@ private class SyscallPathResolver(
         dirfd: Long = AT_FDCWD_VAL,
     ): String? {
         if (addr == 0L) return null
-        val path = memoryReader.readStringFromProcess(pid, addr) ?: return null
+        val path = memoryReader.readStringFromProcess(pid, addr)
+        ledger.record(SessionEvent.VmReadvResolved(System.nanoTime(), pid.toLong(), path != null))
+        if (path == null) return null
         return if (path.startsWith("/")) path else resolveRelativePath(path, dirfd)
     }
 

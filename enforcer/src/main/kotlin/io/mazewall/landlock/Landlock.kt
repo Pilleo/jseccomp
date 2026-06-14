@@ -166,7 +166,7 @@ object Landlock {
     /**
      * Builds and applies a Landlock ruleset to the calling thread based on the given [policy].
      */
-    fun applyRuleset(policy: Policy<*>) {
+    fun applyRuleset(policy: Policy<*, *>) {
         if (!shouldApplyLandlock(policy)) return
 
         val session = LandlockSession(policy)
@@ -187,7 +187,7 @@ object Landlock {
         return mask
     }
 
-    private fun shouldApplyLandlock(policy: Policy<*>): Boolean =
+    private fun shouldApplyLandlock(policy: Policy<*, *>) =
         policy.enforceLandlock ||
                 policy.allowedFsReadPaths.isNotEmpty() ||
                 policy.allowedFsWritePaths.isNotEmpty() ||
@@ -359,7 +359,7 @@ object Landlock {
 
     internal fun applyUserRules(
         rulesetFd: Int,
-        policy: Policy<*>,
+        policy: Policy<*, *>,
         abi: Int,
         arena: Arena,
         allFsRead: Long,
@@ -373,7 +373,7 @@ object Landlock {
 
     internal fun getAccessMask(
         abi: Int,
-        policy: Policy<*>,
+        policy: Policy<*, *>,
     ): Long {
         var accessMaskFs = getFullAccessMask(1) // Base mask
         if (abi >= 2) accessMaskFs = accessMaskFs or LANDLOCK_ACCESS_FS_REFER
@@ -386,7 +386,7 @@ object Landlock {
 
     private fun validateAbiSupport(
         abi: Int,
-        policy: Policy<*>,
+        policy: Policy<*, *>,
     ) {
         val unsupportedErrors = mutableListOf<String>()
         if (abi < 2 && (policy.isSyscallAllowed(Syscall.RENAME) || policy.isSyscallAllowed(Syscall.LINK))) {
@@ -429,7 +429,7 @@ object Landlock {
 }
 
 internal class LandlockSession(
-    private val policy: Policy<*>? = null,
+    private val policy: Policy<*, *>? = null,
 ) {
     var state: LandlockState = LandlockState.Uninitialized
         private set

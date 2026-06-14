@@ -1,5 +1,6 @@
 package io.mazewall.seccomp
 import io.mazewall.Policy
+import io.mazewall.Compiled
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -8,7 +9,7 @@ class SeccompEngineTest {
     @Test
     fun `default installOnProcess throws UnsupportedOperationException`() {
         val dummyEngine = object : SeccompEngine {
-            override fun install(policy: io.mazewall.CompiledPolicy<*>) {
+            override fun install(policy: Policy<*, Compiled>) {
                 // No-op
             }
 

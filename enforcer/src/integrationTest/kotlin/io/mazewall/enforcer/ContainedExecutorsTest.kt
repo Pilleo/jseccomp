@@ -267,19 +267,19 @@ class ContainedExecutorsTest : BaseIntegrationTest() {
 
     @Test
     fun `installOnCurrentThread accepts both process-wide and thread-local policies`() {
-        val threadLocalPolicy: Policy<PolicyScope.ThreadLocalOnly> = Policy.builder().allowFsRead("/tmp").build()
-        val processWidePolicy: Policy<PolicyScope.ProcessWideSafe> = Policy.builder().build()
+        val threadLocalPolicy: Policy<PolicyScope.ThreadLocalOnly, io.mazewall.Compiled> = Policy.builder().allowFsRead("/tmp").build().compile(io.mazewall.core.Arch.current())
+        val processWidePolicy: Policy<PolicyScope.ProcessWideSafe, io.mazewall.Compiled> = Policy.builder().build().compile(io.mazewall.core.Arch.current())
 
-        val list = listOf<Policy<*>>(threadLocalPolicy, processWidePolicy)
+        val list = listOf<Policy<*, io.mazewall.Compiled>>(threadLocalPolicy, processWidePolicy)
         assertEquals(2, list.size)
     }
 
     @Test
     fun `installOnProcess rejects cast thread-local policy with UnsupportedOperationException`() {
-        val threadLocalPolicy = Policy.builder().allowFsRead("/tmp").build()
+        val threadLocalPolicy = Policy.builder().allowFsRead("/tmp").build().compile(io.mazewall.core.Arch.current())
 
         @Suppress("UNCHECKED_CAST")
-        val castPolicy = threadLocalPolicy as Policy<PolicyScope.ProcessWideSafe>
+        val castPolicy = threadLocalPolicy as Policy<PolicyScope.ProcessWideSafe, io.mazewall.Compiled>
 
         val ex = assertFailsWith<UnsupportedOperationException> {
             ContainedExecutors.installOnProcess(castPolicy)

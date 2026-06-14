@@ -31,6 +31,9 @@ allprojects {
                 reporter(org.jlleitschuh.gradle.ktlint.reporter.ReporterType.HTML)
             }
         }
+        // Disable ktlint formatting/checking tasks because the ktlint engine (even 1.3.1+)
+        // fails to parse Kotlin 2.x context parameters syntax ("context(arena: Arena)").
+        // TODO: Re-enable these tasks once KtLint officially supports named context parameters syntax in Kotlin 2.4+.
         tasks.configureEach {
             if (name.contains("ktlint", ignoreCase = true)) {
                 enabled = false

@@ -17,10 +17,10 @@ sealed interface PolicyScope {
 /**
  * A compiled seccomp policy containing the BPF filter instructions ready for installation.
  */
-class CompiledPolicy<out S : PolicyScope> internal constructor(
-    val policy: Policy<S>,
-    val compiledFilters: Array<SockFilter>,
-)
+sealed interface PolicyState
+interface Uncompiled : PolicyState
+interface Compiled : PolicyState
+interface Applied : PolicyState
 
 /**
  * Defines which syscalls to block. Create via [builder] or use the built-in presets.
@@ -58,7 +58,7 @@ class CompiledPolicy<out S : PolicyScope> internal constructor(
  * val p = Policy.combine(Policy.NO_NETWORK, Policy.NO_EXEC)
  * ```
  */
-class Policy<out S : PolicyScope> private constructor(
+class Policy<out S : PolicyScope, out State : PolicyState> private constructor(
     val defaultAction: SeccompAction = SeccompAction.ACT_ALLOW,
     val syscallActions: Map<Syscall, SeccompAction>,
     val allowMmapExec: Boolean = false,
@@ -67,13 +67,27 @@ class Policy<out S : PolicyScope> private constructor(
     val allowedFsReadPaths: Set<String> = emptySet(),
     val allowedFsWritePaths: Set<String> = emptySet(),
     internal val enforceLandlock: Boolean = false,
+    private val compiledFiltersField: Array<SockFilter>? = null,
 ) {
+    val compiledFilters: Array<SockFilter>
+        get() = compiledFiltersField ?: throw IllegalStateException("Policy is not compiled yet")
+
     /**
      * Compiles this policy for the given [arch] and transitions it to the Compiled state.
      */
-    fun compile(arch: Arch): CompiledPolicy<S> {
+    fun compile(arch: Arch): Policy<S, Compiled> {
         val filters = BpfFilter.build(arch, this)
-        return CompiledPolicy(this, filters)
+        return Policy(
+            defaultAction = defaultAction,
+            syscallActions = syscallActions,
+            allowMmapExec = allowMmapExec,
+            allowNonThreadClone = allowNonThreadClone,
+            allowUnsafePrctl = allowUnsafePrctl,
+            allowedFsReadPaths = allowedFsReadPaths,
+            allowedFsWritePaths = allowedFsWritePaths,
+            enforceLandlock = enforceLandlock,
+            compiledFiltersField = filters,
+        )
     }
 
     /** Returns true if the given [syscall] is unconditionally allowed by this policy. */
@@ -115,7 +129,7 @@ class Policy<out S : PolicyScope> private constructor(
          * Only use this preset directly if you have complete startup warmup control and
          * have verified that every class the thread will ever touch is already loaded.
          */
-        val PURE_COMPUTE_UNSAFE: Policy<PolicyScope.ProcessWideSafe> =
+        val PURE_COMPUTE_UNSAFE: Policy<PolicyScope.ProcessWideSafe, Uncompiled> =
             builder()
                 .defaultAction(SeccompAction.ACT_ALLOW)
                 .block(Syscall.CONNECT, Syscall.SENDTO, Syscall.SENDMSG, Syscall.SENDMMSG, Syscall.RECVMMSG, Syscall.SOCKET)
@@ -157,7 +171,7 @@ class Policy<out S : PolicyScope> private constructor(
          * process-wide use if the JIT compiler is known to be disabled (e.g. `-Xint` in tests)
          * or if the policy is applied before any JIT compilation has started.
          */
-        val NO_NETWORK: Policy<PolicyScope.ProcessWideSafe> =
+        val NO_NETWORK: Policy<PolicyScope.ProcessWideSafe, Uncompiled> =
             builder()
                 .defaultAction(SeccompAction.ACT_ALLOW)
                 .block(Syscall.CONNECT, Syscall.SENDTO, Syscall.SENDMSG, Syscall.SENDMMSG, Syscall.RECVMMSG, Syscall.SOCKET)
@@ -178,7 +192,7 @@ class Policy<out S : PolicyScope> private constructor(
          *    `ApplicationReadyEvent`) to allow the JVM to warm up and link libraries.
          * 2. **Balanced Baseline:** If crashes persist after warmup, use `Policy.builder().base(NO_EXEC).allowMmapExec().build()`.
          */
-        val NO_EXEC: Policy<PolicyScope.ProcessWideSafe> =
+        val NO_EXEC: Policy<PolicyScope.ProcessWideSafe, Uncompiled> =
             builder()
                 .defaultAction(SeccompAction.ACT_ALLOW)
                 .block(Syscall.EXECVE, Syscall.EXECVEAT)
@@ -200,7 +214,7 @@ class Policy<out S : PolicyScope> private constructor(
          * - **Use [PURE_COMPUTE_UNSAFE]** only when you have fully pre-loaded all required
          *   classes before the thread starts and need to eliminate the classpath read permission.
          */
-        val PURE_COMPUTE: Policy<PolicyScope.ThreadLocalOnly> =
+        val PURE_COMPUTE: Policy<PolicyScope.ThreadLocalOnly, Uncompiled> =
             builder()
                 .base(PURE_COMPUTE_UNSAFE)
                 .allowJvmClasspath()
@@ -264,17 +278,17 @@ class Policy<out S : PolicyScope> private constructor(
          */
         @JvmStatic
         @JvmName("combineProcessWide")
-        fun combine(vararg policies: Policy<PolicyScope.ProcessWideSafe>): Policy<PolicyScope.ProcessWideSafe> {
+        fun combine(vararg policies: Policy<PolicyScope.ProcessWideSafe, *>): Policy<PolicyScope.ProcessWideSafe, Uncompiled> {
             @Suppress("UNCHECKED_CAST")
-            return combineInternal(*policies) as Policy<PolicyScope.ProcessWideSafe>
+            return combineInternal(*policies) as Policy<PolicyScope.ProcessWideSafe, Uncompiled>
         }
 
         @JvmStatic
-        fun combine(vararg policies: Policy<*>): Policy<*> {
+        fun combine(vararg policies: Policy<*, *>): Policy<*, Uncompiled> {
             return combineInternal(*policies)
         }
 
-        private fun combineInternal(vararg policies: Policy<*>): Policy<*> {
+        private fun combineInternal(vararg policies: Policy<*, *>): Policy<*, Uncompiled> {
             require(policies.isNotEmpty()) { "At least one policy is required" }
 
             val combinedDefaultAction = policies.maxByOrNull { it.defaultAction.priority }!!.defaultAction
@@ -337,7 +351,7 @@ class Policy<out S : PolicyScope> private constructor(
                 "enforceLandlock=$enforceLandlock"
             }
 
-            return Policy<PolicyScope>(
+            return Policy<PolicyScope, Uncompiled>(
                 defaultAction = combinedDefaultAction,
                 syscallActions = combinedSyscalls,
                 allowMmapExec = mmapExec,
@@ -392,7 +406,7 @@ class Policy<out S : PolicyScope> private constructor(
         /**
          * Inherits all settings (actions, allowed paths, etc.) from the given [policy].
          */
-        fun <T : PolicyScope> base(policy: Policy<T>): Builder<T> {
+        fun <T : PolicyScope> base(policy: Policy<T, *>): Builder<T> {
             this.defaultAction = policy.defaultAction
             this.syscallActions.putAll(policy.syscallActions)
             if (policy.allowMmapExec) allowMmapExec = true
@@ -493,7 +507,7 @@ class Policy<out S : PolicyScope> private constructor(
             require(!path.contains('\u0000')) { "Path cannot contain null bytes" }
         }
 
-        fun build(): Policy<S> {
+        fun build(): Policy<S, Uncompiled> {
             val enforceLandlock = allowedFsReadPaths.isNotEmpty() || allowedFsWritePaths.isNotEmpty()
 
             val finalSyscalls = syscallActions.toMutableMap()
@@ -503,7 +517,7 @@ class Policy<out S : PolicyScope> private constructor(
                 finalSyscalls[Syscall.OPENAT2] = SeccompAction.ACT_ALLOW
             }
 
-            return Policy<S>(
+            return Policy<S, Uncompiled>(
                 defaultAction = defaultAction,
                 syscallActions = finalSyscalls.toMap(),
                 allowMmapExec = allowMmapExec,
@@ -512,6 +526,7 @@ class Policy<out S : PolicyScope> private constructor(
                 allowedFsReadPaths = allowedFsReadPaths.toSet(),
                 allowedFsWritePaths = allowedFsWritePaths.toSet(),
                 enforceLandlock = enforceLandlock,
+                compiledFiltersField = null,
             )
         }
     }

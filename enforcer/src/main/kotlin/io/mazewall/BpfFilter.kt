@@ -31,7 +31,7 @@ object BpfFilter {
 
     fun build(
         arch: Arch,
-        policy: Policy<*>,
+        policy: Policy<*, *>,
         profilingMode: Boolean = false,
     ): Array<SockFilter> =
         buildFromActions(

@@ -23,7 +23,7 @@ class MazewallConfig {
     private val logger = Logger.getLogger(MazewallConfig::class.java.name)
     private val executors = java.util.concurrent.CopyOnWriteArrayList<ExecutorService>()
 
-    private fun wrapExecutor(delegate: ExecutorService, basePolicy: Policy<*>): ExecutorService {
+    private fun wrapExecutor(delegate: ExecutorService, basePolicy: Policy<*, *>): ExecutorService {
         executors.add(delegate)
         val sbobPath = System.getProperty("mazewall.sbob.path") ?: "/app/sbob.json"
         val bobFile = Paths.get(sbobPath)
